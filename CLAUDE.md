@@ -45,7 +45,8 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 - 外部URLを開くのは `shell.openExternal` のみ。開く前に必ず URL をパースし、`https:` かつ ホスト `calendar.google.com` かつ パス `/calendar/render` のみ許可する（許可リスト方式）
 - リモートのコード・フォント・画像・CDN を読み込まない。全て同梱する
 - `file://` 以外のスキームでアプリ本体を読み込まない（開発時の Vite は `localhost` のみ。本番ビルドでは無効）
-- 依存関係が許す範囲で Electron Fuses を設定する（`RunAsNode` 無効、`EnableNodeOptionsEnvironmentVariable` 無効、`EnableNodeCliInspectArguments` 無効、`OnlyLoadAppFromAsar` 有効）
+- Electron Fuses は、パッケージ化したバイナリにのみ効く。本プロジェクトは npm 起動（パッケージ化しない）のため対象外。防御は上記の隔離設定・CSP・URL許可リストで担保する
+- `package.json` の `engines` に Node.js の下限を指定し、README に明記する
 - Electron 本体は常にサポート対象の最新安定版に保つ
 
 ### 入力・個人情報の扱い

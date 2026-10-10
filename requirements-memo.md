@@ -170,3 +170,17 @@ https://calendar.google.com/calendar/render?action=TEMPLATE
 - Electron globalShortcut：https://github.com/electron/electron/blob/v12.0.12/docs/api/global-shortcut.md
 - tesseract.js を Electron で使う例：https://github.com/Balearica/tesseract.js-electron
 - Googleカレンダーの予定作成リンク（非公式資料）：https://github.com/InteractionDesignFoundation/add-event-to-calendar-docs/blob/master/services/google.md
+
+## 12. 追加決定事項（2026年10月11日 依頼者承認）
+
+要件の抜けの確認で、次を決定した。
+
+| 項目 | 決定内容 |
+|---|---|
+| 年が無い日付 | 「今日以降で最も近い日」を採用する。過去日になる場合は候補に警告を表示する |
+| 「来週」の定義 | 週は月曜始まり。「来週」は今日の次の週とする |
+| 時刻・範囲の書き方 | 全角数字、`午前/午後`、`半`、`:` 表記、`15:00-16:00` に対応する。複数日にまたがる範囲（`10/15〜10/17`）は対象外 |
+| ホットキー既定値 | `Ctrl+Shift+Y`（Mac は `Cmd+Shift+Y`）。登録に失敗したらエラーを表示する |
+| タイムゾーン | `ctz=Asia/Tokyo` 固定。日本在住が前提であることを README に明記する |
+
+未決：§6 の案の承認、LICENSE の種類、範囲キャプチャ + OCR のリスク方針。
