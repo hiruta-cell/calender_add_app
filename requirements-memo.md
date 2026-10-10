@@ -183,4 +183,6 @@ https://calendar.google.com/calendar/render?action=TEMPLATE
 | ホットキー既定値 | `Ctrl+Shift+Y`（Mac は `Cmd+Shift+Y`）。登録に失敗したらエラーを表示する |
 | タイムゾーン | `ctz=Asia/Tokyo` 固定。日本在住が前提であることを README に明記する |
 
-未決：§6 の案の承認、LICENSE の種類、範囲キャプチャ + OCR のリスク方針。
+| LICENSE | MIT（著作権者表記は GitHub ユーザー名 `hiruta-cell`） |
+
+未決：§6 の案の承認、範囲キャプチャ + OCR のリスク方針。
