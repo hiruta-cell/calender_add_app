@@ -185,4 +185,6 @@ https://calendar.google.com/calendar/render?action=TEMPLATE
 
 | LICENSE | MIT（著作権者表記は GitHub ユーザー名 `hiruta-cell`） |
 
-未決：§6 の案の承認、範囲キャプチャ + OCR のリスク方針。
+| OCRの方針 | §9 のとおり。テキスト貼り付けを先に完成させ、3日目のOCR精度で「通常機能」か「実験機能」かを決める |
+
+未決：§6 の案の承認。
