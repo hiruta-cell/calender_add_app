@@ -394,6 +394,15 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
     '日付だけの候補は「終日」が選ばれている',
     await connection.evaluate(`document.querySelector('.time-choice input[value="allDay"]')?.checked === true`),
   );
+  // 右の欄を一番上まで戻した状態でも、登録ボタンがスクロールせずに見えること（使いやすさの確認）
+  record('登録ボタンがスクロールしなくても見える位置にある', await connection.evaluate(`(() => {
+    const button = document.querySelector('.register-section button');
+    for (let element = button.parentElement; element !== null; element = element.parentElement) {
+      element.scrollTop = 0; // スクロールできる欄をすべて一番上に戻す
+    }
+    const rect = button.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= window.innerHeight;
+  })()`));
   const candidatesImage = await saveScreenshot(connection, screenshotDir, '01-candidates.png');
 
   const expected = extractDateCandidates(DEMO_TEXT, { now: new Date() }).candidates;

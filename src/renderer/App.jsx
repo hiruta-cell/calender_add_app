@@ -294,31 +294,34 @@ export default function App() {
           )}
         </section>
 
-        <section className="pane" aria-label="日時の候補と予定の内容">
-          <div>
-            <h2 className="section-title">日時の候補</h2>
-            <CandidateList
-              hasExtracted={extraction !== null || manualCandidates.length > 0}
-              candidates={allCandidates}
-              truncated={extraction?.truncated ?? false}
-              selectedIds={selectedIds}
-              onToggle={handleToggleCandidate}
-              timeChoices={timeChoices}
-              onTimeChoiceChange={handleTimeChoiceChange}
-              defaultDurationMinutes={DEFAULT_DURATION_MINUTES}
-            />
-            <ManualDateForm
-              inputRef={manualDateInputRef}
-              onAdd={handleAddManualDate}
-              disabled={allCandidates.length >= MAX_CANDIDATES}
+        {/* 右の欄：候補と入力欄はスクロールし、登録ボタンの欄は下端に固定して常に見えるようにする */}
+        <section className="pane pane-with-footer" aria-label="日時の候補と予定の内容">
+          <div className="pane-body">
+            <div>
+              <h2 className="section-title">日時の候補</h2>
+              <CandidateList
+                hasExtracted={extraction !== null || manualCandidates.length > 0}
+                candidates={allCandidates}
+                truncated={extraction?.truncated ?? false}
+                selectedIds={selectedIds}
+                onToggle={handleToggleCandidate}
+                timeChoices={timeChoices}
+                onTimeChoiceChange={handleTimeChoiceChange}
+                defaultDurationMinutes={DEFAULT_DURATION_MINUTES}
+              />
+              <ManualDateForm
+                inputRef={manualDateInputRef}
+                onAdd={handleAddManualDate}
+                disabled={allCandidates.length >= MAX_CANDIDATES}
+              />
+            </div>
+
+            <EventDetailsForm
+              details={eventDetails}
+              onChange={handleDetailChange}
+              hasSourceText={extraction !== null && extraction.text.trim() !== ''}
             />
           </div>
-
-          <EventDetailsForm
-            details={eventDetails}
-            onChange={handleDetailChange}
-            hasSourceText={extraction !== null && extraction.text.trim() !== ''}
-          />
 
           <RegisterSection
             selectedCount={selectedIds.size}

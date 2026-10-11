@@ -234,19 +234,23 @@ body {
   list-style: none;
 }
 
+/* 候補の枠。「終日／時刻を指定」の欄も同じ枠の中に入れて、どの候補の設定か分かるようにする */
+.candidate-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.candidate-item:has(.candidate-checkbox:checked) {
+  border-color: var(--color-primary);
+  background: var(--color-info-background);
+}
+
 .candidate-label {
   display: flex;
   gap: 10px;
   align-items: flex-start;
   padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
   cursor: pointer;
-}
-
-.candidate-label:has(.candidate-checkbox:checked) {
-  border-color: var(--color-primary);
-  background: var(--color-info-background);
 }
 
 .candidate-checkbox {
@@ -291,6 +295,11 @@ body {
 .badge-info {
   background: var(--color-info-background);
   color: var(--color-info-text);
+}
+
+/* 選択中の候補は枠の背景がバッジと同じ色になるため、バッジの背景を変えて見分けられるようにする */
+.candidate-item:has(.candidate-checkbox:checked) .badge-info {
+  background: var(--color-surface);
 }
 
 .badge-warning {
@@ -413,7 +422,7 @@ body {
 }
 
 .time-choice {
-  margin: 4px 0 0 38px;
+  padding: 0 12px 10px 38px; /* チェックボックスの右に揃える */
 }
 
 .radio-row {
@@ -443,9 +452,29 @@ body {
   width: auto;
 }
 
+/* 右の欄：内容（.pane-body）だけをスクロールし、登録ボタンの欄は下端に固定して常に見えるようにする */
+.pane-with-footer {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.pane-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
 .register-section {
-  padding-top: 12px;
+  flex-shrink: 0;
+  padding: 12px 16px;
   border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 0 0 var(--radius) var(--radius);
 }
 
 .button-large {

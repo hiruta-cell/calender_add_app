@@ -50,7 +50,7 @@
 | `src/renderer/components/TimeChoiceFields.jsx` | 日付だけの候補で「終日／時刻を指定」を選ぶ欄 |
 | `src/renderer/components/ManualDateForm.jsx` | 日時を手入力して候補に追加する欄 |
 | `src/renderer/components/EventDetailsForm.jsx` | 件名・場所・オンライン会議 URL・メモの入力欄 |
-| `src/renderer/components/RegisterSection.jsx` | 「Googleカレンダーで開く」ボタンと結果のお知らせ |
+| `src/renderer/components/RegisterSection.jsx` | 「Googleカレンダーで開く」ボタンと結果のお知らせ（右の欄の下端に固定） |
 | `src/renderer/components/NoDateDialog.jsx` | 「日時の情報がありません」のポップアップ（「手入力する」へ進める） |
 | `src/renderer/components/ErrorBanner.jsx` | エラーの内容を画面上部に表示する |
 | `src/renderer/components/ErrorBoundary.jsx` | 画面の表示中のエラーを受け止め、最初の画面に戻れるようにする |
@@ -320,8 +320,7 @@
 | ManualDateForm.jsx | `dateValue` / `date` / `handleAdd()` | 状態・計算値・関数 | 日付欄の値／読み取った日付／候補に追加 | 手入力の候補の追加 |
 | EventDetailsForm.jsx | `EventDetailsForm` | コンポーネント | 件名・場所・会議 URL・メモ・「元の文章をメモに入れる」 | 要件§5.5・§6.2・§12 |
 | EventDetailsForm.jsx | `meetingUrlText` / `meeting` | 計算値 | 入力された会議 URL／検証結果 | 不正な URL・会議サービス以外の URL を知らせる |
-| RegisterSection.jsx | `RegisterSection` | コンポーネント | 登録ボタンと結果のお知らせ | 要件§5.6 |
-| RegisterSection.jsx | `noticeRef` | 参照 | お知らせの要素 | お知らせを見える位置まで動かす |
+| RegisterSection.jsx | `RegisterSection` | コンポーネント | 登録ボタンと結果のお知らせ。右の欄の下端に固定し、スクロールしなくても押せる | 要件§5.6・使いやすさ（依頼者の指摘） |
 | NoDateDialog.jsx | `SUPPORTED_FORMAT_EXAMPLES` | 定数 | 対応している書き方の例 | 利用者が書き方を確かめられるようにする |
 | NoDateDialog.jsx | `NoDateDialog` | コンポーネント | 「日時の情報がありません」のポップアップ（HTML 標準の `<dialog>`）。「閉じる」「手入力する」 | 要件§5.8 |
 | NoDateDialog.jsx | `dialogRef` | 参照 | `<dialog>` 要素 | 開閉（`showModal` / `close`）を呼ぶ |
