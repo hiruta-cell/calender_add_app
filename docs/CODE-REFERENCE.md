@@ -20,6 +20,7 @@
 | `demo/images/` | 読み取りテストと発表のデモに使う架空の文面の画像（日本語のメール・チャット・縦書き・英語のメール、SNS 風の告知・写真の上の文字・傾いた紙の連絡状・ライブ告知） |
 | `test/` | 単体テスト（Node.js 標準の `node:test`） |
 | `test/fixtures/` | テスト用の小さなファイル（app:// の配信テスト、OCR のテスト用の架空の画像） |
+| `demo/texts/` | README の「まず試す」で貼り付ける架空の文面3通（日本語のメール・チャット・英語のメール） |
 | `docs/` | 説明ファイル（このファイル、受け入れ基準） |
 | `dist/` | ビルド結果（`npm run build` で作られる。Git には含めない） |
 | `node_modules/` | インストールした部品（`npm ci` で作られる。Git には含めない） |
@@ -788,6 +789,7 @@
 | capture.test.js | `VIEWPORT` | 範囲の座標の検証・変換、拡大の判定、画像の置き場所 | Retina・拡大率への対応、小さすぎる範囲、メモリだけで持つこと |
 | screenPermission.test.js | — | 起動元のアプリの判別と案内文の確認 | ターミナル・VSCode・判別できない場合 |
 | captureIpc.test.js | `createTestHandlers()` | 範囲キャプチャの通信の受け付けと preload の確認 | 送信元・向きの検証、重ねて始めない、公開する関数が決めたものだけ |
+| demoTexts.test.js | `DEMO_TEXT_DIR`、`PRESENTATION_NOW`、`runDemo()`、`openedQueries()` | デモの文面3通を、今日を発表日（10/16）に固定して抽出し、README の「まず試す」どおりの候補・下書き・予定作成 URL になるか確かめる | 文面や規則を変えて README と食い違ったら気付けるようにする |
 | ocrEngine.test.js | `FIXTURE_DIR`、`NOW`、`readFixture()` | 架空の画像で実際に読み取る | 横書き・縦書きの自動判定、PC 内の文字データの使用、ファイルを書き出さない、時間切れ |
 | settings.test.js | — | 設定の選択肢・検証・ファイルから読んだ値の整え方・表記の確認 | 選択肢にない値・余分な項目を断る、壊れた値は既定値、Ctrl・Cmd を必ず含む |
 | settingsStore.test.js | — | 設定の保存・読み込みの確認（一時フォルダを使う） | 3項目だけ保存、権限 600、壊れた・大きすぎるファイルでも既定値で動く |
