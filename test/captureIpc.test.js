@@ -8,7 +8,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import {
-  APP_STATUS_CHANNEL,
   CAPTURE_CLEAR_CHANNEL,
   CAPTURE_IMPORT_CHANNEL,
   CAPTURE_REREAD_CHANNEL,
@@ -39,20 +38,15 @@ function createTestHandlers({ trusted = true, busy = false } = {}) {
     rereadSelection: (orientation) => { calls.push(`reread:${orientation}`); return Promise.resolve({ ok: true }); },
     clearCapture: () => { calls.push('clear'); },
   };
-  const handlers = createCaptureHandlers({
-    isTrustedSender: () => trusted,
-    controller,
-    getAppStatus: () => ({ hotkeyRegistered: true, hotkeyLabel: 'Ctrl+Shift+Y' }),
-  });
+  const handlers = createCaptureHandlers({ isTrustedSender: () => trusted, controller });
   return { handlers, calls };
 }
 
 describe('確認ウインドウからの要求', () => {
-  test('取り込みの開始・画像を消す・アプリの状態を受け付ける', async () => {
+  test('取り込みの開始・画像を消すを受け付ける', async () => {
     const { handlers, calls } = createTestHandlers();
     assert.deepEqual(await handlers.handleStart({}), { ok: true });
     assert.deepEqual(await handlers.handleClear({}), { ok: true });
-    assert.deepEqual(await handlers.handleAppStatus({}), { ok: true, hotkeyRegistered: true, hotkeyLabel: 'Ctrl+Shift+Y' });
     assert.deepEqual(calls, ['start', 'clear']);
   });
 
@@ -71,7 +65,6 @@ describe('確認ウインドウからの要求', () => {
       await handlers.handleStart({}),
       await handlers.handleReread({}, 'vertical'),
       await handlers.handleClear({}),
-      await handlers.handleAppStatus({}),
     ]) {
       assert.equal(result.ok, false);
     }
@@ -150,7 +143,7 @@ describe('「システム設定を開く」の要求', () => {
 describe('preload との整合', () => {
   test('確認ウインドウの preload：チャンネル名が captureIpc.js と同じ', async () => {
     const preload = await readFile(new URL('../electron/preload.cjs', import.meta.url), 'utf8');
-    for (const channel of [CAPTURE_START_CHANNEL, CAPTURE_IMPORT_CHANNEL, CAPTURE_REREAD_CHANNEL, CAPTURE_CLEAR_CHANNEL, APP_STATUS_CHANNEL, CAPTURE_STATUS_CHANNEL, OPEN_SCREEN_SETTINGS_CHANNEL]) {
+    for (const channel of [CAPTURE_START_CHANNEL, CAPTURE_IMPORT_CHANNEL, CAPTURE_REREAD_CHANNEL, CAPTURE_CLEAR_CHANNEL, CAPTURE_STATUS_CHANNEL, OPEN_SCREEN_SETTINGS_CHANNEL]) {
       assert.ok(preload.includes(`'${channel}'`), channel);
     }
     // メインプロセスからの受信は、結果を届けるチャンネルだけ。IPC のイベントそのものは画面に渡さない

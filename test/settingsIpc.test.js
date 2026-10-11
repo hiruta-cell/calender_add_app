@@ -140,7 +140,7 @@ describe('設定の保存', () => {
     assert.equal(state.registeredAccelerator, 'CommandOrControl+Alt+K');
     assert.deepEqual(state.savedSettings, [settings]);
     assert.deepEqual(state.currentSettings, settings);
-    assert.deepEqual(state.autoStartCalls, []); // 自動起動は変わっていないので、OS の登録は触らない
+    assert.deepEqual(state.autoStartCalls, [false]); // オフのままなので、古い登録が残っていれば消す（オフにする）だけ
   });
 
   test('新しいホットキーを登録できなければ断り、保存しない（元のホットキーのまま）', async () => {
@@ -152,13 +152,29 @@ describe('設定の保存', () => {
     assert.deepEqual(state.savedSettings, []);
   });
 
-  test('自動起動は、オンなら保存のたびに登録し直し（フォルダの移動に追いつく）、オフは変わったときだけ OS の登録を変える', async () => {
+  test('自動起動は、変わったときだけ登録を変える。オフのまま保存したときは、古い登録を消す（オフにする）だけ', async () => {
     const { handlers, state } = createHarness();
     await handlers.handleSave({}, { ...SAMPLE_REQUEST, autoStart: true });
     await handlers.handleSave({}, { ...SAMPLE_REQUEST, autoStart: true });
     await handlers.handleSave({}, { ...SAMPLE_REQUEST, autoStart: false });
     await handlers.handleSave({}, { ...SAMPLE_REQUEST, autoStart: false });
-    assert.deepEqual(state.autoStartCalls, [true, true, false]);
+    assert.deepEqual(state.autoStartCalls, [true, false, false]);
+  });
+
+  test('自動起動がオンのまま、ほかの設定だけを保存するときは、自動起動の登録に触れない（失敗で保存を断らない）', async () => {
+    const { handlers, state } = createHarness({ autoStartFails: true });
+    state.autoStartEnabled = true;
+    const result = await handlers.handleSave({}, { ...DEFAULT_SETTINGS, durationMinutes: 90, autoStart: true });
+    assert.equal(result.ok, true);
+    assert.deepEqual(state.autoStartCalls, []);
+    assert.equal(state.currentSettings.durationMinutes, 90);
+  });
+
+  test('オフのまま保存して古い登録を消せなくても、保存は続ける', async () => {
+    const { handlers, state } = createHarness({ autoStartFails: true });
+    const result = await handlers.handleSave({}, { ...DEFAULT_SETTINGS, durationMinutes: 30, autoStart: false });
+    assert.equal(result.ok, true);
+    assert.equal(state.currentSettings.durationMinutes, 30);
   });
 
   test('自動起動を変えられなければ、ホットキーを元に戻して断る（保存しない）', async () => {
@@ -210,6 +226,17 @@ describe('設定の保存', () => {
     await new Promise((resolve) => setImmediate(resolve));
     releaseSave();
     assert.equal((await third).ok, true);
+  });
+});
+
+describe('設定の取得（見直しで見つかった場合）', () => {
+  test('自動起動の状態を読めなくても、設定とホットキーの状態は返す（自動起動はオフ扱い）', async () => {
+    const { handlers } = createHarness({ autoStartReadFails: true, isInitiallyRegistered: false });
+    const result = await handlers.handleGet({});
+    assert.equal(result.ok, true);
+    assert.equal(result.autoStart, false);
+    assert.equal(result.hotkeyRegistered, false);
+    assert.deepEqual(result.settings, DEFAULT_SETTINGS);
   });
 });
 
@@ -267,11 +294,10 @@ describe('preload との整合', () => {
     }
   });
 
-  test('画面から送れる（invoke する）チャンネルは、決めた10個だけ', async () => {
+  test('画面から送れる（invoke する）チャンネルは、決めた9個だけ（使わなくなった app:get-status は公開しない）', async () => {
     const preload = await preloadSource();
     const invokedChannels = [...preload.matchAll(/ipcRenderer\.invoke\(([^,)]+)/g)].map((match) => match[1].trim()).sort();
     assert.deepEqual(invokedChannels, [
-      'APP_STATUS_CHANNEL',
       'CAPTURE_CLEAR_CHANNEL',
       'CAPTURE_IMPORT_CHANNEL',
       'CAPTURE_REREAD_CHANNEL',

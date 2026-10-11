@@ -10,7 +10,7 @@
  * - このファイルは electron を import しない（保存先のフォルダは main.js から受け取る）。単体テストできる。
  */
 
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeStoredSettings } from '../src/core/settings.js';
 
@@ -42,11 +42,11 @@ export function createSettingsStore(directory) {
      */
     async load() {
       try {
-        const buffer = await readFile(filePath);
-        if (buffer.length > MAX_SETTINGS_FILE_BYTES) {
+        // 大きすぎるファイルは読み込む前に断る（壊れた・書き換えられたファイルでメモリを使わない）
+        if ((await stat(filePath)).size > MAX_SETTINGS_FILE_BYTES) {
           throw new RangeError('settings file too large');
         }
-        return normalizeStoredSettings(JSON.parse(buffer.toString('utf8')));
+        return normalizeStoredSettings(JSON.parse(await readFile(filePath, 'utf8')));
       } catch {
         return normalizeStoredSettings(null); // まだ保存していない・読めない・大きすぎる・JSON として読めない
       }

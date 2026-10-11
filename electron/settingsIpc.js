@@ -101,10 +101,12 @@ export function createSettingsHandlers({
     async handleGet(event) {
       const rejected = rejectUntrusted(event);
       if (rejected !== null) return rejected;
+      // 自動起動の状態を読めなくても、設定とホットキーの状態は返す（画面の起動時のホットキーの案内に使うため）
+      const isAutoStartEnabled = await readAutoStart().catch(() => false);
       return {
         ok: true,
         settings: getCurrentSettings(),
-        autoStart: await readAutoStart(),
+        autoStart: isAutoStartEnabled,
         autoStartSupported: autoStart.isSupported,
         platform,
         ...getHotkeyStatus(),
@@ -154,15 +156,18 @@ export function createSettingsHandlers({
           if (isHotkeyChanged) changeHotkey(previousSettings);
         };
 
-        // 3. 自動起動。オンのときは毎回登録し直す（フォルダを移動した後も、今の場所で起動するように）。オフは変わったときだけ
-        const shouldApplyAutoStart = request.autoStart || request.autoStart !== wasAutoStartEnabled;
-        if (shouldApplyAutoStart) {
+        // 3. 自動起動。変わったときだけ OS の登録を変える（ほかの設定だけの保存は、自動起動の失敗で断らない）。
+        //    オフのまま保存したときは、古い場所を指す登録が残っていれば消す（失敗しても保存は続ける）
+        const isAutoStartChanged = request.autoStart !== wasAutoStartEnabled;
+        if (isAutoStartChanged) {
           try {
             await autoStart.setEnabled(request.autoStart);
           } catch {
             revertHotkey();
             return { ok: false, message: AUTO_START_FAILED_MESSAGE };
           }
+        } else if (!request.autoStart && autoStart.isSupported) {
+          await autoStart.setEnabled(false).catch(() => {});
         }
 
         // 4. ファイルに保存する。できなければ、ここまでの変更を元に戻す
@@ -170,7 +175,7 @@ export function createSettingsHandlers({
           await store.save(request.settings);
         } catch {
           revertHotkey();
-          if (shouldApplyAutoStart) {
+          if (isAutoStartChanged) {
             await autoStart.setEnabled(wasAutoStartEnabled).catch(() => {}); // 戻せなくても、保存の失敗を先に知らせる
           }
           return { ok: false, message: SAVE_FAILED_MESSAGE };

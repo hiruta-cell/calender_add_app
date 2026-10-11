@@ -21,8 +21,6 @@ export const CAPTURE_IMPORT_CHANNEL = 'capture:import-image';
 
 /** PNG の先頭の8バイト（画面側で PNG にそろえてから送るため、PNG だけを受け付ける） */
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-/** 確認ウインドウ → メインプロセス：アプリの状態（ホットキーが使えるか）を尋ねる */
-export const APP_STATUS_CHANNEL = 'app:get-status';
 /** メインプロセス → 確認ウインドウ：取り込み・読み取りの進み具合と結果 */
 export const CAPTURE_STATUS_CHANNEL = 'capture:status';
 /** 範囲選択の画面 → メインプロセス：選んだ範囲 */
@@ -69,12 +67,11 @@ export function validateImportedImage(bytes) {
  * @param {object} dependencies
  * @param {(event: object) => boolean} dependencies.isTrustedSender 送信元が確認ウインドウの画面か
  * @param {{isBusy: () => boolean, startCapture: () => Promise<object>, importImage: (png: Buffer) => Promise<object>, rereadSelection: (orientation: string) => Promise<object>, clearCapture: () => void}} dependencies.controller 取り込みの処理
- * @param {() => {hotkeyRegistered: boolean, hotkeyLabel: string}} dependencies.getAppStatus アプリの状態
  * @returns {{
- *   handleStart: Function, handleImport: Function, handleReread: Function, handleClear: Function, handleAppStatus: Function
+ *   handleStart: Function, handleImport: Function, handleReread: Function, handleClear: Function
  * }}
  */
-export function createCaptureHandlers({ isTrustedSender, controller, getAppStatus }) {
+export function createCaptureHandlers({ isTrustedSender, controller }) {
   /** 送信元を確かめる。確認ウインドウ以外からの要求なら、断る結果を返す */
   const rejectUntrusted = (event) => (isTrustedSender(event) ? null : { ok: false, message: UNTRUSTED_SENDER_MESSAGE });
 
@@ -135,15 +132,6 @@ export function createCaptureHandlers({ isTrustedSender, controller, getAppStatu
       if (rejected !== null) return rejected;
       controller.clearCapture();
       return { ok: true };
-    },
-
-    /**
-     * アプリの状態（ホットキーが使えるか、その表記）を返す。
-     */
-    async handleAppStatus(event) {
-      const rejected = rejectUntrusted(event);
-      if (rejected !== null) return rejected;
-      return { ok: true, ...getAppStatus() };
     },
   };
 }

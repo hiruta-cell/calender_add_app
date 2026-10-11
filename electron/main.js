@@ -21,7 +21,6 @@ import { OPEN_CALENDAR_EVENTS_CHANNEL, createOpenCalendarEventsHandler } from '.
 import { createCaptureController } from './captureController.js';
 import { createCaptureImageStore } from './captureImageStore.js';
 import {
-  APP_STATUS_CHANNEL,
   CAPTURE_CLEAR_CHANNEL,
   CAPTURE_IMPORT_CHANNEL,
   CAPTURE_REREAD_CHANNEL,
@@ -36,6 +35,7 @@ import {
 import {
   DesktopIntegrationError,
   HIDDEN_START_ARGUMENT,
+  MAC_LAUNCHER_BUNDLE_NAME,
   WINDOWS_SHORTCUT_FILE_NAME,
   buildWindowsLoginItemSettings,
   buildWindowsShortcutOptions,
@@ -180,6 +180,11 @@ function showMainWindow() {
     createMainWindow();
     return;
   }
+  if (mainWindow.webContents.isLoadingMainFrame()) {
+    // 自動起動（--hidden）で作ったウインドウがまだ読み込み中なら、白い画面を出さないよう読み込み後に表示する
+    mainWindow.once('ready-to-show', () => mainWindow?.show());
+    return;
+  }
   if (mainWindow.isMinimized()) {
     mainWindow.restore();
   }
@@ -320,7 +325,10 @@ const autoStart = {
    */
   async isEnabled() {
     if (IS_MAC) {
-      return isMacAutoStartEnabled({ launchAgentsDir: getMacLaunchAgentsDir() });
+      return isMacAutoStartEnabled({
+        launchAgentsDir: getMacLaunchAgentsDir(),
+        launcherPath: path.join(MAC_LAUNCHER_DIR, MAC_LAUNCHER_BUNDLE_NAME),
+      });
     }
     if (IS_WINDOWS) {
       return app.getLoginItemSettings(buildWindowsLoginItemSettings({ electronPath: process.execPath, appPath: APP_DIR })).openAtLogin;
@@ -384,16 +392,11 @@ function registerIpcHandlers() {
     createOpenCalendarEventsHandler({ openExternal, isTrustedSender, onAllOpened: minimizeMainWindow }),
   );
 
-  const captureHandlers = createCaptureHandlers({
-    isTrustedSender,
-    controller: captureController,
-    getAppStatus: getHotkeyStatus,
-  });
+  const captureHandlers = createCaptureHandlers({ isTrustedSender, controller: captureController });
   ipcMain.handle(CAPTURE_START_CHANNEL, captureHandlers.handleStart);
   ipcMain.handle(CAPTURE_IMPORT_CHANNEL, captureHandlers.handleImport);
   ipcMain.handle(CAPTURE_REREAD_CHANNEL, captureHandlers.handleReread);
   ipcMain.handle(CAPTURE_CLEAR_CHANNEL, captureHandlers.handleClear);
-  ipcMain.handle(APP_STATUS_CHANNEL, captureHandlers.handleAppStatus);
   ipcMain.handle(OVERLAY_SELECT_CHANNEL, (event, rect) => captureController.handleOverlaySelect(event, rect));
   ipcMain.handle(OVERLAY_CANCEL_CHANNEL, (event) => captureController.handleOverlayCancel(event));
   ipcMain.handle(
@@ -469,7 +472,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   /**
-   * 起動処理（startApp）の結果。設定の読み込みを待つ間に Dock の activate や2つ目の起動が来ても、
+   * 起動処理（startApp）の結果。設定の読み込みを待つ間に2つ目の起動が来ても、
    * 準備（通信の受け付け・トレイ・ホットキー）がそろってから表示する（取りこぼさず、ウインドウも2つ作らない）
    */
   const appStarted = app
@@ -492,8 +495,14 @@ if (!app.requestSingleInstanceLock()) {
   app.on('web-contents-created', (_event, contents) => hardenWebContents(contents));
   // ウインドウがすべて閉じても終了しない（常駐する）。何もしない処理を登録すると自動で終了しなくなる
   app.on('window-all-closed', () => {});
-  // Mac で Dock のアイコンを押したら、確認ウインドウを表示する
-  app.on('activate', showMainWindowWhenStarted);
+  // Mac で Dock のアイコンを押したら、確認ウインドウを表示する。
+  // 起動中（ウインドウを作る前）の activate は捨てる：macOS は最初の起動でも activate を送ることがあり、
+  // 待って表示すると、自動起動（--hidden）でもウインドウが出てしまうため。2つ目の起動（second-instance）は利用者の操作なので待って表示する
+  app.on('activate', () => {
+    if (mainWindow !== null) {
+      showMainWindow();
+    }
+  });
   // 終了するときは、確認ウインドウを隠さずに閉じる
   app.on('before-quit', () => {
     isQuitting = true;

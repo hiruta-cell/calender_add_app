@@ -20,8 +20,6 @@ const CAPTURE_REREAD_CHANNEL = 'capture:reread';
 const CAPTURE_IMPORT_CHANNEL = 'capture:import-image';
 /** 取り込んだ画像を消す */
 const CAPTURE_CLEAR_CHANNEL = 'capture:clear';
-/** アプリの状態（ホットキーが使えるか）を尋ねる */
-const APP_STATUS_CHANNEL = 'app:get-status';
 /** 取り込み・読み取りの進み具合と結果を受け取る（メインプロセスから届く） */
 const CAPTURE_STATUS_CHANNEL = 'capture:status';
 /** Mac の画面収録の設定画面を開く */
@@ -74,13 +72,6 @@ contextBridge.exposeInMainWorld('calendarApp', {
    * @returns {Promise<{ok: boolean}>}
    */
   clearCapture: () => ipcRenderer.invoke(CAPTURE_CLEAR_CHANNEL),
-
-  /**
-   * アプリの状態（ホットキーが使えるか、その表記）を尋ねる。
-   *
-   * @returns {Promise<{ok: boolean, hotkeyRegistered: boolean, hotkeyLabel: string}>}
-   */
-  getAppStatus: () => ipcRenderer.invoke(APP_STATUS_CHANNEL),
 
   /**
    * Mac の「画面収録とシステムオーディオ録音」の設定画面を開いてもらう（開く URL はメインプロセスで決まっている）。

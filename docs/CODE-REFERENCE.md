@@ -509,10 +509,9 @@
 | `window.calendarApp.importImage(pngBytes)` | 関数（画面に公開） | PNG にそろえた画像を読み取ってもらう | 画像の貼り付け・ドラッグ＆ドロップ |
 | `window.calendarApp.rereadCapture(orientation)` | 関数（画面に公開） | 向きを指定して読み直してもらう | 「横書き／縦書きで読み直す」 |
 | `window.calendarApp.clearCapture()` | 関数（画面に公開） | 取り込んだ画像を消してもらう | 「クリア」 |
-| `window.calendarApp.getAppStatus()` | 関数（画面に公開） | ホットキーが使えるか、その表記を尋ねる | ホットキーの状態の確認（画面の起動時は getSettings の結果に同じ情報が入るため、そちらを使う） |
 | `window.calendarApp.openScreenRecordingSettings()` | 関数（画面に公開） | Mac の画面収録の設定画面を開いてもらう | 「システム設定を開く」 |
 | `SETTINGS_GET_CHANNEL` / `SETTINGS_SAVE_CHANNEL` / `DESKTOP_ICON_CHANNEL` | 定数 | settingsIpc.js と同じ値 | 設定の通信 |
-| `window.calendarApp.getSettings()` / `saveSettings(settings)` / `createDesktopIcon()` | 関数（画面に公開） | 今の設定を尋ねる／設定を保存してもらう／デスクトップにアイコンを作ってもらう | 設定画面（公開する関数は全部で11個） |
+| `window.calendarApp.getSettings()` / `saveSettings(settings)` / `createDesktopIcon()` | 関数（画面に公開） | 今の設定を尋ねる／設定を保存してもらう／デスクトップにアイコンを作ってもらう | 設定画面（公開する関数は全部で10個。ホットキーの状態も getSettings の結果に入る） |
 | `window.calendarApp.onCaptureStatus(callback)` | 関数（画面に公開） | 読み取りの進み具合と結果を受け取る（内容だけを渡す。解除する関数を返す） | 読み取り結果の表示 |
 
 ### ocrEngine.js（文字の読み取り）
@@ -547,7 +546,7 @@
 | `ICONS_DIR` / `APP_ICON_PNG_PATH` / `APP_ICON_ICNS_PATH` / `APP_ICON_ICO_PATH` | 定数 | assets/icons と、アプリのアイコン（Dock 用 PNG・Mac 用 icns・Windows 用 ico）のパス | Dock・デスクトップのアイコン |
 | `MAC_LAUNCHER_DIR` | 定数 | プロジェクトの launcher/ フォルダ | Mac の起動用の .app を置く場所（Git に含めない） |
 | `START_HIDDEN` | 定数 | `--hidden` 付きで起動したか | ログイン時の自動起動では、最初のウインドウを出さずに常駐する |
-| `appStarted` / `showMainWindowWhenStarted()` | 定数・関数 | 起動処理（startApp）の結果（Promise）／起動処理が終わってから確認ウインドウを表示する | 設定の読み込みを待つ間の Dock の activate・2つ目の起動を取りこぼさず、準備前にウインドウを作らない（2つできるのを防ぐ） |
+| `appStarted` / `showMainWindowWhenStarted()` | 定数・関数 | 起動処理（startApp）の結果（Promise）／起動処理が終わってから確認ウインドウを表示する | 設定の読み込みを待つ間の2つ目の起動を取りこぼさず、準備前にウインドウを作らない（2つできるのを防ぐ）。起動中の Dock の activate は捨てる（最初の起動でも届くことがあり、自動起動でウインドウが出てしまうため） |
 | `TRAY_ICON_PATH` | 定数 | トレイのアイコンのパス（Mac は白黒のテンプレート画像） | 常駐の表示 |
 | `MAIN_WINDOW_SIZE` | 定数 | ウインドウの大きさ（980×660、最小 760×500） | 確認ウインドウの表示（2026-10-11 依頼者の指示で画面をコンパクトにし、小さくした） |
 | `mainWindow` / `trayController` | 変数 | 確認ウインドウ／トレイ（アイコンとメニューの表記の変更） | 表示・常駐 |
@@ -557,7 +556,7 @@
 | `captureImageStore` | 定数 | 取り込んだ画像の置き場所（メモリだけ） | app:// での表示・読み直し |
 | `captureController` | 定数 | 範囲キャプチャから OCR までの処理 | ホットキー・トレイ・ボタンから呼ぶ |
 | `createMainWindow({show})` | 関数 | 安全な設定でウインドウを作る（show が false なら読み込み後も出さない）。閉じるボタンでは隠して画像を消す | 常駐（要件§6.1） |
-| `showMainWindow()` | 関数 | 確認ウインドウを表示して前面に出す（なければ作る）。起動処理が終わってから呼ぶ | トレイ・2つ目の起動・読み取り後 |
+| `showMainWindow()` | 関数 | 確認ウインドウを表示して前面に出す（なければ作る。まだ読み込み中なら読み込み後に表示し、白い画面を出さない）。起動処理が終わってから呼ぶ | トレイ・2つ目の起動・読み取り後 |
 | `minimizeMainWindow()` | 関数 | 確認ウインドウを最小化する（ウインドウがなければ何もしない） | 予定作成画面をすべて開いたあと、ブラウザの操作の邪魔にならないように（依頼者の指示） |
 | `registerCaptureHotkey(accelerator)` | 関数 | ホットキーを登録し、できたか返す | 範囲キャプチャを始めるキー |
 | `changeCaptureHotkey(nextSettings)` | 関数 | 今のホットキーを外して新しいものを登録する（できなければ元に戻す）。トレイの表記も変える | 設定画面でのホットキーの変更 |
@@ -583,7 +582,7 @@
 | `SETTINGS_FILE_NAME` | 定数（公開） | 'settings.json' | 設定のファイル名（userData の中） |
 | `MAX_SETTINGS_FILE_BYTES` | 定数（公開） | 4096 | これより大きいファイルは読まない（壊れた・書き換えられたファイル対策） |
 | `SETTINGS_FILE_MODE` | 定数（内部） | 0o600 | 本人だけが読み書きできる権限 |
-| `createSettingsStore(directory)` | 関数（公開） | `{filePath, load(), save(settings)}` を作る。load は失敗しても例外を出さず既定値を返す。save は3項目だけを一時ファイルに書き、権限を 600 にしてから名前を変える（前回の一時ファイルが残っていても 600 になる） | 設定だけを保存（文章・画像は保存しない）。書きかけで壊れないようにする |
+| `createSettingsStore(directory)` | 関数（公開） | `{filePath, load(), save(settings)}` を作る。load は失敗しても例外を出さず既定値を返す。load は大きすぎるファイルを読む前に断る。save は3項目だけを一時ファイルに書き、権限を 600 にしてから名前を変える（前回の一時ファイルが残っていても 600 になる） | 設定だけを保存（文章・画像は保存しない）。書きかけで壊れないようにする |
 
 ### settingsIpc.js（設定の通信の受け付け）
 
@@ -592,7 +591,7 @@
 | `SETTINGS_GET_CHANNEL` / `SETTINGS_SAVE_CHANNEL` / `DESKTOP_ICON_CHANNEL` | 定数（公開） | 'settings:get' ／ 'settings:save' ／ 'settings:create-desktop-icon' | チャンネル名（preload.cjs と同じ） |
 | `UNTRUSTED_SENDER_MESSAGE` / `BUSY_MESSAGE` / `INVALID_REQUEST_MESSAGE` / `HOTKEY_UNAVAILABLE_MESSAGE` / `AUTO_START_FAILED_MESSAGE` / `AUTO_START_UNSUPPORTED_MESSAGE` / `SAVE_FAILED_MESSAGE` / `DESKTOP_ICON_FAILED_MESSAGE` / `DESKTOP_ICON_CREATED_MESSAGE` | 定数（内部） | 表示文 | ファイルのパスなどを含めずに知らせる |
 | `parseSaveRequest(rawRequest)` | 関数（公開） | 保存の要求を検証し `{settings, autoStart}` にする | IPC の引数の検証 |
-| `createSettingsHandlers(dependencies)` | 関数（公開） | `{handleGet, handleSave, handleCreateDesktopIcon}` を作る。保存は、何も変えない確かめ（検証・自動起動の状態の読み取り・対応 OS か）を先に済ませ、ホットキー→自動起動→ファイルの順に変える。途中で失敗したら前の変更を元に戻す。自動起動はオンなら保存のたびに今の場所で登録し直す（フォルダの移動に追いつく）。起動時に登録できなかったキーは、同じ組み合わせで保存すると登録し直す。保存中の重ねた要求は断る | 設定画面の入口。中途半端な状態を残さない |
+| `createSettingsHandlers(dependencies)` | 関数（公開） | `{handleGet, handleSave, handleCreateDesktopIcon}` を作る。保存は、何も変えない確かめ（検証・自動起動の状態の読み取り・対応 OS か）を先に済ませ、ホットキー→自動起動→ファイルの順に変える。途中で失敗したら前の変更を元に戻す。自動起動は変わったときだけ登録を変え、オフのまま保存したときは古い登録を消す（失敗しても保存は続ける）。取得（handleGet）は、自動起動の状態を読めなくても設定とホットキーの状態を返す。起動時に登録できなかったキーは、同じ組み合わせで保存すると登録し直す。保存中の重ねた要求は断る | 設定画面の入口。中途半端な状態を残さない |
 
 ### desktopIntegration.js（デスクトップのアイコンと自動起動）
 
@@ -612,7 +611,7 @@
 | `buildMacInfoPlist()` / `buildMacLaunchAgentPlist({launcherPath})` / `buildPlist(dictBody)` | 関数 | .app の Info.plist／自動起動の plist（open -a 起動用の .app --args --hidden。ログイン時に実行）／plist の共通部分 | Mac のアイコン・自動起動 |
 | `writeMacLauncher(options)` | 関数（公開） | launcher/ に起動用の .app を書く（スクリプト・Info.plist・アイコン。消すことはしない） | Mac のアイコン |
 | `createMacDesktopAlias({desktopDir, launcherPath})` | 関数（公開） | デスクトップに起動用の .app への別名を置く（同じ名前の別のファイルがあれば上書きせず断る） | 利用者のファイルを壊さない |
-| `enableMacAutoStart` / `disableMacAutoStart` / `isMacAutoStartEnabled` | 関数（公開） | LaunchAgent の plist を置く／消す／あるか確かめる | Mac の自動起動（ゴール G8）。フォルダを移動しても、オンのまま保存すれば今の場所で作り直される |
+| `enableMacAutoStart` / `disableMacAutoStart` / `isMacAutoStartEnabled` | 関数（公開） | LaunchAgent の plist を置く／消す／今の場所の起動用 .app を指しているか確かめる | Mac の自動起動（ゴール G8）。フォルダを移動したらオフと表示し、オンにして保存すれば今の場所で作り直す |
 | `isReplaceableWindowsShortcut(existingShortcut)` | 関数（公開） | 同じ名前のショートカットが、このアプリが前に作ったもの（説明が同じ）か | 利用者のショートカットを上書きしない |
 | `buildWindowsShortcutOptions(options)` | 関数（公開） | `shell.writeShortcutLink` に渡す内容（Electron・引用符で囲んだプロジェクトの場所・アイコン） | Windows のアイコン（ゴール G7） |
 | `buildWindowsLoginItemSettings(options)` | 関数（公開） | `app.setLoginItemSettings` に渡す内容（引用符で囲んだプロジェクトの場所と --hidden） | Windows の自動起動（ゴール G8） |
@@ -643,7 +642,7 @@
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
-| `CAPTURE_START_CHANNEL` / `CAPTURE_REREAD_CHANNEL` / `CAPTURE_CLEAR_CHANNEL` / `APP_STATUS_CHANNEL` | 定数（公開） | 確認ウインドウ → メインプロセスのチャンネル名 | 取り込み開始・読み直し・画像を消す・状態の問い合わせ |
+| `CAPTURE_START_CHANNEL` / `CAPTURE_REREAD_CHANNEL` / `CAPTURE_CLEAR_CHANNEL` | 定数（公開） | 確認ウインドウ → メインプロセスのチャンネル名 | 取り込み開始・読み直し・画像を消す（状態の問い合わせ app:get-status は、画面が使わなくなったので 2026-10-11 に削除） |
 | `CAPTURE_IMPORT_CHANNEL` | 定数（公開） | 'capture:import-image' | 貼り付け・ドラッグ＆ドロップした画像の読み取り |
 | `PNG_SIGNATURE` | 定数（内部） | PNG の先頭の8バイト | PNG だけを受け付ける |
 | `validateImportedImage(bytes)` | 関数（公開） | 届いた画像が PNG で20MB以下かを確かめる | IPC の引数の検証 |
@@ -741,7 +740,7 @@
 | `checkSettings(connection, mainConnection, screenshotDir)` | 関数 | 設定画面で長さ・ホットキーを変えて保存し、ホットキーの登録・ボタンの表記・settings.json の中身・抽出に使う長さを確かめ、元に戻す | 設定画面の確認（ゴール G7・G8） |
 | `checkHiddenStart()` | 関数 | `--hidden` で起動し直し、ウインドウが出ないこととホットキーが使えることを確認 | 自動起動のときの起動の仕方の確認（ゴール G8） |
 | `stopLaunchedApp()` | 関数 | アプリを終了させる（終わらなければ強制終了） | 次の確認が多重起動防止で動かなくならないように |
-| `checkSecurity(connection, mainConnection)` | 関数 | 公開する関数が決めた11個だけか、不正な登録要求が断られ最小化もしないか、不正な設定の保存が断られ設定が変わらないか、Node.js 機能・外部通信・インラインスクリプト・新規ウインドウ・外部移動の遮断を確認 | セキュリティの実地確認 |
+| `checkSecurity(connection, mainConnection)` | 関数 | 公開する関数が決めた10個だけか、不正な登録要求が断られ最小化もしないか、不正な設定の保存が断られ設定が変わらないか、Node.js 機能・外部通信・インラインスクリプト・新規ウインドウ・外部移動の遮断を確認 | セキュリティの実地確認 |
 | `main()` | 関数 | 確認全体を実行し、終了コードを返す | 確認の実行 |
 
 ## scripts/generate-ocr-fixtures.js（OCR のテスト用の画像を作る）

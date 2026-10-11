@@ -97,6 +97,9 @@ const FIND_MAIN_WINDOW_EXPRESSION = `BrowserWindow.getAllWindows().find((candida
 /** 既定のホットキー（Electron の表記。CommandOrControl+Shift+Y） */
 const DEFAULT_ACCELERATOR = buildAccelerator(DEFAULT_SETTINGS);
 
+/** 設定画面の確認で選ぶホットキー（既定の Y を U に変える） */
+const SETTINGS_TEST_ACCELERATOR = buildAccelerator({ ...DEFAULT_SETTINGS, hotkeyKey: 'U' });
+
 /** 確認結果の一覧 { name, passed, detail } */
 const results = [];
 
@@ -444,16 +447,19 @@ async function showMainWindowWithoutFocus(mainConnection) {
   // 起動直後は画面の読み込み中で URL がまだ空のことがあるため、見つかるまで待つ（上限 STEP_TIMEOUT_MS）
   const deadline = Date.now() + STEP_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const isShown = await mainConnection.evaluate(
-      `(() => {
-        const { BrowserWindow } = require('electron');
-        const window = ${FIND_MAIN_WINDOW_EXPRESSION};
-        if (window === undefined) return false;
-        window.showInactive();
-        return true;
-      })()`,
-      { commandLineApi: true },
-    );
+    // 起動直後の一時的な例外（メインプロセスの準備中など）は、待ちを打ち切らずに次の確認で回復させる
+    const isShown = await mainConnection
+      .evaluate(
+        `(() => {
+          const { BrowserWindow } = require('electron');
+          const window = ${FIND_MAIN_WINDOW_EXPRESSION};
+          if (window === undefined) return false;
+          window.showInactive();
+          return true;
+        })()`,
+        { commandLineApi: true },
+      )
+      .catch(() => false);
     if (isShown === true) {
       return;
     }
@@ -778,8 +784,8 @@ async function clickRegister(connection) {
  * @param {DevToolsConnection} mainConnection メインプロセスへの接続
  */
 async function replaceMinimize(mainConnection) {
-  const response = await mainConnection.send('Runtime.evaluate', {
-    expression: `(() => {
+  const isReplaced = await mainConnection.evaluate(
+    `(() => {
       const { BrowserWindow } = require('electron');
       const window = ${FIND_MAIN_WINDOW_EXPRESSION};
       if (window === undefined) return false;
@@ -787,10 +793,9 @@ async function replaceMinimize(mainConnection) {
       window.minimize = () => { globalThis.__smokeTestMinimizeCount += 1; };
       return true;
     })()`,
-    includeCommandLineAPI: true,
-    returnByValue: true,
-  });
-  if (response.exceptionDetails || response.result.value !== true) {
+    { commandLineApi: true },
+  );
+  if (isReplaced !== true) {
     throw new Error('確認ウインドウの最小化を差し替えられませんでした');
   }
 }
@@ -812,8 +817,8 @@ async function getMinimizeCount(mainConnection) {
  * @returns {Promise<boolean>} 最小化されていたら true（時間内に最小化されなければ false）
  */
 async function restoreMinimizedMainWindow(mainConnection) {
-  const response = await mainConnection.send('Runtime.evaluate', {
-    expression: `(async () => {
+  const wasMinimized = await mainConnection.evaluate(
+    `(async () => {
       const { BrowserWindow } = require('electron');
       const window = ${FIND_MAIN_WINDOW_EXPRESSION};
       if (window === undefined) return false;
@@ -830,14 +835,9 @@ async function restoreMinimizedMainWindow(mainConnection) {
       }
       return wasMinimized;
     })()`,
-    includeCommandLineAPI: true,
-    awaitPromise: true,
-    returnByValue: true,
-  });
-  if (response.exceptionDetails) {
-    throw new Error('確認ウインドウの状態を調べられませんでした');
-  }
-  return response.result.value === true;
+    { commandLineApi: true },
+  );
+  return wasMinimized === true;
 }
 
 /**
@@ -1098,7 +1098,7 @@ async function checkSettings(connection, mainConnection, screenshotDir) {
   await saveSettings();
   record(
     'ホットキーを変えて保存すると、新しいキーだけが登録される（前のキーは解除）',
-    (await isHotkeyRegistered(mainConnection, 'CommandOrControl+Shift+U')) && !(await isHotkeyRegistered(mainConnection, DEFAULT_ACCELERATOR)),
+    (await isHotkeyRegistered(mainConnection, SETTINGS_TEST_ACCELERATOR)) && !(await isHotkeyRegistered(mainConnection, DEFAULT_ACCELERATOR)),
   );
   const captureButtonLabel = await connection.evaluate(
     `[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る'))?.textContent ?? ''`,
@@ -1126,7 +1126,7 @@ async function checkSettings(connection, mainConnection, screenshotDir) {
   await saveSettings();
   record(
     '元の設定（60分・Ctrl/Cmd+Shift+Y）に戻せる',
-    (await isHotkeyRegistered(mainConnection, DEFAULT_ACCELERATOR)) && !(await isHotkeyRegistered(mainConnection, 'CommandOrControl+Shift+U')),
+    (await isHotkeyRegistered(mainConnection, DEFAULT_ACCELERATOR)) && !(await isHotkeyRegistered(mainConnection, SETTINGS_TEST_ACCELERATOR)),
   );
   await clickButton(connection, 'クリア');
   return settingsImage;
@@ -1141,16 +1141,18 @@ async function checkHiddenStart() {
   const mainConnection = new DevToolsConnection(mainInspectorUrl);
   /** 確認ウインドウの状態（読み込み中・まだ作られていなければ null） */
   const readWindowState = async () => {
-    const state = await mainConnection.evaluate(
-      `(() => {
-        const { BrowserWindow, globalShortcut } = require('electron');
-        const window = ${FIND_MAIN_WINDOW_EXPRESSION};
-        if (window === undefined || window.webContents.isLoading()) return null;
-        return JSON.stringify({ visible: window.isVisible(), hotkeyRegistered: globalShortcut.isRegistered(${JSON.stringify(DEFAULT_ACCELERATOR)}) });
-      })()`,
-      { commandLineApi: true },
-    );
-    return state ?? null;
+    // 起動直後の一時的な例外は「まだ読み込み中」として扱い、次の確認で回復させる
+    return mainConnection
+      .evaluate(
+        `(() => {
+          const { BrowserWindow, globalShortcut } = require('electron');
+          const window = ${FIND_MAIN_WINDOW_EXPRESSION};
+          if (window === undefined || window.webContents.isLoading()) return null;
+          return JSON.stringify({ visible: window.isVisible(), hotkeyRegistered: globalShortcut.isRegistered(${JSON.stringify(DEFAULT_ACCELERATOR)}) });
+        })()`,
+        { commandLineApi: true },
+      )
+      .catch(() => null);
   };
   try {
     await mainConnection.open();
@@ -1231,9 +1233,9 @@ async function checkSecurity(connection, mainConnection) {
   isExpectingErrors = true; // ここで起きるエラーは意図的に起こしたもの
 
   record(
-    '画面に公開されている機能は、決めた関数だけ（登録・取り込み・画像・システム設定・設定・アイコンの11個）',
+    '画面に公開されている機能は、決めた関数だけ（登録・取り込み・画像・システム設定・設定・アイコンの10個）',
     JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp).sort()`)) ===
-      JSON.stringify(['clearCapture', 'createDesktopIcon', 'getAppStatus', 'getSettings', 'importImage', 'onCaptureStatus', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'saveSettings', 'startCapture']) &&
+      JSON.stringify(['clearCapture', 'createDesktopIcon', 'getSettings', 'importImage', 'onCaptureStatus', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'saveSettings', 'startCapture']) &&
       (await connection.evaluate(`typeof window.ipcRenderer === 'undefined' && typeof window.electron === 'undefined'`)),
   );
   const openedBefore = (await getOpenedUrls(mainConnection)).length;
