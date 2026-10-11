@@ -13,6 +13,7 @@ import {
   MAX_INPUT_LENGTH,
   WARNING_AMBIGUOUS_ORDER,
   WARNING_PAST,
+  WARNING_WEEKDAY_MISMATCH,
   extractDateCandidates,
 } from '../src/core/dateExtractor.js';
 
@@ -364,6 +365,24 @@ describe('英語圏の日付', () => {
     assert.deepEqual(ambiguous.start, dateTime(2026, 12, 11, null, null));
     assert.deepEqual(ambiguous.warnings, [WARNING_AMBIGUOUS_ORDER]);
     assert.deepEqual(extractSingle('11/11/2026').warnings, []);
+  });
+
+  test('書かれた曜日が日付と合わなければ警告を付ける（日付は書かれたとおり）：2026年10月15日は木曜', () => {
+    for (const text of ['10月15日(水)14時', '10/15（水曜日）', '2026年10月15日 水曜日', '10/15(水・祝)', 'Oct 15 (Wed)', '15 Oct 2026 (Wednesday)']) {
+      const candidate = extractSingle(text);
+      assert.deepEqual(candidate.start.day, 15, text);
+      assert.deepEqual(candidate.warnings, [WARNING_WEEKDAY_MISMATCH], text);
+    }
+  });
+
+  test('書かれた曜日が合っていれば警告なし', () => {
+    for (const text of ['10月15日(木)14時', '10/15（木曜日）', '2026年10月15日 木曜日', '10/15(木・祝)', 'Oct 15 (Thu)', '15 Oct 2026 (THURSDAY)']) {
+      assert.deepEqual(extractSingle(text).warnings, [], text);
+    }
+  });
+
+  test('過去の日付で曜日も合わなければ、両方の警告が付く：2026/5/10(月)（本当は日曜）', () => {
+    assert.deepEqual(extractSingle('2026/5/10(月)').warnings, [WARNING_WEEKDAY_MISMATCH, WARNING_PAST]);
   });
 
   test('過去の日付なら、順番の警告と過去の警告の両方が付く：05/10/2026 → 5月10日', () => {

@@ -60,6 +60,12 @@ export const WARNING_PAST = 'past';
 /** 警告コード：月と日の順番が決まらない英語の数字の日付（05/10/2026 など）を、月/日（米国式）として読んだ */
 export const WARNING_AMBIGUOUS_ORDER = 'ambiguousOrder';
 
+/** 警告コード：日付の後ろに書かれた曜日が、その日付の本当の曜日と合わない（例：2026年10月15日(水)。本当は木曜） */
+export const WARNING_WEEKDAY_MISMATCH = 'weekdayMismatch';
+
+/** 英語の曜日（先頭3文字・小文字）と、月曜始まりの曜日番号（月=0〜日=6）の対応 */
+const ENGLISH_WEEKDAY_NUMBERS = Object.freeze({ mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 });
+
 /** 2桁の年に足す数（26.10.15 → 2026年） */
 const TWO_DIGIT_YEAR_BASE = 2000;
 
@@ -122,11 +128,12 @@ const DATE_PATTERN = new RegExp(
 );
 
 /**
- * 日付の直後にある曜日の表記（読み飛ばすため）。例：(木) (木曜日) (月・祝) 木曜日 (Thu) (Thursday)
+ * 日付の直後にある曜日の表記（読み飛ばし、日付と合っているかを確かめるため）。例：(木) (木曜日) (月・祝) 木曜日 (Thu) (Thursday)
+ * 名前付きグループ：jpWeekday … 括弧内の漢字の曜日、enWeekday … 括弧内の英語の曜日（先頭3文字）、bareWeekday … 括弧なしの「木曜日」
  * y（sticky）フラグ：lastIndex で指定した位置からだけ一致を試す。i フラグ：英語の曜日の大文字・小文字。
  */
 const WEEKDAY_PATTERN =
-  /[ \t]{0,3}(?:\([ \t]{0,2}(?:[月火水木金土日](?:曜日?)?(?:[ \t]{0,2}[・･][ \t]{0,2}祝日?)?|(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]{0,6}\.?)[ \t]{0,2}\)|[月火水木金土日]曜日?)/iy;
+  /[ \t]{0,3}(?:\([ \t]{0,2}(?:(?<jpWeekday>[月火水木金土日])(?:曜日?)?(?:[ \t]{0,2}[・･][ \t]{0,2}祝日?)?|(?<enWeekday>Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]{0,6}\.?)[ \t]{0,2}\)|(?<bareWeekday>[月火水木金土日])曜日?)/iy;
 
 /**
  * 日付と時刻の間のつなぎ（空白、「の」「は」「、」、英語の at / from / @ など）。
@@ -239,10 +246,18 @@ export function extractDateCandidates(text, options = {}) {
       continue; // 実在しない日付（2月30日など）は候補にしない
     }
 
-    // 月日の書かれた日付の後ろに曜日があれば読み飛ばす（「明日」「来週火曜」の後ろは読み飛ばさない）
+    // 月日の書かれた日付の後ろに曜日があれば読み飛ばす（「明日」「来週火曜」の後ろは読み飛ばさない）。
+    // 書かれた曜日が日付の本当の曜日と合わなければ警告を付ける（日付は書かれたとおりに使い、利用者に確かめてもらう）
     let cursor = match.index + match[0].length;
+    const dateWarnings = [...resolved.warnings];
     if (match.groups.tomorrow === undefined && match.groups.tomorrowEn === undefined && match.groups.nextWeekWeekday === undefined) {
-      cursor = skipPattern(WEEKDAY_PATTERN, normalizedText, cursor);
+      const weekdayMatch = matchAt(WEEKDAY_PATTERN, normalizedText, cursor);
+      if (weekdayMatch !== null) {
+        cursor += weekdayMatch[0].length;
+        if (toMondayBasedWeekday(weekdayMatch.groups) !== getMondayBasedWeekday(resolved.date)) {
+          dateWarnings.push(WARNING_WEEKDAY_MISMATCH);
+        }
+      }
     }
 
     // 日付の直後（つなぎの言葉の後）に時刻があれば読み取る。なければ、次の行の「時間：」「Time:」の時刻を探す
@@ -250,7 +265,7 @@ export function extractDateCandidates(text, options = {}) {
       matchTimeRange(normalizedText, skipPattern(CONNECTOR_PATTERN, normalizedText, cursor)) ??
       matchNextLineTimeRange(normalizedText, cursor);
     const range = { start: match.index, end: timeRange === null ? cursor : timeRange.endIndex };
-    const candidate = buildCandidate(resolved.date, timeRange, current, defaultDurationMinutes, resolved.warnings);
+    const candidate = buildCandidate(resolved.date, timeRange, current, defaultDurationMinutes, dateWarnings);
 
     // 同じ日時がすでにあれば、新しい候補は作らず、色付けする位置だけ追加する
     const key = getCandidateKey(candidate);
@@ -315,6 +330,19 @@ function validateArguments(text, now, defaultDurationMinutes) {
 function matchAt(pattern, text, index) {
   pattern.lastIndex = index;
   return pattern.exec(text);
+}
+
+/**
+ * WEEKDAY_PATTERN で読み取った曜日を、月曜始まりの曜日番号にする。
+ *
+ * @param {object} groups WEEKDAY_PATTERN の名前付きグループ（jpWeekday / enWeekday / bareWeekday のどれか1つが入る）
+ * @returns {number} 月=0〜日=6
+ */
+function toMondayBasedWeekday(groups) {
+  if (groups.enWeekday !== undefined) {
+    return ENGLISH_WEEKDAY_NUMBERS[groups.enWeekday.toLowerCase()];
+  }
+  return WEEKDAY_CHARACTERS.indexOf(groups.jpWeekday ?? groups.bareWeekday);
 }
 
 /**
@@ -661,7 +689,7 @@ function applyMeridiem(hour, meridiem) {
  * @param {{startTime: object, endTime: object | null} | null} timeRange 時刻（なければ null）
  * @param {{year: number, month: number, day: number, hour: number, minute: number}} current 現在の東京の日時
  * @param {number} defaultDurationMinutes 終了時刻がないときの予定の長さ（分）
- * @param {string[]} [dateWarnings] 日付の読み方に関する警告（WARNING_AMBIGUOUS_ORDER など）
+ * @param {string[]} [dateWarnings] 日付の読み方に関する警告（WARNING_AMBIGUOUS_ORDER、WARNING_WEEKDAY_MISMATCH など）
  * @returns {{
  *   hasTime: boolean,        時刻の記載があるか（false なら日付だけ。画面で終日か時刻指定かを尋ねる）
  *   start: object,           開始日時 {year, month, day, hour, minute}。hasTime が false なら hour/minute は null

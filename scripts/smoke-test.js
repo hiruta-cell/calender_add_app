@@ -1052,6 +1052,12 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
      document.querySelectorAll('.candidate-item')[1].querySelector('.time-choice input[value="allDay"]')?.checked === true`,
   ));
 
+  // 8. 書かれた曜日が日付と合わない → 候補に警告を表示する（2030年1月1日は火曜日。架空の文面）
+  await replaceInputText(connection, '打ち合わせ 2030年1月1日(月) 10:00');
+  await clickButton(connection, '日時を抽出');
+  const weekdayWarning = await connection.evaluate(`document.querySelector('.candidate-item .badge-warning')?.textContent ?? ''`);
+  record('曜日が日付と合わないと警告を表示する', weekdayWarning.includes('書かれた曜日と日付が合いません'), weekdayWarning);
+
   // 5. 長すぎる文章 → エラーを表示して待機状態に戻る
   await replaceInputText(connection, 'あ'.repeat(MAX_INPUT_LENGTH + 1));
   await clickButton(connection, '日時を抽出');

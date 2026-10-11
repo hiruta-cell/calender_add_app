@@ -3,13 +3,14 @@
  * 目的：抽出した日時の候補を、画面に表示する文字列に整える。
  */
 
-import { WARNING_AMBIGUOUS_ORDER, WARNING_PAST } from './dateExtractor.js';
+import { WARNING_AMBIGUOUS_ORDER, WARNING_PAST, WARNING_WEEKDAY_MISMATCH } from './dateExtractor.js';
 import { WEEKDAY_CHARACTERS, compareDates, getMondayBasedWeekday } from './dateUtils.js';
 
 /** 警告コードと、利用者に表示する文の対応表 */
 export const WARNING_MESSAGES = Object.freeze({
   [WARNING_PAST]: '過去の日時です',
   [WARNING_AMBIGUOUS_ORDER]: '月と日の順番を確認してください（月/日として読みました）',
+  [WARNING_WEEKDAY_MISMATCH]: '書かれた曜日と日付が合いません。日付を確認してください',
 });
 
 /** 対応表にない警告コードのときに表示する文 */
