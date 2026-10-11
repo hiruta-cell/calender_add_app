@@ -14,20 +14,31 @@
  *   実際のブラウザは開かない（アプリ本体に確認用のコードは入れない）。
  *   範囲キャプチャの確認では、画面を撮影する関数（desktopCapturer.getSources）を、架空の画像を返す関数に差し替える。
  *   そのため Mac の画面収録の許可は要らず、利用者の実際の画面も撮影しない。
+ *   アプリは専用の一時的な設定フォルダ（--user-data-dir）で起動し、利用者の設定（settings.json）を書き換えない。
+ *   アプリのウインドウは「選択せずに表示」する（メインプロセスで show・focus を差し替える）。確認の間に利用者が
+ *   別のアプリで打った文字が、確認中の画面に入って確認が乱れないようにするため（実際に起きた）。
+ *   確認が終わったら（止まったとき・中断したときも）、その設定フォルダを消す。
+ *   デスクトップのアイコンの作成と自動起動のオン／オフは、利用者の PC を書き換えるため押さない
+ *   （単体テストで一時フォルダに作って確かめ、実機では手動で確かめる）。
  *
  * 入力に使う文面はすべて架空のもの（CLAUDE.md：実際のメールを使わない）。
  */
 
 import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import electronPath from 'electron';
 import { APP_ENTRY_URL } from '../electron/appProtocol.js';
+import { HIDDEN_START_ARGUMENT } from '../electron/desktopIntegration.js';
+import { SETTINGS_FILE_NAME } from '../electron/settingsStore.js';
 import { AUTO_RESET_DELAY_MS, AUTO_RESET_DELAY_SECONDS } from '../src/core/autoReset.js';
 import { formatCalendarDate, formatCalendarDateTime } from '../src/core/calendarUrl.js';
 import { MAX_INPUT_LENGTH, extractDateCandidates } from '../src/core/dateExtractor.js';
 import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
+import { DEFAULT_SETTINGS } from '../src/core/settings.js';
 
 /** プロジェクトのフォルダ */
 const PROJECT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,6 +60,9 @@ const UI_SETTLE_MS = 300;
 
 /** 登録のあと、確認ウインドウが最小化される（・元に戻る）のを待つ上限（ミリ秒）。Mac は最小化の動きに 0.5 秒ほどかかる */
 const MINIMIZE_WAIT_MS = 3_000;
+
+/** --hidden 付きの起動で、画面の読み込みが終わってから「表示されていない」ことを確かめるまで待つ時間（ミリ秒） */
+const HIDDEN_START_SETTLE_MS = 1_000;
 
 /** 自動のクリアの確認で、60秒の代わりに待つ時間（ミリ秒）。確認全体の時間を短くするため */
 const AUTO_RESET_TEST_DELAY_MS = 1_000;
@@ -91,6 +105,17 @@ let launchedApp = null;
 
 /** 確認が止まったことを見張るタイマー（確認の結果が出るたびに、最初から数え直す） */
 let idleTimer = null;
+
+/** 確認用の一時的な設定フォルダ（利用者の設定を書き換えないため。確認が終わったら消す） */
+const userDataDir = mkdtempSync(path.join(os.tmpdir(), 'calendar-add-app-smoke-'));
+
+/**
+ * 確認用の設定フォルダを消す（プロセスの終了時に必ず呼ばれる。止まったとき・中断したときも）。
+ */
+function removeTemporaryUserData() {
+  rmSync(userDataDir, { recursive: true, force: true, maxRetries: 3 });
+}
+process.on('exit', removeTemporaryUserData);
 
 /**
  * 止まったことを見張るタイマーを、最初から数え直す（確認を始めるときと、確認の結果が1件出るたびに呼ぶ）。
@@ -223,14 +248,15 @@ class DevToolsConnection {
 /**
  * Electron を、確認用の接続口（DevTools）付きで起動する。
  *
+ * @param {string[]} [appArguments] アプリに渡す引数（例：--hidden）
  * @returns {Promise<{child: import('node:child_process').ChildProcess, port: number, mainInspectorUrl: string}>}
  */
-function launchApp() {
+function launchApp(appArguments = []) {
   // ELECTRON_RUN_AS_NODE が設定されていると Electron が Node.js として動いてしまうため外す
   const environment = { ...process.env };
   delete environment.ELECTRON_RUN_AS_NODE;
 
-  const child = spawn(electronPath, ['--inspect=0', '--remote-debugging-port=0', PROJECT_DIR], {
+  const child = spawn(electronPath, ['--inspect=0', '--remote-debugging-port=0', `--user-data-dir=${userDataDir}`, PROJECT_DIR, ...appArguments], {
     cwd: PROJECT_DIR,
     env: environment,
     stdio: ['ignore', 'ignore', 'pipe'],
@@ -341,6 +367,79 @@ async function setInputValue(connection, selector, value) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
   await sleep(UI_SETTLE_MS);
+}
+
+/**
+ * React が管理する選択肢の欄（<select>）の値を変える（実際の選択と同じ change イベントを起こす）。
+ *
+ * @param {DevToolsConnection} connection
+ * @param {string} selector 選択肢の欄の CSS セレクター
+ * @param {string} value 選ぶ値
+ */
+async function setSelectValue(connection, selector, value) {
+  await connection.evaluate(`(() => {
+    const select = document.querySelector(${JSON.stringify(selector)});
+    if (!select) throw new Error('選択肢の欄が見つかりません');
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+    setter.call(select, ${JSON.stringify(value)});
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await sleep(UI_SETTLE_MS);
+}
+
+/**
+ * 確認の間、アプリのウインドウが利用者の操作中のアプリから選択（フォーカス）を奪わないようにする。
+ * メインプロセスで、ウインドウの表示（show）を「選択せずに表示」（showInactive）に、
+ * 選択（focus）と、アプリを前面に出す処理（app.focus）を、何もしない関数に差し替える。
+ *
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ */
+async function preventFocusStealing(mainConnection) {
+  const response = await mainConnection.send('Runtime.evaluate', {
+    expression: `(() => {
+      const { app, BrowserWindow } = require('electron');
+      BrowserWindow.prototype.show = function show() { this.showInactive(); };
+      BrowserWindow.prototype.focus = function focus() {};
+      app.focus = () => {};
+      return true;
+    })()`,
+    includeCommandLineAPI: true,
+    returnByValue: true,
+  });
+  if (response.exceptionDetails || response.result.value !== true) {
+    throw new Error('メインプロセスのウインドウの表示を差し替えられませんでした');
+  }
+}
+
+/**
+ * --hidden で起動した確認ウインドウを、選択せずに表示する（利用者の操作を邪魔しないため）。
+ *
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ */
+async function showMainWindowWithoutFocus(mainConnection) {
+  // 起動直後は画面の読み込み中で URL がまだ空のことがあるため、見つかるまで待つ（上限 STEP_TIMEOUT_MS）
+  const deadline = Date.now() + STEP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const response = await mainConnection.send('Runtime.evaluate', {
+      expression: `(() => {
+        const { BrowserWindow } = require('electron');
+        const window = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().startsWith(${JSON.stringify(APP_ENTRY_URL)}));
+        if (window === undefined) return false;
+        window.showInactive();
+        return true;
+      })()`,
+      includeCommandLineAPI: true,
+      returnByValue: true,
+    });
+    if (response.exceptionDetails) {
+      break;
+    }
+    if (response.result.value === true) {
+      return;
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  throw new Error('確認ウインドウを表示できませんでした');
 }
 
 /**
@@ -914,6 +1013,132 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
 }
 
 /**
+ * 設定画面の確認：予定の長さ・ホットキーを変えて保存すると、抽出・ホットキー・設定ファイルに反映される。
+ * 確認の最後に元の設定（60分・Ctrl/Cmd+Shift+Y）に戻す（このあとの範囲キャプチャの確認で使うため）。
+ * デスクトップのアイコンと自動起動は、利用者の PC を書き換えるため押さない。
+ *
+ * @param {DevToolsConnection} connection 画面への接続
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ * @param {string} screenshotDir 画像の保存先
+ * @returns {Promise<string>} 保存した設定画面の画像のパス
+ */
+async function checkSettings(connection, mainConnection, screenshotDir) {
+  /** 設定画面を開き、今の設定を読み込み終わるまで待つ */
+  const openSettings = async () => {
+    await clickButton(connection, '設定');
+    await waitFor(connection, `document.querySelector('.settings-dialog')?.open === true && !document.querySelector('#settings-duration').disabled`);
+  };
+  /** 「保存」を押し、設定画面が閉じるまで待つ */
+  const saveSettings = async () => {
+    await clickButton(connection, '保存');
+    await waitFor(connection, `document.querySelector('.settings-dialog')?.open === false`);
+  };
+  /** メインプロセスで、ホットキーが登録されているかを調べる */
+  const isHotkeyRegistered = async (accelerator) => {
+    const response = await mainConnection.send('Runtime.evaluate', {
+      expression: `require('electron').globalShortcut.isRegistered(${JSON.stringify(accelerator)})`,
+      includeCommandLineAPI: true,
+      returnByValue: true,
+    });
+    return response.result?.value === true;
+  };
+
+  await openSettings();
+  record(
+    '設定画面が開き、今の設定（既定：60分・Ctrl/Cmd+Shift+Y）が表示される',
+    await connection.evaluate(`document.querySelector('#settings-duration').value === '60' &&
+      document.querySelector('#settings-hotkey-modifiers').value === 'CommandOrControl+Shift' &&
+      document.querySelector('#settings-hotkey-key').value === 'Y'`),
+  );
+  record(
+    '設定画面に、ログイン時の自動起動のチェックと「デスクトップにアイコンを作る」ボタンがある',
+    await connection.evaluate(`document.querySelector('#settings-auto-start')?.type === 'checkbox' &&
+      [...document.querySelectorAll('.settings-dialog button')].some((button) => button.textContent.includes('デスクトップにアイコンを作る'))`),
+  );
+  const settingsImage = await saveScreenshot(connection, screenshotDir, '06-settings.png');
+
+  // 予定の長さを30分、ホットキーを Ctrl/Cmd+Shift+U に変えて保存する
+  await setSelectValue(connection, '#settings-duration', '30');
+  await setSelectValue(connection, '#settings-hotkey-key', 'U');
+  await saveSettings();
+  record(
+    'ホットキーを変えて保存すると、新しいキーだけが登録される（前のキーは解除）',
+    (await isHotkeyRegistered('CommandOrControl+Shift+U')) && !(await isHotkeyRegistered('CommandOrControl+Shift+Y')),
+  );
+  const captureButtonLabel = await connection.evaluate(
+    `[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る'))?.textContent ?? ''`,
+  );
+  record('「画面から読み取る」ボタンのキーの表記も変わる', captureButtonLabel.includes('+Shift+U'), captureButtonLabel);
+  const savedText = await readFile(path.join(userDataDir, SETTINGS_FILE_NAME), 'utf8');
+  record(
+    '設定は、専用の設定フォルダの settings.json に設定の項目だけ保存される',
+    savedText === `${JSON.stringify({ durationMinutes: 30, hotkeyModifiers: 'CommandOrControl+Shift', hotkeyKey: 'U' }, null, 2)}\n`,
+    savedText.replaceAll('\n', ' '),
+  );
+  await replaceInputText(connection, DEMO_TEXT);
+  await clickButton(connection, '日時を抽出');
+  const secondCandidate = await connection.evaluate(`document.querySelectorAll('.candidate-item')[1]?.textContent ?? ''`);
+  record(
+    '予定の長さを30分にすると、終了時刻のない候補が30分になる（来週火曜 15:30〜16:00）',
+    secondCandidate.includes('15:30〜16:00') && secondCandidate.includes('30分で設定'),
+    secondCandidate,
+  );
+
+  // 元の設定に戻す
+  await openSettings();
+  await setSelectValue(connection, '#settings-duration', '60');
+  await setSelectValue(connection, '#settings-hotkey-key', 'Y');
+  await saveSettings();
+  record(
+    '元の設定（60分・Ctrl/Cmd+Shift+Y）に戻せる',
+    (await isHotkeyRegistered('CommandOrControl+Shift+Y')) && !(await isHotkeyRegistered('CommandOrControl+Shift+U')),
+  );
+  await clickButton(connection, 'クリア');
+  return settingsImage;
+}
+
+/**
+ * ログイン時の自動起動と同じ --hidden 付きで起動すると、確認ウインドウを出さずに常駐する（ホットキーは使える）ことを確かめる
+ * （要件§12：G8）。機能の確認のあとで、同じ一時的な設定フォルダを使ってもう一度起動する。
+ */
+async function checkHiddenStart() {
+  const { mainInspectorUrl } = await launchApp([HIDDEN_START_ARGUMENT]);
+  const mainConnection = new DevToolsConnection(mainInspectorUrl);
+  /** 確認ウインドウの状態（読み込み中・まだ作られていなければ null） */
+  const readWindowState = async () => {
+    const response = await mainConnection.send('Runtime.evaluate', {
+      expression: `(() => {
+        const { BrowserWindow, globalShortcut } = require('electron');
+        const window = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().startsWith(${JSON.stringify(APP_ENTRY_URL)}));
+        if (window === undefined || window.webContents.isLoading()) return null;
+        return JSON.stringify({ visible: window.isVisible(), hotkeyRegistered: globalShortcut.isRegistered('CommandOrControl+Shift+Y') });
+      })()`,
+      includeCommandLineAPI: true,
+      returnByValue: true,
+    });
+    return response.result?.value ?? null;
+  };
+  try {
+    await mainConnection.open();
+    const deadline = Date.now() + STEP_TIMEOUT_MS;
+    while ((await readWindowState()) === null && Date.now() < deadline) {
+      await sleep(POLL_INTERVAL_MS);
+    }
+    await sleep(HIDDEN_START_SETTLE_MS); // 読み込みのあとで表示されないことを確かめるため、少し待ってから見る
+    const state = await readWindowState();
+    const parsed = state === null ? null : JSON.parse(state);
+    record(
+      '自動起動と同じ --hidden 付きで起動すると、確認ウインドウを出さずに常駐する（ホットキーは使える）',
+      parsed !== null && parsed.visible === false && parsed.hotkeyRegistered === true,
+      state ?? '確認ウインドウが作られませんでした',
+    );
+  } finally {
+    mainConnection.close();
+    await stopLaunchedApp();
+  }
+}
+
+/**
  * 自動のクリアの確認：登録のあと操作しなければ表示が初期状態に戻り、先に操作すると戻らないこと（依頼者の指示）。
  * 本来は60秒待つが、確認では画面の setTimeout のうち60秒のものだけを短くする（アプリ本体に確認用のコードは入れない）。
  *
@@ -972,9 +1197,9 @@ async function checkSecurity(connection, mainConnection) {
   isExpectingErrors = true; // ここで起きるエラーは意図的に起こしたもの
 
   record(
-    '画面に公開されている機能は、決めた関数だけ（登録・取り込み・画像・設定画面の8つ）',
+    '画面に公開されている機能は、決めた関数だけ（登録・取り込み・画像・システム設定・設定・アイコンの11個）',
     JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp).sort()`)) ===
-      JSON.stringify(['clearCapture', 'getAppStatus', 'importImage', 'onCaptureStatus', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'startCapture']) &&
+      JSON.stringify(['clearCapture', 'createDesktopIcon', 'getAppStatus', 'getSettings', 'importImage', 'onCaptureStatus', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'saveSettings', 'startCapture']) &&
       (await connection.evaluate(`typeof window.ipcRenderer === 'undefined' && typeof window.electron === 'undefined'`)),
   );
   const openedBefore = (await getOpenedUrls(mainConnection)).length;
@@ -993,6 +1218,21 @@ async function checkSecurity(connection, mainConnection) {
   record(
     '不正な画像の取り込み要求（形式違い・PNG でない・空）は断られる',
     JSON.stringify(invalidImportResults) === JSON.stringify([false, false, false]),
+  );
+  // 不正な設定の保存要求（どれも検証で断られるため、自動起動などの OS の登録には届かない）
+  const invalidSettingsResults = await connection.evaluate(`Promise.all([
+    window.calendarApp.saveSettings('not an object'),
+    window.calendarApp.saveSettings({ durationMinutes: 7, hotkeyModifiers: 'CommandOrControl+Shift', hotkeyKey: 'Y', autoStart: false }),
+    window.calendarApp.saveSettings({ durationMinutes: 60, hotkeyModifiers: 'Shift', hotkeyKey: 'Y', autoStart: false }),
+    window.calendarApp.saveSettings({ durationMinutes: 60, hotkeyModifiers: 'CommandOrControl+Shift', hotkeyKey: 'Y', autoStart: 'yes' }),
+    window.calendarApp.saveSettings({ durationMinutes: 60, hotkeyModifiers: 'CommandOrControl+Shift', hotkeyKey: 'Y', autoStart: false, extra: 1 }),
+  ]).then((results) => results.map((result) => result.ok))`);
+  const settingsAfterInvalid = await connection.evaluate(`window.calendarApp.getSettings().then((result) => JSON.stringify(result.settings))`);
+  record(
+    '不正な設定の保存要求（形式違い・選択肢にない値・Ctrl なしのキー・項目の過不足）は断られ、設定は変わらない',
+    JSON.stringify(invalidSettingsResults) === JSON.stringify([false, false, false, false, false]) &&
+      settingsAfterInvalid === JSON.stringify(DEFAULT_SETTINGS),
+    settingsAfterInvalid,
   );
   record(
     '不正な登録要求（形式違い・空・長すぎる件名・31件）はメインプロセスで断られ、何も開かず、最小化もしない',
@@ -1031,14 +1271,19 @@ async function main() {
   const screenshotDir =
     screenshotDirIndex !== -1 ? path.resolve(process.argv[screenshotDirIndex + 1]) : path.join(PROJECT_DIR, 'test-results');
 
-  const { child, port, mainInspectorUrl } = await launchApp();
+  // ウインドウを出さずに起動し（--hidden）、選択を奪わない形にしてから表示する
+  const { child, port, mainInspectorUrl } = await launchApp([HIDDEN_START_ARGUMENT]);
   let connection = null;
   let mainConnection = null;
   try {
     mainConnection = new DevToolsConnection(mainInspectorUrl);
     await mainConnection.open();
+    await preventFocusStealing(mainConnection);
     await replaceOpenExternal(mainConnection);
     connection = await connectToMainWindow(port);
+    await showMainWindowWithoutFocus(mainConnection);
+    // ウインドウが選択されていなくても、画面の中では選択されているものとして動かす（入力欄への入力のため）
+    await connection.send('Emulation.setFocusEmulationEnabled', { enabled: true });
     // 画面のエラー（例外・console.error・CSP 違反などのログ）を集める
     connection.eventListeners.push((message) => {
       const isError =
@@ -1055,6 +1300,7 @@ async function main() {
 
     const images = await checkFeatures(connection, mainConnection, screenshotDir);
     await checkAutoReset(connection, mainConnection);
+    images.push(await checkSettings(connection, mainConnection, screenshotDir));
     images.push(...(await checkCapture(connection, mainConnection, port, screenshotDir)));
     record('機能確認の間に画面のエラーが起きていない', unexpectedErrors.length === 0, unexpectedErrors.join(' | '));
     await checkSecurity(connection, mainConnection);
@@ -1065,6 +1311,7 @@ async function main() {
     mainConnection?.close();
     await stopLaunchedApp();
   }
+  await checkHiddenStart();
 
   const failedCount = results.filter((result) => !result.passed).length;
   console.log(`\n合格 ${results.length - failedCount} 件 / 不合格 ${failedCount} 件`);

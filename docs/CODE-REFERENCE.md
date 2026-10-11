@@ -2,7 +2,7 @@
 
 コードを追加・改名・削除したら、同じ変更の中でこの一覧も更新する（[CLAUDE.md](../CLAUDE.md) 参照）。
 
-- 最終更新：2026-10-11（3日目：常駐・ホットキー・範囲キャプチャ・OCR・手入力の改善）
+- 最終更新：2026-10-11（4日目：設定画面・デスクトップのアイコン・ログイン時の自動起動）
 - 「公開」は他のファイルから使えるもの（export）、「内部」はそのファイルの中だけで使うもの
 
 ## フォルダの意味
@@ -15,7 +15,8 @@
 | `src/renderer/components/` | 画面を構成する部品（入力欄、候補の一覧、ポップアップなど） |
 | `electron/` | Electron のメインプロセス。アプリの起動、ウインドウ、セキュリティ設定など PC 側の処理 |
 | `scripts/` | 開発者用の補助スクリプト（実機の自動確認、テスト用の画像やアイコンの作成） |
-| `assets/icons/` | タスクトレイ（Mac はメニューバー）のアイコン（コードで描いたもの） |
+| `assets/icons/` | タスクトレイ（Mac はメニューバー）のアイコンと、アプリのアイコン（app.png・Windows 用 app.ico・Mac 用 app.icns）。どれもコードで描いたもの |
+| `launcher/` | Mac で「デスクトップにアイコンを作る」を押すと作られる起動用の .app（デスクトップにはここへの別名を置く）。利用者ごとに場所が違うため Git には含めない |
 | `demo/images/` | 読み取りテストと発表のデモに使う架空の文面の画像（日本語のメール・チャット・縦書き・英語のメール、SNS 風の告知・写真の上の文字・傾いた紙の連絡状・ライブ告知） |
 | `test/` | 単体テスト（Node.js 標準の `node:test`） |
 | `test/fixtures/` | テスト用の小さなファイル（app:// の配信テスト、OCR のテスト用の架空の画像） |
@@ -44,6 +45,7 @@
 | `src/core/registration.js` | 選んだ候補と入力欄の内容から、登録する予定の一覧を作る（終日／時刻指定、手入力の候補も） |
 | `src/core/autoReset.js` | 登録のあと、60秒操作がなければ表示を初期状態に戻す「自動のクリア」を予約する（操作したら取り消す） |
 | `src/core/ocrText.js` | OCR の結果の文章を整える（日本語の文字の間の余分な空白を除く） |
+| `src/core/settings.js` | 設定（予定の既定の長さ・ホットキー）の既定値・選択肢・検証と、ホットキーの表記 |
 | `src/renderer/index.html` | 確認ウインドウの土台となる HTML |
 | `src/renderer/overlay.html` / `overlay.js` / `overlay.css` | 範囲選択の画面（撮影した画面を暗く表示し、ドラッグで範囲を選ぶ。Esc・右クリックで中止） |
 | `src/renderer/main.jsx` | 画面の起点。App を描画し、エラーを受け止める枠で包む |
@@ -59,9 +61,13 @@
 | `src/renderer/components/RegisterSection.jsx` | 「Googleカレンダーで開く」ボタンと、開いたあとの案内（右の欄の下端に固定） |
 | `src/renderer/components/NoDateDialog.jsx` | 「日時の情報がありません」のポップアップ（その場で日付・時刻を手入力して「追加する」） |
 | `src/renderer/components/CaptureImagePanel.jsx` | 取り込んだ画像・読み取りの状態・「横書き／縦書きで読み直す」 |
+| `src/renderer/components/SettingsDialog.jsx` | 設定画面（予定の既定の長さ・ホットキー・ログイン時の自動起動・デスクトップにアイコンを作る） |
 | `src/renderer/components/ErrorBanner.jsx` | エラーの内容を画面上部に表示する |
 | `src/renderer/components/ErrorBoundary.jsx` | 画面の表示中のエラーを受け止め、最初の画面に戻れるようにする |
-| `electron/main.js` | アプリの起動、確認ウインドウ、常駐（トレイ）、ホットキー、多重起動の防止、画面との通信の受け付けの登録 |
+| `electron/main.js` | アプリの起動、確認ウインドウ、常駐（トレイ）、ホットキー、設定の読み込み、デスクトップのアイコン・自動起動の実行、多重起動の防止、画面との通信の受け付けの登録 |
+| `electron/settingsStore.js` | 設定を userData/settings.json に保存・読み込みする（設定だけ。本人だけが読める権限で、書きかけで壊れないように保存） |
+| `electron/settingsIpc.js` | 設定の読み込み・保存・デスクトップのアイコン作成の通信の受け付け（送信元・内容の検証、失敗したら元に戻す） |
+| `electron/desktopIntegration.js` | デスクトップのアイコンとログイン時の自動起動の中身を作る（Mac：起動用の .app・別名・LaunchAgent、Windows：ショートカット・ログイン項目の設定） |
 | `electron/tray.js` | タスクトレイ（Mac はメニューバー）のアイコンとメニュー |
 | `electron/captureController.js` | 範囲キャプチャから OCR までの流れ（撮影・範囲選択・切り出し・拡大・OCR・失敗時の後始末） |
 | `electron/captureGeometry.js` | 範囲選択の座標の検証と、画面の座標から画像の画素への変換 |
@@ -69,14 +75,14 @@
 | `electron/captureIpc.js` | 範囲キャプチャの通信の受け付け（送信元・読み直しの向きの検証） |
 | `electron/overlayPreload.cjs` | 範囲選択の画面に「選んだ範囲を送る」「中止する」の2つだけを公開する |
 | `electron/screenPermission.js` | Mac の画面収録の許可がないとき、起動元のアプリ（ターミナル・VSCode など）の名前を入れて案内する |
-| `electron/preload.cjs` | 確認ウインドウに、登録・確認・範囲キャプチャに必要な関数だけを公開する |
-| `electron/calendarIpc.js` | 画面からの登録要求・確認の要求を検証し、予定作成画面・その日の表示を既定のブラウザで開く |
+| `electron/preload.cjs` | 確認ウインドウに、登録・範囲キャプチャ・設定に必要な関数だけを公開する |
+| `electron/calendarIpc.js` | 画面からの登録要求を検証し、予定作成画面を既定のブラウザで開く |
 | `electron/ocrEngine.js` | 画像から文字を読み取る（Tesseract.js。横書き・縦書き、PC 内の文字データだけを使う） |
 | `electron/appProtocol.js` | 画面ファイルを app:// で配信し、CSP を付ける（配信フォルダの外は読ませない） |
 | `electron/security.js` | セキュリティ設定（隔離、外部通信の遮断、権限要求の拒否、外部への移動の禁止） |
 | `scripts/smoke-test.js` | アプリを実際に起動し、画面を自動操作して機能とセキュリティを確認する |
 | `scripts/generate-ocr-fixtures.js` | OCR のテスト用の画像（架空の文章）を作る（開発者が一度だけ実行） |
-| `scripts/generate-icons.js` | トレイのアイコンをコードで描いて作る（開発者がアイコンを作り直すときだけ実行） |
+| `scripts/generate-icons.js` | トレイとアプリのアイコンをコードで描いて作る（開発者がアイコンを作り直すときだけ実行） |
 | `scripts/generate-demo-images.js` | デモ用の架空の文面の画像を作る（開発者がデモ画像を作り直すときだけ実行） |
 | `test/*.test.js` | 各ファイルの単体テスト（詳しくは末尾の「test/」の表） |
 | `README.md` | 利用者向けの説明（起動手順、使い方、対応する書き方） |
@@ -319,6 +325,21 @@
 | `EXCESS_BLANK_LINES_PATTERN` | 定数（内部） | 3行以上続く空行 | 空行を詰める |
 | `cleanOcrText(text)` | 関数（公開） | OCR の結果を整える | 日時の抽出で読める形にする |
 
+## src/core/settings.js（設定の既定値・選択肢・検証）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `DURATION_CHOICES` | 定数（公開） | 15・30・45・60・90・120（分） | 予定の既定の長さの選択肢 |
+| `HOTKEY_MODIFIER_CHOICES` | 定数（公開） | Ctrl（Mac は Cmd）+Shift ／ +Alt ／ +Alt+Shift | Ctrl・Cmd を必ず含め、普段の文字入力を横取りしない |
+| `HOTKEY_KEY_CHOICES` | 定数（公開） | A〜Z・0〜9 | ホットキーの文字 |
+| `DEFAULT_SETTINGS` | 定数（公開） | 60分・CommandOrControl+Shift・Y | 要件§5.4・§12 の既定値 |
+| `SETTING_KEYS` / `MODIFIER_LABELS` | 定数（内部） | 設定の項目名／修飾キーの表示名（Windows：Ctrl・Alt、Mac：Cmd・Option） | 検証・表記 |
+| `SettingsError` | クラス（公開） | 利用者向けの文付きのエラー | 画面に表示できるエラー |
+| `validateSettings(rawSettings)` | 関数（公開） | 画面から届いた設定を厳しく検証する（項目の過不足・選択肢にない値は断る） | IPC の引数の検証 |
+| `normalizeStoredSettings(storedSettings)` | 関数（公開） | ファイルから読んだ設定を整える（おかしな項目は既定値、知らない項目は捨てる） | ファイルが壊れていても起動できる |
+| `buildAccelerator(settings)` | 関数（公開） | Electron に登録するホットキーの表記を作る（例：CommandOrControl+Shift+Y） | ホットキーの登録 |
+| `formatModifierLabel(hotkeyModifiers, isMac)` / `formatHotkeyLabel(settings, isMac)` | 関数（公開） | 利用者に見せる表記（例：Ctrl+Shift+Y、Mac は Cmd+Shift+Y） | ボタン・トレイ・設定画面の表示 |
+
 ## src/renderer/（画面）
 
 ### main.jsx
@@ -352,6 +373,8 @@
 | `autoResetId` / `autoResetSequenceRef` | 状態・参照 | 自動のクリアの予約番号（0 なら予約なし）／その通し番号 | 登録のたびに60秒を数え直す。操作・読み取りで 0 に戻して取り消す |
 | `capture` | 状態 | 範囲キャプチャの状態（EMPTY_CAPTURE の形） | 読み取り中の表示、取り込んだ画像、精度の案内 |
 | `hotkeyLabel` | 状態 | ホットキーの表記 | ボタンに表示する |
+| `durationMinutes` | 状態 | 予定の既定の長さ（分。起動時に設定から読む） | 終了時刻がないときの長さ（設定画面で変えられる） |
+| `isSettingsOpen` | 状態 | 設定画面を表示中か | ヘッダーの「設定」ボタン |
 | `captureStatusHandlerRef` | 参照 | 読み取り結果を受け取る最新の処理 | 起動時に1回だけ登録しても最新の処理を呼ぶ |
 | `resetToInitialStateRef` | 参照 | 表示を初期状態に戻す最新の処理 | 自動のクリアから呼ぶ |
 | `allCandidates` | 計算値 | 抽出した候補と手入力の候補 | 候補の一覧・登録に使う |
@@ -372,6 +395,7 @@
 | `handleAddFromDialog(entry)` | 関数 | ポップアップで入れた日時を候補に加える | 手入力（依頼者の指摘で、ポップアップの中で完結する形に改善） |
 | `handleDetailChange(field, value)` | 関数 | 予定の内容の入力欄を変える | 追記（要件§5.5） |
 | `handleRegister()` | 関数 | 内容を確かめ、メインプロセスに予定作成画面を開いてもらう。開けたら件数を案内し、自動のクリアを予約する | 登録ボタン（要件§5.6） |
+| `handleSettingsSaved(result)` | 関数 | 保存した設定（予定の長さ・ホットキーの表記）を画面に反映し、ホットキーが使えるようになったら案内を消す | 設定画面の「保存」 |
 
 ### imageImport.js（画像の取り込み）
 
@@ -419,6 +443,10 @@
 | CaptureImagePanel.jsx | `ORIENTATION_LABELS` | 定数 | 向きの表示名（横書き・縦書き） | 読み取った向きの表示 |
 | CaptureImagePanel.jsx | `CaptureImagePanel` | コンポーネント | 取り込んだ画像、読み取り中、向きと確信度、精度が低い・読めないときの案内、読み直しのボタン | 要件§6.1・§12 |
 | NoDateDialog.jsx | `dialogRef` | 参照 | `<dialog>` 要素 | 開閉（`showModal` / `close`）を呼ぶ |
+| SettingsDialog.jsx | `LOAD_ERROR_MESSAGE` / `UNEXPECTED_ERROR_MESSAGE` | 定数 | 読み込めなかった／予期しないエラーの表示文 | 内容を含めずに知らせる |
+| SettingsDialog.jsx | `SettingsDialog` | コンポーネント | 設定画面のポップアップ（`<dialog>`）。開くたびに今の設定を読み込む。選択肢は settings.js の決まったものだけ | 要件§6.1・§12（ゴール G7・G8） |
+| SettingsDialog.jsx | `form` / `autoStart` / `autoStartSupported` / `isMac` / `isLoaded` / `isBusy` / `errorMessage` / `desktopIconResult` | 状態 | 入力中の設定／自動起動のオン・オフ／この OS で設定できるか／Mac か（Cmd・Option と表記）／読み込み済みか／処理中か／エラーの文／アイコン作成の結果 | 設定の入力と結果の表示 |
+| SettingsDialog.jsx | `handleFieldChange(field, value)` / `handleSave()` / `handleCreateDesktopIcon()` | 関数 | 1項目を変える／保存してもらい閉じる／デスクトップにアイコンを作ってもらう | 「保存」「デスクトップにアイコンを作る」 |
 | ErrorBanner.jsx | `ErrorBanner` | コンポーネント | エラーの文と「閉じる」ボタン（次にすることがあるエラーは、その操作のボタンも） | 要件§5.9：エラーの内容を表示 |
 | ErrorBoundary.jsx | `ErrorBoundary` | クラス | 表示中のエラーを受け止め「最初の画面に戻る」を出す | 要件§5.9：アプリを止めない |
 | ErrorBoundary.jsx | `hasError` / `resetKey` | 状態 | エラー表示中か／画面を作り直すための番号 | 最初の画面への復帰 |
@@ -480,6 +508,8 @@
 | `window.calendarApp.clearCapture()` | 関数（画面に公開） | 取り込んだ画像を消してもらう | 「クリア」 |
 | `window.calendarApp.getAppStatus()` | 関数（画面に公開） | ホットキーが使えるか、その表記を尋ねる | ホットキーが使えないときの案内 |
 | `window.calendarApp.openScreenRecordingSettings()` | 関数（画面に公開） | Mac の画面収録の設定画面を開いてもらう | 「システム設定を開く」 |
+| `SETTINGS_GET_CHANNEL` / `SETTINGS_SAVE_CHANNEL` / `DESKTOP_ICON_CHANNEL` | 定数 | settingsIpc.js と同じ値 | 設定の通信 |
+| `window.calendarApp.getSettings()` / `saveSettings(settings)` / `createDesktopIcon()` | 関数（画面に公開） | 今の設定を尋ねる／設定を保存してもらう／デスクトップにアイコンを作ってもらう | 設定画面（公開する関数は全部で11個） |
 | `window.calendarApp.onCaptureStatus(callback)` | 関数（画面に公開） | 読み取りの進み具合と結果を受け取る（内容だけを渡す。解除する関数を返す） | 読み取り結果の表示 |
 
 ### ocrEngine.js（文字の読み取り）
@@ -507,30 +537,78 @@
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
-| `ELECTRON_DIR` | 定数 | electron/ フォルダのパス | 画面ファイルなどの場所を求める |
+| `ELECTRON_DIR` / `APP_DIR` | 定数 | electron/ フォルダ／プロジェクトのフォルダのパス | 画面ファイル・アイコンの場所、アイコンから起動するときに渡すアプリの場所 |
 | `RENDERER_DIST_DIR` | 定数 | dist/renderer のパス | app:// で配信してよいフォルダ |
 | `PRELOAD_PATH` / `OVERLAY_PRELOAD_PATH` | 定数 | 確認ウインドウ／範囲選択の画面の preload のパス | 画面に決めた関数だけを公開する |
-| `IS_MAC` | 定数 | Mac か | トレイのアイコン・ホットキーの表記を分ける |
+| `IS_MAC` / `IS_WINDOWS` | 定数 | Mac か／Windows か | トレイのアイコン・ホットキーの表記・アイコンと自動起動の作り方を分ける |
+| `ICONS_DIR` / `APP_ICON_PNG_PATH` / `APP_ICON_ICNS_PATH` / `APP_ICON_ICO_PATH` | 定数 | assets/icons と、アプリのアイコン（Dock 用 PNG・Mac 用 icns・Windows 用 ico）のパス | Dock・デスクトップのアイコン |
+| `MAC_LAUNCHER_DIR` | 定数 | プロジェクトの launcher/ フォルダ | Mac の起動用の .app を置く場所（Git に含めない） |
+| `START_HIDDEN` / `shouldStartHidden` | 定数・変数 | `--hidden` 付きで起動したか／最初のウインドウを出さずに起動するか | ログイン時の自動起動ではウインドウを出さずに常駐する |
 | `TRAY_ICON_PATH` | 定数 | トレイのアイコンのパス（Mac は白黒のテンプレート画像） | 常駐の表示 |
-| `CAPTURE_HOTKEY` / `CAPTURE_HOTKEY_LABEL` | 定数 | 'CommandOrControl+Shift+Y' ／ 表記（Ctrl+Shift+Y・Cmd+Shift+Y） | 要件§12：ホットキー |
 | `MAIN_WINDOW_SIZE` | 定数 | ウインドウの大きさ（1120×760、最小 820×560） | 確認ウインドウの表示 |
-| `mainWindow` / `tray` | 変数 | 確認ウインドウ／トレイのアイコン | 表示・常駐 |
+| `mainWindow` / `trayController` | 変数 | 確認ウインドウ／トレイ（アイコンとメニューの表記の変更） | 表示・常駐 |
 | `isQuitting` | 変数 | 終了しようとしているか | 閉じるボタンで隠す（常駐）か、本当に閉じるかを分ける |
-| `isHotkeyRegistered` | 変数 | ホットキーを登録できたか | 使えないときに確認ウインドウで知らせる |
+| `registeredAccelerator` | 変数 | 実際に登録できたホットキー（できなければ null） | 使えないときの案内、設定で変えるときの解除 |
+| `currentSettings` / `settingsStore` | 変数 | 今の設定／設定の保存先 | 設定の読み込み・保存 |
 | `captureImageStore` | 定数 | 取り込んだ画像の置き場所（メモリだけ） | app:// での表示・読み直し |
 | `captureController` | 定数 | 範囲キャプチャから OCR までの処理 | ホットキー・トレイ・ボタンから呼ぶ |
 | `createMainWindow()` | 関数 | 安全な設定でウインドウを作る。閉じるボタンでは隠して画像を消す | 常駐（要件§6.1） |
 | `showMainWindow()` | 関数 | 確認ウインドウを表示して前面に出す（なければ作る） | トレイ・2つ目の起動・読み取り後 |
 | `minimizeMainWindow()` | 関数 | 確認ウインドウを最小化する（ウインドウがなければ何もしない） | 予定作成画面をすべて開いたあと、ブラウザの操作の邪魔にならないように（依頼者の指示） |
+| `registerCaptureHotkey(accelerator)` | 関数 | ホットキーを登録し、できたか返す | 範囲キャプチャを始めるキー |
+| `changeCaptureHotkey(nextSettings)` | 関数 | 今のホットキーを外して新しいものを登録する（できなければ元に戻す）。トレイの表記も変える | 設定画面でのホットキーの変更 |
+| `getHotkeyStatus()` | 関数 | ホットキーが使えるか・その表記を返す | 画面の案内 |
+| `createDesktopIcon()` | 関数 | Mac は起動用の .app を作ってデスクトップに別名を置く。Windows はデスクトップにショートカットを作る | 「デスクトップにアイコンを作る」（ゴール G7） |
+| `autoStart` | 定数（オブジェクト） | `isSupported` / `isEnabled` / `setEnabled`。Mac は LaunchAgent、Windows はログイン項目。状態は OS の登録そのものを正とする | ログイン時の自動起動（ゴール G8） |
 | `isTrustedSender(event)` | 関数 | IPC の送信元が確認ウインドウの最上位のフレーム（app://bundle）か | 送信元の検証（CLAUDE.md） |
-| `registerIpcHandlers()` | 関数 | 登録・確認・範囲キャプチャ・範囲選択の画面の通信の受け付けを登録する | IPC の入口をまとめる |
-| `startApp()` | 関数 | セキュリティ設定、app:// の登録、通信の受け付け、トレイ、ホットキー、ウインドウ作成 | 起動処理 |
+| `registerIpcHandlers()` | 関数 | 登録・範囲キャプチャ・範囲選択の画面・設定の通信の受け付けを登録する | IPC の入口をまとめる |
+| `startApp()` | 関数 | セキュリティ設定、app:// の登録、設定の読み込み、通信の受け付け、トレイ、Dock のアイコン、設定どおりのホットキー、ウインドウ作成 | 起動処理 |
 
 ### tray.js（タスクトレイ）
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
-| `createAppTray(options)` | 関数（公開） | アイコンとメニュー（範囲を選んで読み取る／確認ウインドウを開く／終了）を作る。Windows は左クリックで確認ウインドウ | 常駐（要件§6.1） |
+| `createAppTray(options)` | 関数（公開） | アイコンとメニュー（範囲を選んで読み取る／確認ウインドウを開く／終了）を作る。Windows は左クリックで確認ウインドウ。`{tray, setHotkeyLabel(label)}` を返す | 常駐（要件§6.1）。設定でホットキーを変えたらメニューの表記も変える |
+
+### settingsStore.js（設定の保存）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `SETTINGS_FILE_NAME` | 定数（公開） | 'settings.json' | 設定のファイル名（userData の中） |
+| `MAX_SETTINGS_FILE_BYTES` | 定数（公開） | 4096 | これより大きいファイルは読まない（壊れた・書き換えられたファイル対策） |
+| `SETTINGS_FILE_MODE` | 定数（内部） | 0o600 | 本人だけが読み書きできる権限 |
+| `createSettingsStore(directory)` | 関数（公開） | `{filePath, load(), save(settings)}` を作る。load は失敗しても例外を出さず既定値を返す。save は3項目だけを一時ファイルに書いてから名前を変える | 設定だけを保存（文章・画像は保存しない）。書きかけで壊れないようにする |
+
+### settingsIpc.js（設定の通信の受け付け）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `SETTINGS_GET_CHANNEL` / `SETTINGS_SAVE_CHANNEL` / `DESKTOP_ICON_CHANNEL` | 定数（公開） | 'settings:get' ／ 'settings:save' ／ 'settings:create-desktop-icon' | チャンネル名（preload.cjs と同じ） |
+| `UNTRUSTED_SENDER_MESSAGE` / `BUSY_MESSAGE` / `INVALID_REQUEST_MESSAGE` / `HOTKEY_UNAVAILABLE_MESSAGE` / `AUTO_START_FAILED_MESSAGE` / `AUTO_START_UNSUPPORTED_MESSAGE` / `SAVE_FAILED_MESSAGE` / `DESKTOP_ICON_FAILED_MESSAGE` / `DESKTOP_ICON_CREATED_MESSAGE` | 定数（内部） | 表示文 | ファイルのパスなどを含めずに知らせる |
+| `parseSaveRequest(rawRequest)` | 関数（公開） | 保存の要求を検証し `{settings, autoStart}` にする | IPC の引数の検証 |
+| `createSettingsHandlers(dependencies)` | 関数（公開） | `{handleGet, handleSave, handleCreateDesktopIcon}` を作る。保存は検証→ホットキー→自動起動→ファイルの順で、途中で失敗したら前の変更を元に戻す。保存中の重ねた要求は断る | 設定画面の入口。中途半端な状態を残さない |
+
+### desktopIntegration.js（デスクトップのアイコンと自動起動）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `APP_DISPLAY_NAME` | 定数（公開） | 'カレンダー登録ツール' | アイコン・ショートカットの名前 |
+| `HIDDEN_START_ARGUMENT` | 定数（公開） | '--hidden' | 自動起動のときウインドウを出さない合図 |
+| `MAC_LAUNCHER_BUNDLE_NAME` / `MAC_LAUNCHER_BUNDLE_ID` / `MAC_LAUNCHER_EXECUTABLE_NAME` / `MAC_ICON_FILE_NAME` | 定数 | 起動用の .app の名前・識別子（local.calendar-add-app.launcher）・中のスクリプト名・アイコン名 | Mac の起動用の .app |
+| `MAC_LAUNCH_AGENT_LABEL` / `MAC_LAUNCH_AGENT_FILE_NAME` / `MAC_OPEN_COMMAND` | 定数 | 'local.calendar-add-app' ／ その .plist ／ /usr/bin/open | Mac の自動起動（~/Library/LaunchAgents） |
+| `WINDOWS_SHORTCUT_FILE_NAME` | 定数（公開） | 'カレンダー登録ツール.lnk' | Windows のショートカット |
+| `EXECUTABLE_FILE_MODE` / `READABLE_FILE_MODE` | 定数（内部） | 0o755 ／ 0o644 | 作るファイルの権限 |
+| `CONTROL_CHARACTER_PATTERN` / `WINDOWS_FULL_PATH_PATTERN` | 定数（内部） | 改行などの制御文字／Windows の完全なパス（ドライブ名か、ネットワークの場所から始まる） | スクリプト・plist の行を壊すパスや、場所が定まらないパスを断る |
+| `DesktopIntegrationError` | クラス（公開） | 利用者向けの文付きのエラー（パスは文に含めない） | 個人の情報を表示しない |
+| `assertSafeAbsolutePath(value, style)` | 関数（公開） | 制御文字のない絶対パスか確かめる（Windows は完全なパスに限る） | 書き込む内容の検証 |
+| `quoteForPosixShell(value)` / `escapeXml(value)` / `quoteWindowsArgument(value)` | 関数（公開） | sh 用に囲む／XML 用に置き換える／Windows のコマンドの引数として囲む（二重引用符や末尾の円記号は断る） | パスに空白・記号があっても別の命令にならないようにする |
+| `buildMacLauncherScript({electronPath, appPath})` | 関数（公開） | 起動用のスクリプト（ELECTRON_RUN_AS_NODE を外し、Electron にプロジェクトの場所を渡して exec） | アイコンから起動する |
+| `buildMacInfoPlist()` / `buildMacLaunchAgentPlist({launcherPath})` / `buildPlist(dictBody)` | 関数 | .app の Info.plist／自動起動の plist（open -a 起動用の .app --args --hidden。ログイン時に実行）／plist の共通部分 | Mac のアイコン・自動起動 |
+| `writeMacLauncher(options)` | 関数（公開） | launcher/ に起動用の .app を書く（スクリプト・Info.plist・アイコン。消すことはしない） | Mac のアイコン |
+| `createMacDesktopAlias({desktopDir, launcherPath})` | 関数（公開） | デスクトップに起動用の .app への別名を置く（同じ名前の別のファイルがあれば上書きせず断る） | 利用者のファイルを壊さない |
+| `enableMacAutoStart` / `disableMacAutoStart` / `isMacAutoStartEnabled` | 関数（公開） | LaunchAgent の plist を置く／消す／あるか確かめる | Mac の自動起動（ゴール G8） |
+| `buildWindowsShortcutOptions(options)` | 関数（公開） | `shell.writeShortcutLink` に渡す内容（Electron・引用符で囲んだプロジェクトの場所・アイコン） | Windows のアイコン（ゴール G7） |
+| `buildWindowsLoginItemSettings(options)` | 関数（公開） | `app.setLoginItemSettings` に渡す内容（引用符で囲んだプロジェクトの場所と --hidden） | Windows の自動起動（ゴール G8） |
 
 ### captureGeometry.js（範囲の座標）
 
@@ -616,9 +694,11 @@
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `PROJECT_DIR` | 定数 | プロジェクトのフォルダ | アプリの起動 |
-| `IDLE_TIMEOUT_MS` / `STEP_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 確認が進まないまま30秒で失敗終了（全体の時間の上限ではない。正常なら全体で約22秒）／1つの待ちの上限 10秒／確認間隔／画面の更新待ち | 止まったらすぐ知らせる（依頼者の指示：操作がまったくないまま30秒） |
+| `IDLE_TIMEOUT_MS` / `STEP_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 確認が進まないまま30秒で失敗終了（全体の時間の上限ではない。正常なら全体で約27秒）／1つの待ちの上限 10秒／確認間隔／画面の更新待ち | 止まったらすぐ知らせる（依頼者の指示：操作がまったくないまま30秒） |
 | `MINIMIZE_WAIT_MS` | 定数 | 3秒 | 登録のあと確認ウインドウが最小化される（元に戻る）のを待つ上限。Mac は最小化の動きに時間がかかる |
 | `AUTO_RESET_TEST_DELAY_MS` | 定数 | 自動のクリアの確認で、60秒の代わりに待つ時間（1秒） | 確認全体の時間を短くする |
+| `HIDDEN_START_SETTLE_MS` | 定数 | 1秒 | `--hidden` で起動したあと、ウインドウが出てこないことを確かめるまで待つ時間 |
+| `userDataDir` / `removeTemporaryUserData()` | 変数・関数 | 確認専用の一時的な設定フォルダ（--user-data-dir で渡す）／終了時にそれを消す | 利用者の本当の設定を書き換えない |
 | `CAPTURE_FIXTURE_PATH` / `IMPORT_FIXTURE_PATH` | 定数 | 範囲キャプチャで「撮影した画面」とする画像／貼り付けに使う画像（架空） | 画面収録の許可なしで確認する |
 | `APP_EXIT_TIMEOUT_MS` / `launchedApp` | 定数・変数 | アプリの終了を待つ上限 5秒／起動したアプリ | 常駐するアプリを必ず閉じる |
 | `DEMO_TITLE` / `DEMO_LOCATION` / `DEMO_MEETING_URL` | 定数 | デモ文面の件名・場所・会議 URL（架空） | 下書き・登録内容の確認 |
@@ -628,7 +708,9 @@
 | `record(name, passed, detail)` | 関数 | 確認結果を記録・表示し、止まったことの見張りを数え直す | 結果の一覧 |
 | `sleep(milliseconds)` | 関数 | 指定時間待つ | 画面の更新待ち |
 | `DevToolsConnection` | クラス | DevTools への接続（`open` / `send` / `handleMessage` / `evaluate` / `close`） | 画面を外から操作する |
-| `launchApp()` | 関数 | 確認用の接続口（画面用・メインプロセス用）付きで Electron を起動 | アプリの起動 |
+| `launchApp(appArguments)` | 関数 | 確認用の接続口（画面用・メインプロセス用）と一時的な設定フォルダを付けて Electron を起動（`--hidden` などを追加で渡せる） | アプリの起動 |
+| `preventFocusStealing(mainConnection)` / `showMainWindowWithoutFocus(mainConnection)` | 関数 | ウインドウの表示・前面化を「選択しないで表示」に差し替える／確認ウインドウを選択せずに表示する（できるまで待つ） | 確認中に、利用者が別のアプリで打っている文字を横取りしない |
+| `setSelectValue(connection, selector, value)` | 関数 | 選択欄の値を変える | 設定画面の操作の再現 |
 | `connectToMainWindow(port)` | 関数 | 確認ウインドウに接続 | 操作対象の取得 |
 | `waitFor(connection, expression)` | 関数 | 条件が満たされるまで待つ | 画面の準備待ち |
 | `replaceInputText(connection, text)` | 関数 | 入力欄の文章を入れ替える | 貼り付けの再現 |
@@ -647,8 +729,10 @@
 | `dragWholeOverlay(overlayConnection)` | 関数 | 範囲選択の画面でドラッグする。離す操作は、画面がすぐ閉じるため命令の返事を待たない | 範囲選択の再現（返事を待って止まるのを防ぐ） |
 | `waitForWithTimeout(connection, expression, timeoutMs)` | 関数 | 条件を満たすまで待つ（上限付き。満たさなければ false） | 不合格を記録して先に進む |
 | `checkCapture(connection, mainConnection, port, screenshotDir)` | 関数 | ホットキー・撮影・範囲選択・OCR・抽出・読み直し・Esc での中止・小さすぎる範囲を確認 | 範囲キャプチャの確認 |
+| `checkSettings(connection, mainConnection, screenshotDir)` | 関数 | 設定画面で長さ・ホットキーを変えて保存し、ホットキーの登録・ボタンの表記・settings.json の中身・抽出に使う長さを確かめ、元に戻す | 設定画面の確認（ゴール G7・G8） |
+| `checkHiddenStart()` | 関数 | `--hidden` で起動し直し、ウインドウが出ないこととホットキーが使えることを確認 | 自動起動のときの起動の仕方の確認（ゴール G8） |
 | `stopLaunchedApp()` | 関数 | アプリを終了させる（終わらなければ強制終了） | 次の確認が多重起動防止で動かなくならないように |
-| `checkSecurity(connection, mainConnection)` | 関数 | 公開する関数が決めた8つだけか、不正な登録要求が断られ最小化もしないか、Node.js 機能・外部通信・インラインスクリプト・新規ウインドウ・外部移動の遮断を確認 | セキュリティの実地確認 |
+| `checkSecurity(connection, mainConnection)` | 関数 | 公開する関数が決めた11個だけか、不正な登録要求が断られ最小化もしないか、不正な設定の保存が断られ設定が変わらないか、Node.js 機能・外部通信・インラインスクリプト・新規ウインドウ・外部移動の遮断を確認 | セキュリティの実地確認 |
 | `main()` | 関数 | 確認全体を実行し、終了コードを返す | 確認の実行 |
 
 ## scripts/generate-ocr-fixtures.js（OCR のテスト用の画像を作る）
@@ -662,13 +746,17 @@
 | `buildHtml(fixture)` | 関数 | 画像に描く HTML を作る | 文章の描画 |
 | `renderFixture(window, fixture)` | 関数 | 1枚の画像を作って保存する（同じ画面を書き換えて撮影） | 画像の作成 |
 
-## scripts/generate-icons.js（トレイのアイコンを作る）
+## scripts/generate-icons.js（トレイとアプリのアイコンを作る）
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `OUTPUT_DIR` | 定数 | assets/icons | 保存先 |
-| `TEMPLATE_COLOR` / `BRAND_COLOR` | 定数 | 黒（Mac のテンプレート画像）／青 #1a73e8（Windows） | アイコンの色 |
-| `drawCalendarIcon(size, color)` | 関数 | カレンダーの形の画素を作る | 外部の画像素材を使わない |
+| `TEMPLATE_COLOR` / `BRAND_COLOR` / `WHITE_COLOR` | 定数 | 黒（Mac のテンプレート画像）／青 #1a73e8（Windows・アプリのアイコンの地）／白（アプリのアイコンのカレンダー） | アイコンの色 |
+| `APP_ICON_MARGIN_RATIO` / `APP_ICON_CORNER_RATIO` / `APP_ICON_CALENDAR_RATIO` | 定数 | アプリのアイコンの余白・角の丸み・カレンダーの大きさの割合 | どの大きさでも同じ形に描く |
+| `ICO_SIZES` / `ICNS_ENTRIES` / `DOCK_ICON_SIZE` | 定数 | app.ico に入れる大きさ（16〜256）／app.icns に入れる種類と大きさ（16〜1024）／app.png の大きさ（512） | Windows・Mac のアイコン |
+| `setPixel()` / `drawCalendar()` / `drawCalendarIcon(size, color)` | 関数 | 画素を塗る／カレンダーの形を描く／トレイのアイコンの画素を作る | 外部の画像素材を使わない |
+| `drawAppIcon(size)` / `renderAppIconPng(size)` | 関数 | 青い角丸の四角に白いカレンダーを描く／PNG にする | アプリのアイコン |
+| `buildIco(images)` / `buildIcns(entries)` | 関数 | PNG をまとめて .ico ／ .icns の形式にする（部品を増やさず自前で組み立てる） | Windows・Mac のアイコンのファイル |
 | `saveIcon(fileName, size, color)` | 関数 | PNG で保存する | アイコンの作成 |
 
 ## scripts/generate-demo-images.js（デモ用の画像を作る）
@@ -699,5 +787,9 @@
 | screenPermission.test.js | — | 起動元のアプリの判別と案内文の確認 | ターミナル・VSCode・判別できない場合 |
 | captureIpc.test.js | `createTestHandlers()` | 範囲キャプチャの通信の受け付けと preload の確認 | 送信元・向きの検証、重ねて始めない、公開する関数が決めたものだけ |
 | ocrEngine.test.js | `FIXTURE_DIR`、`NOW`、`readFixture()` | 架空の画像で実際に読み取る | 横書き・縦書きの自動判定、PC 内の文字データの使用、ファイルを書き出さない、時間切れ |
+| settings.test.js | — | 設定の選択肢・検証・ファイルから読んだ値の整え方・表記の確認 | 選択肢にない値・余分な項目を断る、壊れた値は既定値、Ctrl・Cmd を必ず含む |
+| settingsStore.test.js | — | 設定の保存・読み込みの確認（一時フォルダを使う） | 3項目だけ保存、権限 600、壊れた・大きすぎるファイルでも既定値で動く |
+| settingsIpc.test.js | — | 設定の通信の確認（偽のホットキー・自動起動・保存先を使う） | 送信元・内容の検証、失敗したら元に戻す、重ねた保存を断る、preload と一致 |
+| desktopIntegration.test.js | — | アイコン・自動起動の中身の確認（一時フォルダ、空白や引用符を含む名前を使う） | 起動用スクリプトを偽の Electron で実際に動かす、plist の検証（Mac は plutil）、利用者のファイルを上書きしない、Windows の引数 |
 | fixtures/ | — | app:// のテスト用ファイル（`outside-secret.txt` は配信フォルダの外） | パストラバーサル対策の確認 |
 | fixtures/ocr/ | — | OCR のテスト用の架空の画像（横書きのメール 等倍・2倍、チャット、縦書きのお知らせ） | 文字の読み取りの確認 |

@@ -32,6 +32,9 @@ tmp/
 # 確認スクリプト（npm run test:smoke）が保存する画面の画像
 test-results/
 
+# Mac の起動用アプリ（設定画面の「デスクトップにアイコンを作る」で、PC ごとのパスを入れて作る）
+launcher/
+
 # 取り込み画像・実メール（個人情報の混入防止）
 captures/
 *.png.tmp

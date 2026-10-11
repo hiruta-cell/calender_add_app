@@ -60,6 +60,12 @@ const READABLE_FILE_MODE = 0o644;
 /** 改行などの制御文字（パスに入っていたら断る。スクリプトや plist の行を壊さないため） */
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
+/**
+ * Windows の完全なパス：ドライブ名（C:\）か、ネットワークの場所（\\サーバー名）から始まるもの。
+ * 「\folder」のような、今のドライブによって場所が変わるパスは使わない。
+ */
+const WINDOWS_FULL_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/])/;
+
 /** アイコン・自動起動を作れなかったときのエラー（利用者向けの文付き。パスなどの個人の情報は文に含めない） */
 export class DesktopIntegrationError extends Error {
   /**
@@ -72,7 +78,7 @@ export class DesktopIntegrationError extends Error {
 }
 
 /**
- * パスが、制御文字を含まない絶対パスかを確かめる。
+ * パスが、制御文字を含まない絶対パスかを確かめる（Windows は、ドライブ名などから始まる完全なパスに限る）。
  *
  * @param {unknown} value 確かめるパス
  * @param {'posix' | 'win32'} style パスの形式（Mac は posix、Windows は win32）
@@ -80,8 +86,11 @@ export class DesktopIntegrationError extends Error {
  * @throws {DesktopIntegrationError} 使えないパスの場合
  */
 export function assertSafeAbsolutePath(value, style) {
-  const pathModule = style === 'win32' ? path.win32 : path.posix;
-  if (typeof value !== 'string' || value === '' || CONTROL_CHARACTER_PATTERN.test(value) || !pathModule.isAbsolute(value)) {
+  if (typeof value !== 'string' || value === '' || CONTROL_CHARACTER_PATTERN.test(value)) {
+    throw new DesktopIntegrationError('アプリの場所を確認できませんでした。');
+  }
+  const isAbsolute = style === 'win32' ? WINDOWS_FULL_PATH_PATTERN.test(value) : path.posix.isAbsolute(value);
+  if (!isAbsolute) {
     throw new DesktopIntegrationError('アプリの場所を確認できませんでした。');
   }
   return value;
