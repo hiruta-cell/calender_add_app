@@ -168,6 +168,87 @@ describe('要件§12 の時刻・範囲の書き方', () => {
   });
 });
 
+describe('12時間表記（英語の AM/PM）と24時間表記の混在', () => {
+  test('3pm → 15:00、3:30 PM → 15:30、PM3:00 → 15:00', () => {
+    assert.deepEqual(extractSingle('10/15 3pm').start, dateTime(2026, 10, 15, 15, 0));
+    assert.deepEqual(extractSingle('10/15 3:30 PM').start, dateTime(2026, 10, 15, 15, 30));
+    assert.deepEqual(extractSingle('10/15 PM3:00').start, dateTime(2026, 10, 15, 15, 0));
+  });
+
+  test('a.m. / p.m. と大文字・小文字', () => {
+    assert.deepEqual(extractSingle('10/15 10 a.m.').start, dateTime(2026, 10, 15, 10, 0));
+    assert.deepEqual(extractSingle('10/15 2 P.M.').start, dateTime(2026, 10, 15, 14, 0));
+    assert.deepEqual(extractSingle('10/15 7PM').start, dateTime(2026, 10, 15, 19, 0));
+  });
+
+  test('12am は 0時、12pm は 12時', () => {
+    assert.deepEqual(extractSingle('10/15 12am').start, dateTime(2026, 10, 15, 0, 0));
+    assert.deepEqual(extractSingle('10/15 12pm').start, dateTime(2026, 10, 15, 12, 0));
+  });
+
+  test('範囲：9am-11am、24時間表記から PM へ（14:00-4pm）', () => {
+    const englishRange = extractSingle('10/15 9am-11am');
+    assert.deepEqual(englishRange.start, dateTime(2026, 10, 15, 9, 0));
+    assert.deepEqual(englishRange.end, dateTime(2026, 10, 15, 11, 0));
+    assert.deepEqual(extractSingle('10/15 14:00-4pm').end, dateTime(2026, 10, 15, 16, 0));
+  });
+
+  test('日本語の午後と24時間表記の混在：10:00〜午後3時', () => {
+    assert.deepEqual(extractSingle('10/15 10:00〜午後3時').end, dateTime(2026, 10, 15, 15, 0));
+  });
+
+  test('「AMAZON」のような単語は時刻と誤認しない', () => {
+    assert.equal(extractSingle('10/15 AMAZONで購入').hasTime, false);
+  });
+});
+
+describe('時間帯の言葉（正午・朝・昼・夕方・夜）', () => {
+  test('言葉だけなら既定の開始時刻（終了は1時間後）', () => {
+    assert.deepEqual(extractSingle('10/15 正午').start, dateTime(2026, 10, 15, 12, 0));
+    assert.deepEqual(extractSingle('明日の朝').start, dateTime(2026, 10, 12, 9, 0));
+    assert.deepEqual(extractSingle('明日の昼').start, dateTime(2026, 10, 12, 11, 0));
+    assert.deepEqual(extractSingle('明日の夕方').start, dateTime(2026, 10, 12, 15, 0));
+    const night = extractSingle('明日の夜');
+    assert.deepEqual(night.start, dateTime(2026, 10, 12, 18, 0));
+    assert.deepEqual(night.end, dateTime(2026, 10, 12, 19, 0));
+    assert.equal(night.endInferred, true);
+  });
+
+  test('言葉の後に時刻があれば手がかりにする：夜7時→19時、夕方5時→17時、朝10時→10時、昼1時→13時', () => {
+    assert.deepEqual(extractSingle('明日の夜7時').start, dateTime(2026, 10, 12, 19, 0));
+    assert.deepEqual(extractSingle('明日夕方5時').start, dateTime(2026, 10, 12, 17, 0));
+    assert.deepEqual(extractSingle('明日朝10時').start, dateTime(2026, 10, 12, 10, 0));
+    assert.deepEqual(extractSingle('明日の昼1時').start, dateTime(2026, 10, 12, 13, 0));
+    assert.deepEqual(extractSingle('明日の昼12時').start, dateTime(2026, 10, 12, 12, 0));
+    assert.deepEqual(extractSingle('明日の夜の8時').start, dateTime(2026, 10, 12, 20, 0));
+  });
+
+  test('言葉と食い違う書き方は、書かれている時刻を優先する：朝8時、昼17時、朝17時、夜13時、夕方12時', () => {
+    assert.deepEqual(extractSingle('明日の朝8時').start, dateTime(2026, 10, 12, 8, 0));
+    assert.deepEqual(extractSingle('明日の昼17時').start, dateTime(2026, 10, 12, 17, 0));
+    assert.deepEqual(extractSingle('明日の朝17時').start, dateTime(2026, 10, 12, 17, 0));
+    assert.deepEqual(extractSingle('明日の朝20:30').start, dateTime(2026, 10, 12, 20, 30));
+    assert.deepEqual(extractSingle('明日の夜13時').start, dateTime(2026, 10, 12, 13, 0));
+    assert.deepEqual(extractSingle('明日の夕方12時').start, dateTime(2026, 10, 12, 12, 0));
+  });
+
+  test('明記した午前/午後は言葉より優先する：夜 午前2時 → 2:00', () => {
+    assert.deepEqual(extractSingle('明日の夜 午前2時').start, dateTime(2026, 10, 12, 2, 0));
+  });
+
+  test('範囲での午後の引き継ぎ：夕方5時〜7時 → 17:00〜19:00', () => {
+    const candidate = extractSingle('10/15 夕方5時〜7時');
+    assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 17, 0));
+    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 19, 0));
+  });
+
+  test('言葉から時刻までの範囲：昼〜15時', () => {
+    const candidate = extractSingle('10/15 昼〜15時');
+    assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 11, 0));
+    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0));
+  });
+});
+
 describe('年の記載がない日付（今日以降で最も近い日）と過去の警告', () => {
   test('今年すでに過ぎた日付は来年：10/5 → 2027/10/5（警告なし）', () => {
     const candidate = extractSingle('10/5');

@@ -8,7 +8,8 @@
  * 対応する書き方（要件§5.7・§12）：
  *   日付：10/15、10月15日、2026年10月15日、明日、来週火曜（来週の火曜日）
  *   曜日：日付の後の (木)、(木曜日)、(月・祝)、木曜日 は読み飛ばす
- *   時刻：14:00、14時、14時30分、14時半、午前/午後、全角数字
+ *   時刻：14:00、14時、14時30分、14時半、午前/午後、全角数字、3pm・3:00 PM・PM3:00（英語の AM/PM）
+ *   時間帯：正午(12時)、朝(9時)、昼(11時)、夕方(15時)、夜(18時)。「夜7時」→19時のように手がかりにもする
  *   範囲：14時〜15時、15:00-16:00、14時から15時
  * 対象外：複数日にまたがる範囲（10/15〜10/17）
  *
@@ -92,14 +93,44 @@ const WEEKDAY_PATTERN =
 const CONNECTOR_PATTERN = /[ \t]{0,3}(?:[のは、,][ \t]{0,3})?/y;
 
 /**
- * 時刻の書き方。
- *   meridiem                  … 午前 / 午後
+ * 時刻の書き方。i フラグ：英語の AM/PM を大文字・小文字どちらでも受け付ける。
+ *   meridiem                  … 前に付く 午前 / 午後 / AM / PM / a.m. / p.m.
  *   colonHour / colonMinute   … 14:00（分は2桁）
  *   kanjiHour / kanjiMinute   … 14時、14時30分（「1時間」の「時」は時刻ではないので除外）
  *   half                      … 14時半
+ *   bareHour                  … 3pm の「3」（後ろに AM/PM があるときだけ）
+ *   suffixMeridiem            … 後ろに付く AM / PM（3pm、3:00 PM）
  */
 const TIME_PATTERN =
-  /(?:(?<meridiem>午前|午後)[ \t]{0,2})?(?:(?<colonHour>\d{1,2}):(?<colonMinute>\d{2})(?!\d)|(?<kanjiHour>\d{1,2})時(?!間)(?:[ \t]{0,2}(?<kanjiMinute>\d{1,2})分|(?<half>半))?)/y;
+  /(?:(?<meridiem>午前|午後|A\.M\.|P\.M\.|AM|PM)[ \t]{0,2})?(?:(?<colonHour>\d{1,2}):(?<colonMinute>\d{2})(?!\d)|(?<kanjiHour>\d{1,2})時(?!間)(?:[ \t]{0,2}(?<kanjiMinute>\d{1,2})分|(?<half>半))?|(?<bareHour>\d{1,2})(?=[ \t]{0,2}(?:A\.M\.|P\.M\.|AM|PM)(?![A-Z])))(?:[ \t]{0,2}(?<suffixMeridiem>A\.M\.|P\.M\.|AM|PM)(?![A-Z]))?/iy;
+
+/**
+ * 時間帯を表す言葉（要件§12）。時刻が続かなければ、この言葉の既定の時刻を開始にする。
+ *   正午 12:00 ／ 朝 9:00 ／ 昼 11:00 ／ 夕方 15:00 ／ 夜 18:00
+ * 「夕方」を「夕」より先に書くため、長い言葉から並べている。
+ */
+const TIME_WORD_PATTERN = /(?<word>正午|夕方|朝|昼|夜)/y;
+
+/** 時間帯の言葉と時刻の間のつなぎ。例：「夜の7時」「朝 9時」 */
+const TIME_WORD_GAP_PATTERN = /[ \t]{0,2}(?:の[ \t]{0,2})?/y;
+
+/**
+ * 時間帯の言葉の既定の時刻（時刻が続かない場合に使う）。
+ * meridiem は終了時刻へ「午後」を引き継ぐかの判定に使う。
+ */
+const TIME_WORD_DEFAULTS = Object.freeze({
+  正午: { hour: 12, minute: 0, meridiem: MERIDIEM_PM },
+  朝: { hour: 9, minute: 0, meridiem: MERIDIEM_AM },
+  昼: { hour: 11, minute: 0, meridiem: MERIDIEM_AM },
+  夕方: { hour: 15, minute: 0, meridiem: MERIDIEM_PM },
+  夜: { hour: 18, minute: 0, meridiem: MERIDIEM_PM },
+});
+
+/** 午前・午後のどちらにも読める時の上限（12時以降は書かれた時刻をそのまま使う） */
+const AMBIGUOUS_HOUR_MAX = 11;
+
+/** 「昼1時」を13時とみなす上限の時（昼の後の 1〜6時は午後として扱う） */
+const NOON_WORD_PM_MAX_HOUR = 6;
 
 /** 開始時刻と終了時刻の区切り。例：〜 ~ - ― – — ー ‐ − から */
 const RANGE_SEPARATOR_PATTERN = /[ \t]{0,3}(?:[~〜\-―–—ー‐−]|から)[ \t]{0,3}/y;
@@ -315,29 +346,23 @@ function resolveNextWeekWeekday(weekdayCharacter, today) {
  *   時刻がなければ null。endIndex は読み取った部分の直後の位置
  */
 function matchTimeRange(text, index) {
-  const startMatch = matchAt(TIME_PATTERN, text, index);
-  if (startMatch === null) {
-    return null;
+  const start = matchTimeAt(text, index, null);
+  if (start === null) {
+    return null; // 時刻がない、または 25時 など時刻として成り立たない場合は「時刻なし」として扱う
   }
-  const startTime = parseTime(startMatch.groups, null);
-  if (startTime === null) {
-    return null; // 25時など、時刻として成り立たない場合は「時刻なし」として扱う
-  }
-
-  let endIndex = index + startMatch[0].length;
+  const startTime = start.time;
+  let endIndex = start.endIndex;
   let endTime = null;
 
   // 区切り（〜 など）の後に時刻があれば終了時刻とする
   const separatorMatch = matchAt(RANGE_SEPARATOR_PATTERN, text, endIndex);
   if (separatorMatch !== null) {
-    const endTimeIndex = endIndex + separatorMatch[0].length;
-    const endMatch = matchAt(TIME_PATTERN, text, endTimeIndex);
     // 「午後2時〜4時」のように終了側に午前/午後がなければ、開始側の「午後」を引き継ぐ
     const inheritedMeridiem = startTime.meridiem === MERIDIEM_PM ? MERIDIEM_PM : null;
-    const parsedEndTime = endMatch === null ? null : parseTime(endMatch.groups, inheritedMeridiem);
-    if (parsedEndTime !== null) {
-      endTime = parsedEndTime;
-      endIndex = endTimeIndex + endMatch[0].length;
+    const end = matchTimeAt(text, endIndex + separatorMatch[0].length, inheritedMeridiem);
+    if (end !== null) {
+      endTime = end.time;
+      endIndex = end.endIndex;
     }
   }
 
@@ -345,15 +370,82 @@ function matchTimeRange(text, index) {
 }
 
 /**
+ * 指定した位置から時刻を1つ読み取る。
+ * 時間帯の言葉（朝・夜など）があり、その後に時刻が続けば「夜7時→19時」のように言葉を手がかりにする。
+ * 時刻が続かなければ、言葉の既定の時刻（夜→18時など）にする。
+ *
+ * @param {string} text 半角にそろえた文章
+ * @param {number} index 読み取りを始める位置
+ * @param {string | null} inheritedMeridiem 記載がないときに使う午前/午後（終了時刻用）
+ * @returns {{time: {hour: number, minute: number, meridiem: string | null}, endIndex: number} | null}
+ */
+function matchTimeAt(text, index, inheritedMeridiem) {
+  const wordMatch = matchAt(TIME_WORD_PATTERN, text, index);
+  if (wordMatch !== null) {
+    const word = wordMatch.groups.word;
+    const wordEndIndex = index + wordMatch[0].length;
+    if (word !== '正午') {
+      const timeIndex = skipPattern(TIME_WORD_GAP_PATTERN, text, wordEndIndex);
+      const timeMatch = matchAt(TIME_PATTERN, text, timeIndex);
+      const time = timeMatch === null ? null : parseTime(timeMatch.groups, inheritedMeridiem, word);
+      if (time !== null) {
+        return { time, endIndex: timeIndex + timeMatch[0].length };
+      }
+    }
+    return { time: { ...TIME_WORD_DEFAULTS[word] }, endIndex: wordEndIndex };
+  }
+
+  const timeMatch = matchAt(TIME_PATTERN, text, index);
+  const time = timeMatch === null ? null : parseTime(timeMatch.groups, inheritedMeridiem, null);
+  return time === null ? null : { time, endIndex: index + timeMatch[0].length };
+}
+
+/**
+ * 午前/午後の表記を「午前」「午後」にそろえる。
+ *
+ * @param {string | undefined} text 午前 / 午後 / AM / PM / a.m. / p.m.（大文字・小文字を問わない）
+ * @returns {string | null} 午前 / 午後。記載がなければ null
+ */
+function normalizeMeridiem(text) {
+  if (text === undefined) {
+    return null;
+  }
+  if (text === MERIDIEM_AM || text === MERIDIEM_PM) {
+    return text;
+  }
+  return text.replaceAll('.', '').toUpperCase() === 'AM' ? MERIDIEM_AM : MERIDIEM_PM;
+}
+
+/**
+ * 時間帯の言葉から、続く時刻の午前/午後を推定する。
+ * 推定するのは 1〜11時のように午前と午後のどちらにも読める時刻だけで、
+ * 「朝17時」「昼17時」のように言葉と食い違う書き方は、書かれている時刻を優先する（要件§12）。
+ *   朝 → 午前、夕方・夜 → 午後（夜7時＝19時）、昼 → 1〜6時なら午後（昼1時＝13時）
+ *
+ * @param {string | null} word 時間帯の言葉
+ * @param {number} rawHour 書かれていた時
+ * @returns {string | null} 推定した午前/午後。推定しない場合は null（書かれた時刻をそのまま使う）
+ */
+function meridiemFromTimeWord(word, rawHour) {
+  if (rawHour > AMBIGUOUS_HOUR_MAX) return null;
+  if (word === '朝') return MERIDIEM_AM;
+  if (word === '夕方' || word === '夜') return MERIDIEM_PM;
+  if (word === '昼' && rawHour <= NOON_WORD_PM_MAX_HOUR) return MERIDIEM_PM;
+  return null;
+}
+
+/**
  * 時刻の一致結果を、24時間制の時・分に変換する。
+ * 午前/午後は「書かれた表記（前・後ろ）」→「時間帯の言葉」→「開始側からの引き継ぎ」の順に決める。
  *
  * @param {object} groups TIME_PATTERN の名前付きグループ
  * @param {string | null} inheritedMeridiem 記載がないときに使う午前/午後（終了時刻用）
+ * @param {string | null} timeWord 直前にあった時間帯の言葉（朝・夜など）。なければ null
  * @returns {{hour: number, minute: number, meridiem: string | null} | null}
  *   meridiem は実際に使った午前/午後（なければ null）。時刻として成り立たなければ null
  */
-function parseTime(groups, inheritedMeridiem) {
-  const rawHour = Number(groups.colonHour ?? groups.kanjiHour);
+function parseTime(groups, inheritedMeridiem, timeWord) {
+  const rawHour = Number(groups.colonHour ?? groups.kanjiHour ?? groups.bareHour);
 
   let minute = 0;
   if (groups.colonMinute !== undefined) {
@@ -364,7 +456,10 @@ function parseTime(groups, inheritedMeridiem) {
     minute = HALF_HOUR_MINUTES;
   }
 
-  const meridiem = groups.meridiem ?? inheritedMeridiem;
+  const meridiem =
+    normalizeMeridiem(groups.meridiem ?? groups.suffixMeridiem) ??
+    meridiemFromTimeWord(timeWord, rawHour) ??
+    inheritedMeridiem;
   const hour = applyMeridiem(rawHour, meridiem);
   if (hour === null || minute > 59) {
     return null;

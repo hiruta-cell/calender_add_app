@@ -2,19 +2,62 @@
 
 コードを追加・改名・削除したら、同じ変更の中でこの一覧も更新する（[CLAUDE.md](../CLAUDE.md) 参照）。
 
-- 最終更新：2026-10-11（1日目：日時抽出と確認ウインドウ）
+- 最終更新：2026-10-11（12時間表記・時間帯の言葉に対応）
 - 「公開」は他のファイルから使えるもの（export）、「内部」はそのファイルの中だけで使うもの
 
-## 全体の構成
+## フォルダの意味
 
-| フォルダ・ファイル | 役割 |
+| フォルダ | 意味 |
 |---|---|
-| `src/core/` | 日時抽出などの中核ロジック。画面や Electron に依存しない純粋な関数（単体テストの対象） |
-| `src/renderer/` | 確認ウインドウの画面（React） |
-| `electron/` | Electron のメインプロセス（起動、ウインドウ、セキュリティ設定） |
-| `scripts/smoke-test.js` | 実際にアプリを起動して画面を自動操作する確認スクリプト |
+| `src/` | アプリのソースコード（画面と中核ロジック） |
+| `src/core/` | 日時抽出などの中核ロジック。画面や Electron に依存しない純粋な関数だけを置く（単体テストの対象） |
+| `src/renderer/` | 確認ウインドウの画面（React）。利用者が操作する部分 |
+| `src/renderer/components/` | 画面を構成する部品（入力欄、候補の一覧、ポップアップなど） |
+| `electron/` | Electron のメインプロセス。アプリの起動、ウインドウ、セキュリティ設定など PC 側の処理 |
+| `scripts/` | 開発者用の補助スクリプト（実機の自動確認） |
 | `test/` | 単体テスト（Node.js 標準の `node:test`） |
+| `test/fixtures/` | テスト用の小さなファイル（app:// の配信テストに使う） |
+| `docs/` | 説明ファイル（このファイル、受け入れ基準） |
+| `dist/` | ビルド結果（`npm run build` で作られる。Git には含めない） |
+| `node_modules/` | インストールした部品（`npm ci` で作られる。Git には含めない） |
+| `test-results/` | 実機の自動確認で保存した画面の画像（Git には含めない） |
+
+## 各ファイルの基本機能
+
+| ファイル | 基本機能 |
+|---|---|
+| `package.json` | アプリの名前、起動・テストのコマンド、使う部品とバージョン |
+| `package-lock.json` | 部品のバージョンを完全に固定した記録（`npm ci` はこれに従う） |
+| `.npmrc` | npm の設定（バージョンの固定、Node.js のバージョン確認） |
+| `.gitignore` | Git に含めないファイルの指定（秘密情報・ビルド結果など） |
 | `vite.config.js` | 画面のビルド設定（開発用サーバーは使わない） |
+| `src/core/textNormalizer.js` | 全角の数字・記号を半角にそろえる（文字数は変えない） |
+| `src/core/dateUtils.js` | 日付の計算（東京の日時、日数・分の加算、曜日、比較、差） |
+| `src/core/dateExtractor.js` | 文章から日時の候補を抽出する（このアプリの中心） |
+| `src/core/candidateFormatter.js` | 候補を「2026年10月15日(木) 14:00〜15:00」のような表示用の文字列にする |
+| `src/core/highlight.js` | 文章の日時部分を色付けするために、文章を分割する |
+| `src/renderer/index.html` | 画面の土台となる HTML |
+| `src/renderer/main.jsx` | 画面の起点。App を描画し、エラーを受け止める枠で包む |
+| `src/renderer/App.jsx` | 確認ウインドウ全体。貼り付け→抽出→候補表示の流れを管理する |
+| `src/renderer/styles.css` | 画面の見た目（ダークモード対応） |
+| `src/renderer/components/TextInputPanel.jsx` | 文章の入力欄と「日時を抽出」「クリア」ボタン |
+| `src/renderer/components/HighlightedText.jsx` | 抽出に使った文章を、日時部分を色付けして表示する |
+| `src/renderer/components/CandidateList.jsx` | 日時の候補をチェックボックス付きで一覧表示する |
+| `src/renderer/components/NoDateDialog.jsx` | 「日時の情報がありません」のポップアップ |
+| `src/renderer/components/ErrorBanner.jsx` | エラーの内容を画面上部に表示する |
+| `src/renderer/components/ErrorBoundary.jsx` | 画面の表示中のエラーを受け止め、最初の画面に戻れるようにする |
+| `electron/main.js` | アプリの起動、ウインドウの作成、多重起動の防止 |
+| `electron/appProtocol.js` | 画面ファイルを app:// で配信し、CSP を付ける（配信フォルダの外は読ませない） |
+| `electron/security.js` | セキュリティ設定（隔離、外部通信の遮断、権限要求の拒否、外部への移動の禁止） |
+| `scripts/smoke-test.js` | アプリを実際に起動し、画面を自動操作して機能とセキュリティを確認する |
+| `test/*.test.js` | 各ファイルの単体テスト（詳しくは末尾の「test/」の表） |
+| `README.md` | 利用者向けの説明（起動手順、使い方、対応する書き方） |
+| `CLAUDE.md` | 開発のルール（セキュリティ方針、コーディング規約など） |
+| `requirements-memo.md` | 要件の一次資料（決定事項と追加決定事項 §12） |
+| `SECURITY.md` | 脆弱性の報告方法 |
+| `LICENSE` | ライセンス（MIT） |
+| `docs/CODE-REFERENCE.md` | このファイル。フォルダ・ファイル・変数・関数の説明 |
+| `docs/ACCEPTANCE.md` | ゴール（受け入れ基準）と確認の記録 |
 
 ## データの形：日時の候補（`extractDateCandidates` が返すもの）
 
@@ -56,6 +99,8 @@
 | `getMondayBasedWeekday(date)` | 関数（公開） | 曜日番号（月曜=0〜日曜=6）を返す | 月曜始まりの週の計算、曜日の表示 |
 | `compareDates(a, b)` | 関数（公開） | 年月日の前後を比べる | 年の決定、過去の日付の判定 |
 | `compareDateTimes(a, b)` | 関数（公開） | 年月日時分の前後を比べる | 過去の日時の判定 |
+| `MILLISECONDS_PER_MINUTE` | 定数（内部） | 60000 | 分の計算 |
+| `diffMinutes(from, to)` | 関数（公開） | 2つの日時の差を分で返す | 予定の長さの確認（登録時） |
 
 ## src/core/dateExtractor.js（日時の抽出：中心となるファイル）
 
@@ -73,7 +118,12 @@
 | `DATE_PATTERN` | 定数（内部） | 日付の書き方の正規表現（10/15、10月15日、2026年10月15日、明日、来週火曜） | 文章から日付を探す。「再来週」「説明日程」は除外 |
 | `WEEKDAY_PATTERN` | 定数（内部） | 曜日の表記（(木)、(月・祝)、木曜日） | 日付の後の曜日を読み飛ばす |
 | `CONNECTOR_PATTERN` | 定数（内部） | 日付と時刻のつなぎ（空白、の、は、、） | 「明日の14時」を1つの日時として読む |
-| `TIME_PATTERN` | 定数（内部） | 時刻の書き方（14:00、14時30分、14時半、午前/午後） | 時刻を読む。「2時間」は除外 |
+| `TIME_PATTERN` | 定数（内部） | 時刻の書き方（14:00、14時30分、14時半、午前/午後、3pm・3:00 PM・PM3:00） | 時刻を読む。「2時間」「AMAZON」は除外 |
+| `TIME_WORD_PATTERN` | 定数（内部） | 時間帯の言葉（正午・朝・昼・夕方・夜） | 時間帯の言葉を読む（要件§12） |
+| `TIME_WORD_GAP_PATTERN` | 定数（内部） | 言葉と時刻の間のつなぎ（空白、の） | 「夜の7時」を1つの時刻として読む |
+| `TIME_WORD_DEFAULTS` | 定数（内部） | 正午12時・朝9時・昼11時・夕方15時・夜18時 | 時刻が続かないときの開始時刻 |
+| `AMBIGUOUS_HOUR_MAX` | 定数（内部） | 11 | 言葉から午前/午後を推定する上限（12時以降は書かれた時刻を優先） |
+| `NOON_WORD_PM_MAX_HOUR` | 定数（内部） | 6 | 「昼1時」を13時とみなす上限 |
 | `RANGE_SEPARATOR_PATTERN` | 定数（内部） | 範囲の区切り（〜、-、から など） | 開始〜終了の時刻を読む |
 | `InputTooLongError` | クラス（公開） | 長すぎる文章のエラー（利用者向けの文付き） | 画面でそのまま表示できるエラーにする |
 | `extractDateCandidates(text, options)` | 関数（公開） | 文章から日時の候補を抽出し `{candidates, truncated}` を返す | このアプリの中心機能（要件§5.2〜§5.7、§12） |
@@ -84,7 +134,10 @@
 | `resolveCalendarDate(yearText, monthText, dayText, today)` | 関数（内部） | 年月日を決める。年がなければ今日以降で最も近い日 | 要件§12：年なしの日付の扱い |
 | `resolveNextWeekWeekday(weekdayCharacter, today)` | 関数（内部） | 「来週◯曜」の年月日を決める | 要件§12：月曜始まりの週 |
 | `matchTimeRange(text, index)` | 関数（内部） | 時刻または時刻の範囲を読む | 開始・終了の時刻を得る |
-| `parseTime(groups, inheritedMeridiem)` | 関数（内部） | 時刻を24時間制の時・分にする | 午前/午後・半・分の解釈 |
+| `matchTimeAt(text, index, inheritedMeridiem)` | 関数（内部） | 時刻を1つ読む（時間帯の言葉にも対応） | 「夜7時→19時」「夜→18時」の解釈 |
+| `normalizeMeridiem(text)` | 関数（内部） | 午前/午後/AM/PM/a.m./p.m. を「午前」「午後」にそろえる | 12時間表記の混在に対応 |
+| `meridiemFromTimeWord(word, rawHour)` | 関数（内部） | 時間帯の言葉から午前/午後を推定する | 朝→午前、夕方・夜→午後、昼1〜6時→午後。「朝17時」など食い違う書き方は書かれた時刻を優先 |
+| `parseTime(groups, inheritedMeridiem, timeWord)` | 関数（内部） | 時刻を24時間制の時・分にする | 午前/午後・半・分の解釈 |
 | `applyMeridiem(hour, meridiem)` | 関数（内部） | 午前/午後を反映した「時」を返す | 午前12時→0時、午後3時→15時 |
 | `buildCandidate(date, timeRange, current, minutes)` | 関数（内部） | 候補の本体（開始・終了・警告）を作る | 候補の形をそろえる |
 | `resolveEnd(start, timeRange, minutes)` | 関数（内部） | 終了日時を決める（省略時は既定の長さ、日またぎも対応） | 要件§5.4 |

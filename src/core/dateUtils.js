@@ -22,6 +22,9 @@ export const DAYS_PER_WEEK = 7;
 /** 曜日の漢字。文字の位置が「月曜=0 〜 日曜=6」の曜日番号に対応する */
 export const WEEKDAY_CHARACTERS = '月火水木金土日';
 
+/** 1分のミリ秒数 */
+const MILLISECONDS_PER_MINUTE = 60 * 1000;
+
 /** 東京の年月日時分を取り出すための書式。作成に時間がかかるため1つを使い回す */
 const tokyoDateTimeFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: CALENDAR_TIME_ZONE,
@@ -118,6 +121,20 @@ export function addMinutes(dateTime, minutes) {
     hour: result.getUTCHours(),
     minute: result.getUTCMinutes(),
   };
+}
+
+/**
+ * 2つの年月日時分の差を分で返す（to − from）。
+ *
+ * @param {{year: number, month: number, day: number, hour: number, minute: number}} from 起点の日時
+ * @param {{year: number, month: number, day: number, hour: number, minute: number}} to 終点の日時
+ * @returns {number} to が from より後なら正、前なら負
+ */
+export function diffMinutes(from, to) {
+  const toEpochMinutes = (dateTime) =>
+    Date.UTC(dateTime.year, dateTime.month - 1, dateTime.day, dateTime.hour, dateTime.minute) /
+    MILLISECONDS_PER_MINUTE;
+  return toEpochMinutes(to) - toEpochMinutes(from);
 }
 
 /**

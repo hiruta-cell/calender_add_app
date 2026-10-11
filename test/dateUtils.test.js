@@ -10,6 +10,7 @@ import {
   addMinutes,
   compareDateTimes,
   compareDates,
+  diffMinutes,
   getMondayBasedWeekday,
   getTokyoDateTime,
   isValidDate,
@@ -63,6 +64,15 @@ describe('addDays / addMinutes：繰り上がりの計算', () => {
       hour: 0,
       minute: 30,
     });
+  });
+});
+
+describe('diffMinutes：2つの日時の差（分）', () => {
+  test('日付をまたぐ差と負の差', () => {
+    const start = { year: 2026, month: 12, day: 31, hour: 23, minute: 30 };
+    const end = { year: 2027, month: 1, day: 1, hour: 1, minute: 0 };
+    assert.equal(diffMinutes(start, end), 90);
+    assert.equal(diffMinutes(end, start), -90);
   });
 });
 
