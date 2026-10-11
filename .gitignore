@@ -39,5 +39,3 @@ launcher/
 captures/
 *.png.tmp
 
-# Mac の起動用アプリ（PC 内のパスを含むため。electron/main.js の MAC_LAUNCHER_DIR）
-launcher/

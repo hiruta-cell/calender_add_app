@@ -10,7 +10,7 @@
  * - このファイルは electron を import しない（保存先のフォルダは main.js から受け取る）。単体テストできる。
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeStoredSettings } from '../src/core/settings.js';
 
@@ -69,6 +69,8 @@ export function createSettingsStore(directory) {
       await mkdir(directory, { recursive: true });
       const temporaryPath = `${filePath}.tmp`;
       await writeFile(temporaryPath, text, { mode: SETTINGS_FILE_MODE });
+      // mode は新しく作るときだけ効く。前回の失敗で残った一時ファイル（権限が広い可能性）でも 600 にする
+      await chmod(temporaryPath, SETTINGS_FILE_MODE);
       await rename(temporaryPath, filePath);
     },
   };

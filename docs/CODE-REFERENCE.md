@@ -429,7 +429,7 @@
 | TextInputPanel.jsx | `handleKeyDown(event)` | 関数 | Ctrl+Enter（Mac は Command+Enter）で抽出 | キーボードだけで操作できるようにする |
 | HighlightedText.jsx | `HighlightedText` | コンポーネント | 文章を表示し、日時部分を `<mark>` で色付け | 要件§6.1：日時部分の色付け |
 | HighlightedText.jsx | `segments` | 計算値 | `splitTextByRanges` の結果 | 描画する部分の一覧 |
-| CandidateList.jsx | `CandidateList` | コンポーネント | 候補をチェックボックス付きで一覧表示（警告・補足のバッジ付き）。日付だけの候補は選ぶと時刻の扱いを表示 | 要件§5.3・§5.10 |
+| CandidateList.jsx | `CandidateList` | コンポーネント | 候補をチェックボックス付きで一覧表示（警告・補足のバッジ付き。「終了時刻の記載なし（N分）」は候補の実際の長さ）。日付だけの候補は選ぶと時刻の扱いを表示 | 要件§5.3・§5.10 |
 | TimeChoiceFields.jsx | `TimeChoiceFields` | コンポーネント | 「終日／時刻を指定」と開始・終了時刻の入力欄 | 要件§5.10 |
 | TimeChoiceFields.jsx | `groupName` | 計算値 | ラジオボタンのグループ名（候補ごと） | 候補ごとに選択を分ける |
 | ManualDateForm.jsx | `ManualDateForm` | コンポーネント | 日付欄と「追加」ボタン、次にすることの説明 | 要件§5.8：手入力 |
@@ -546,6 +546,7 @@
 | `IS_MAC` / `IS_WINDOWS` | 定数 | Mac か／Windows か | トレイのアイコン・ホットキーの表記・アイコンと自動起動の作り方を分ける |
 | `ICONS_DIR` / `APP_ICON_PNG_PATH` / `APP_ICON_ICNS_PATH` / `APP_ICON_ICO_PATH` | 定数 | assets/icons と、アプリのアイコン（Dock 用 PNG・Mac 用 icns・Windows 用 ico）のパス | Dock・デスクトップのアイコン |
 | `MAC_LAUNCHER_DIR` | 定数 | プロジェクトの launcher/ フォルダ | Mac の起動用の .app を置く場所（Git に含めない） |
+| `isAppStarted` | 変数 | 起動処理（startApp）が終わったか | 設定の読み込みを待つ間の Dock の activate・2つ目の起動で、準備前にウインドウを作らない（2つできるのを防ぐ） |
 | `START_HIDDEN` / `shouldStartHidden` | 定数・変数 | `--hidden` 付きで起動したか／最初のウインドウを出さずに起動するか | ログイン時の自動起動ではウインドウを出さずに常駐する |
 | `TRAY_ICON_PATH` | 定数 | トレイのアイコンのパス（Mac は白黒のテンプレート画像） | 常駐の表示 |
 | `MAIN_WINDOW_SIZE` | 定数 | ウインドウの大きさ（980×660、最小 760×500） | 確認ウインドウの表示（2026-10-11 依頼者の指示で画面をコンパクトにし、小さくした） |
@@ -556,12 +557,14 @@
 | `captureImageStore` | 定数 | 取り込んだ画像の置き場所（メモリだけ） | app:// での表示・読み直し |
 | `captureController` | 定数 | 範囲キャプチャから OCR までの処理 | ホットキー・トレイ・ボタンから呼ぶ |
 | `createMainWindow()` | 関数 | 安全な設定でウインドウを作る。閉じるボタンでは隠して画像を消す | 常駐（要件§6.1） |
-| `showMainWindow()` | 関数 | 確認ウインドウを表示して前面に出す（なければ作る） | トレイ・2つ目の起動・読み取り後 |
+| `showMainWindow()` | 関数 | 確認ウインドウを表示して前面に出す（なければ作る）。起動処理の途中は何もしない | トレイ・2つ目の起動・読み取り後 |
 | `minimizeMainWindow()` | 関数 | 確認ウインドウを最小化する（ウインドウがなければ何もしない） | 予定作成画面をすべて開いたあと、ブラウザの操作の邪魔にならないように（依頼者の指示） |
 | `registerCaptureHotkey(accelerator)` | 関数 | ホットキーを登録し、できたか返す | 範囲キャプチャを始めるキー |
 | `changeCaptureHotkey(nextSettings)` | 関数 | 今のホットキーを外して新しいものを登録する（できなければ元に戻す）。トレイの表記も変える | 設定画面でのホットキーの変更 |
 | `getHotkeyStatus()` | 関数 | ホットキーが使えるか・その表記を返す | 画面の案内 |
-| `createDesktopIcon()` | 関数 | Mac は起動用の .app を作ってデスクトップに別名を置く。Windows はデスクトップにショートカットを作る | 「デスクトップにアイコンを作る」（ゴール G7） |
+| `createDesktopIcon()` | 関数 | Mac は起動用の .app を作ってデスクトップに別名を置く。Windows はデスクトップにショートカットを作る（同じ名前の利用者のショートカットは上書きしない） |
+| `writeCurrentMacLauncher()` / `getMacLaunchAgentsDir()` | 関数 | 今の場所で起動用の .app を書き出す／~/Library/LaunchAgents | アイコンと自動起動で同じ内容を使う（重複をなくす） |
+| `readWindowsShortcut(shortcutPath)` | 関数 | 既存のショートカットを読む（読めなければ null） | このアプリが作ったものかの見分け | 「デスクトップにアイコンを作る」（ゴール G7） |
 | `autoStart` | 定数（オブジェクト） | `isSupported` / `isEnabled` / `setEnabled`。Mac は LaunchAgent、Windows はログイン項目。状態は OS の登録そのものを正とする | ログイン時の自動起動（ゴール G8） |
 | `isTrustedSender(event)` | 関数 | IPC の送信元が確認ウインドウの最上位のフレーム（app://bundle）か | 送信元の検証（CLAUDE.md） |
 | `registerIpcHandlers()` | 関数 | 登録・範囲キャプチャ・範囲選択の画面・設定の通信の受け付けを登録する | IPC の入口をまとめる |
@@ -580,7 +583,7 @@
 | `SETTINGS_FILE_NAME` | 定数（公開） | 'settings.json' | 設定のファイル名（userData の中） |
 | `MAX_SETTINGS_FILE_BYTES` | 定数（公開） | 4096 | これより大きいファイルは読まない（壊れた・書き換えられたファイル対策） |
 | `SETTINGS_FILE_MODE` | 定数（内部） | 0o600 | 本人だけが読み書きできる権限 |
-| `createSettingsStore(directory)` | 関数（公開） | `{filePath, load(), save(settings)}` を作る。load は失敗しても例外を出さず既定値を返す。save は3項目だけを一時ファイルに書いてから名前を変える | 設定だけを保存（文章・画像は保存しない）。書きかけで壊れないようにする |
+| `createSettingsStore(directory)` | 関数（公開） | `{filePath, load(), save(settings)}` を作る。load は失敗しても例外を出さず既定値を返す。save は3項目だけを一時ファイルに書き、権限を 600 にしてから名前を変える（前回の一時ファイルが残っていても 600 になる） | 設定だけを保存（文章・画像は保存しない）。書きかけで壊れないようにする |
 
 ### settingsIpc.js（設定の通信の受け付け）
 
@@ -589,7 +592,7 @@
 | `SETTINGS_GET_CHANNEL` / `SETTINGS_SAVE_CHANNEL` / `DESKTOP_ICON_CHANNEL` | 定数（公開） | 'settings:get' ／ 'settings:save' ／ 'settings:create-desktop-icon' | チャンネル名（preload.cjs と同じ） |
 | `UNTRUSTED_SENDER_MESSAGE` / `BUSY_MESSAGE` / `INVALID_REQUEST_MESSAGE` / `HOTKEY_UNAVAILABLE_MESSAGE` / `AUTO_START_FAILED_MESSAGE` / `AUTO_START_UNSUPPORTED_MESSAGE` / `SAVE_FAILED_MESSAGE` / `DESKTOP_ICON_FAILED_MESSAGE` / `DESKTOP_ICON_CREATED_MESSAGE` | 定数（内部） | 表示文 | ファイルのパスなどを含めずに知らせる |
 | `parseSaveRequest(rawRequest)` | 関数（公開） | 保存の要求を検証し `{settings, autoStart}` にする | IPC の引数の検証 |
-| `createSettingsHandlers(dependencies)` | 関数（公開） | `{handleGet, handleSave, handleCreateDesktopIcon}` を作る。保存は検証→ホットキー→自動起動→ファイルの順で、途中で失敗したら前の変更を元に戻す。保存中の重ねた要求は断る | 設定画面の入口。中途半端な状態を残さない |
+| `createSettingsHandlers(dependencies)` | 関数（公開） | `{handleGet, handleSave, handleCreateDesktopIcon}` を作る。保存は検証→ホットキー→自動起動→ファイルの順で、途中で失敗したら（自動起動の状態を読めないときも）前の変更を元に戻す。起動時に登録できなかったキーは、同じ組み合わせで保存すると登録し直す。保存中の重ねた要求は断る | 設定画面の入口。中途半端な状態を残さない |
 
 ### desktopIntegration.js（デスクトップのアイコンと自動起動）
 
@@ -599,7 +602,7 @@
 | `HIDDEN_START_ARGUMENT` | 定数（公開） | '--hidden' | 自動起動のときウインドウを出さない合図 |
 | `MAC_LAUNCHER_BUNDLE_NAME` / `MAC_LAUNCHER_BUNDLE_ID` / `MAC_LAUNCHER_EXECUTABLE_NAME` / `MAC_ICON_FILE_NAME` | 定数 | 起動用の .app の名前・識別子（local.calendar-add-app.launcher）・中のスクリプト名・アイコン名 | Mac の起動用の .app |
 | `MAC_LAUNCH_AGENT_LABEL` / `MAC_LAUNCH_AGENT_FILE_NAME` / `MAC_OPEN_COMMAND` | 定数 | 'local.calendar-add-app' ／ その .plist ／ /usr/bin/open | Mac の自動起動（~/Library/LaunchAgents） |
-| `WINDOWS_SHORTCUT_FILE_NAME` | 定数（公開） | 'カレンダー登録ツール.lnk' | Windows のショートカット |
+| `WINDOWS_SHORTCUT_FILE_NAME` / `WINDOWS_SHORTCUT_DESCRIPTION` | 定数（公開） | 'カレンダー登録ツール.lnk' ／ ショートカットの説明 | Windows のショートカット。説明は、このアプリが作ったものかの見分けにも使う |
 | `EXECUTABLE_FILE_MODE` / `READABLE_FILE_MODE` | 定数（内部） | 0o755 ／ 0o644 | 作るファイルの権限 |
 | `CONTROL_CHARACTER_PATTERN` / `WINDOWS_FULL_PATH_PATTERN` | 定数（内部） | 改行などの制御文字／Windows の完全なパス（ドライブ名か、ネットワークの場所から始まる） | スクリプト・plist の行を壊すパスや、場所が定まらないパスを断る |
 | `DesktopIntegrationError` | クラス（公開） | 利用者向けの文付きのエラー（パスは文に含めない） | 個人の情報を表示しない |
@@ -609,7 +612,8 @@
 | `buildMacInfoPlist()` / `buildMacLaunchAgentPlist({launcherPath})` / `buildPlist(dictBody)` | 関数 | .app の Info.plist／自動起動の plist（open -a 起動用の .app --args --hidden。ログイン時に実行）／plist の共通部分 | Mac のアイコン・自動起動 |
 | `writeMacLauncher(options)` | 関数（公開） | launcher/ に起動用の .app を書く（スクリプト・Info.plist・アイコン。消すことはしない） | Mac のアイコン |
 | `createMacDesktopAlias({desktopDir, launcherPath})` | 関数（公開） | デスクトップに起動用の .app への別名を置く（同じ名前の別のファイルがあれば上書きせず断る） | 利用者のファイルを壊さない |
-| `enableMacAutoStart` / `disableMacAutoStart` / `isMacAutoStartEnabled` | 関数（公開） | LaunchAgent の plist を置く／消す／あるか確かめる | Mac の自動起動（ゴール G8） |
+| `enableMacAutoStart` / `disableMacAutoStart` / `isMacAutoStartEnabled` | 関数（公開） | LaunchAgent の plist を置く／消す／今の場所の起動用 .app を指しているか確かめる | Mac の自動起動（ゴール G8）。フォルダを移動したらオフと表示し、オンにして保存し直せば作り直す |
+| `isReplaceableWindowsShortcut(existingShortcut)` | 関数（公開） | 同じ名前のショートカットが、このアプリが前に作ったもの（説明が同じ）か | 利用者のショートカットを上書きしない |
 | `buildWindowsShortcutOptions(options)` | 関数（公開） | `shell.writeShortcutLink` に渡す内容（Electron・引用符で囲んだプロジェクトの場所・アイコン） | Windows のアイコン（ゴール G7） |
 | `buildWindowsLoginItemSettings(options)` | 関数（公開） | `app.setLoginItemSettings` に渡す内容（引用符で囲んだプロジェクトの場所と --hidden） | Windows の自動起動（ゴール G8） |
 

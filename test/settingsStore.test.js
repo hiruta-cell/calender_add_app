@@ -51,6 +51,13 @@ describe('設定の保存先（settings.json）', () => {
     assert.equal((await stat(path.join(directory, SETTINGS_FILE_NAME))).mode & 0o777, 0o600);
   });
 
+  test('前回の失敗で権限の広い一時ファイルが残っていても、保存した設定は 600 になる', { skip: process.platform === 'win32' }, async () => {
+    const directory = await createTemporaryDirectory();
+    await writeFile(path.join(directory, `${SETTINGS_FILE_NAME}.tmp`), 'leftover', { mode: 0o644 });
+    await createSettingsStore(directory).save(DEFAULT_SETTINGS);
+    assert.equal((await stat(path.join(directory, SETTINGS_FILE_NAME))).mode & 0o777, 0o600);
+  });
+
   test('保存先のフォルダがなければ作る', async () => {
     const directory = path.join(await createTemporaryDirectory(), 'まだないフォルダ');
     await createSettingsStore(directory).save(DEFAULT_SETTINGS);

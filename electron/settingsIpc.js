@@ -133,12 +133,23 @@ export function createSettingsHandlers({
         if (isHotkeyChanged && !changeHotkey(request.settings)) {
           return { ok: false, message: HOTKEY_UNAVAILABLE_MESSAGE };
         }
+        if (!isHotkeyChanged && !getHotkeyStatus().hotkeyRegistered) {
+          // 起動時にほかのアプリが使っていて登録できなかったキーを、同じ組み合わせのまま登録し直す。
+          // まだ使われていても保存は続ける（結果は hotkeyRegistered で画面に知らせる）
+          changeHotkey(request.settings);
+        }
         /** ホットキーを元に戻す（途中で失敗したとき） */
         const revertHotkey = () => {
           if (isHotkeyChanged) changeHotkey(previousSettings);
         };
 
-        const wasAutoStartEnabled = await readAutoStart();
+        let wasAutoStartEnabled;
+        try {
+          wasAutoStartEnabled = await readAutoStart();
+        } catch {
+          revertHotkey(); // 自動起動の状態を読めないときも、ホットキーだけ変わったままにしない
+          return { ok: false, message: AUTO_START_FAILED_MESSAGE };
+        }
         const isAutoStartChanged = request.autoStart !== wasAutoStartEnabled;
         if (isAutoStartChanged) {
           if (!autoStart.isSupported) {

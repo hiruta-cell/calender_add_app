@@ -15,6 +15,7 @@ import { promisify } from 'node:util';
 import {
   APP_DISPLAY_NAME,
   DesktopIntegrationError,
+  WINDOWS_SHORTCUT_DESCRIPTION,
   HIDDEN_START_ARGUMENT,
   MAC_LAUNCHER_BUNDLE_ID,
   MAC_LAUNCHER_BUNDLE_NAME,
@@ -29,6 +30,7 @@ import {
   enableMacAutoStart,
   escapeXml,
   isMacAutoStartEnabled,
+  isReplaceableWindowsShortcut,
   quoteForPosixShell,
   quoteWindowsArgument,
   writeMacLauncher,
@@ -185,16 +187,27 @@ describe('Mac のログイン時の自動起動（LaunchAgent）', () => {
   test('オン → plist ができる（plutil で正しい形式）、オフ → 消える、オフを繰り返しても失敗しない', { skip: !IS_POSIX }, async () => {
     const directory = await createTemporaryDirectory();
     const launchAgentsDir = path.join(directory, 'LaunchAgents');
-    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir }), false);
-    const plistPath = await enableMacAutoStart({ launchAgentsDir, launcherPath: path.join(directory, MAC_LAUNCHER_BUNDLE_NAME) });
+    const launcherPath = path.join(directory, MAC_LAUNCHER_BUNDLE_NAME);
+    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath }), false);
+    const plistPath = await enableMacAutoStart({ launchAgentsDir, launcherPath });
     assert.equal(plistPath, path.join(launchAgentsDir, MAC_LAUNCH_AGENT_FILE_NAME));
-    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir }), true);
+    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath }), true);
     if (IS_MAC) {
       await execFileAsync('/usr/bin/plutil', ['-lint', plistPath]);
     }
     await disableMacAutoStart({ launchAgentsDir });
     await disableMacAutoStart({ launchAgentsDir });
-    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir }), false);
+    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath }), false);
+  });
+
+  test('プロジェクトのフォルダを移動したら（plist が古い場所を指す）、オフとみなす', { skip: !IS_POSIX }, async () => {
+    const directory = await createTemporaryDirectory();
+    const launchAgentsDir = path.join(directory, 'LaunchAgents');
+    await enableMacAutoStart({ launchAgentsDir, launcherPath: path.join(directory, '古い場所', MAC_LAUNCHER_BUNDLE_NAME) });
+    const movedLauncherPath = path.join(directory, '新しい場所', MAC_LAUNCHER_BUNDLE_NAME);
+    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath: movedLauncherPath }), false);
+    await enableMacAutoStart({ launchAgentsDir, launcherPath: movedLauncherPath }); // オンにして保存し直すと今の場所で作り直す
+    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath: movedLauncherPath }), true);
   });
 });
 
@@ -226,5 +239,19 @@ describe('Windows のデスクトップのショートカットとログイン�
   test('使えないパスは断る', () => {
     assert.throws(() => buildWindowsShortcutOptions({ electronPath: 'electron.exe', appPath, iconPath }), DesktopIntegrationError);
     assert.throws(() => buildWindowsLoginItemSettings({ electronPath, appPath: 'C:\\a"b' }), DesktopIntegrationError);
+  });
+});
+
+describe('Windows：同じ名前のショートカットの扱い', () => {
+  test('このアプリが作ったショートカット（説明が同じ）だけ作り直してよい。利用者のもの・読めないものは上書きしない', () => {
+    assert.equal(isReplaceableWindowsShortcut({ description: WINDOWS_SHORTCUT_DESCRIPTION, target: 'C:\\old\\electron.exe' }), true);
+    assert.equal(isReplaceableWindowsShortcut({ description: '利用者が自分で作ったショートカット' }), false);
+    assert.equal(isReplaceableWindowsShortcut({}), false);
+    assert.equal(isReplaceableWindowsShortcut(null), false);
+  });
+
+  test('作るショートカットの説明は、見分けに使う説明と同じ', () => {
+    const options = buildWindowsShortcutOptions({ electronPath: 'C:\\a\\electron.exe', appPath: 'C:\\a\\app', iconPath: 'C:\\a\\app.ico' });
+    assert.equal(isReplaceableWindowsShortcut(options), true);
   });
 });

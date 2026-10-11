@@ -6,6 +6,7 @@
 
 import { describeWarning, formatCandidateLabel } from '../../core/candidateFormatter.js';
 import { MAX_CANDIDATES } from '../../core/dateExtractor.js';
+import { diffMinutes } from '../../core/dateUtils.js';
 import { DEFAULT_TIME_CHOICE } from '../../core/registration.js';
 import TimeChoiceFields from './TimeChoiceFields.jsx';
 
@@ -69,7 +70,8 @@ export default function CandidateList({
                   {!candidate.hasTime && !candidate.isManual && <span className="badge badge-info">時刻の記載なし</span>}
                   {candidate.endInferred && (
                     <span className="badge badge-info">
-                      終了時刻の記載なし（{defaultDurationMinutes}分で設定）
+                      {/* 抽出したときの長さ（候補の開始〜終了）を出す。抽出後に設定の長さを変えても、登録される長さと食い違わない */}
+                      終了時刻の記載なし（{diffMinutes(candidate.start, candidate.end)}分で設定）
                     </span>
                   )}
                   {candidate.warnings.map((warningCode) => (

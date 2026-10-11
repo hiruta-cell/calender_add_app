@@ -35,12 +35,14 @@ function createHarness({
   isHotkeyAvailable = () => true,
   autoStartSupported = true,
   autoStartFails = false,
+  autoStartReadFails = false,
+  isInitiallyRegistered = true,
   saveFails = false,
   createDesktopIcon = async () => {},
 } = {}) {
   const state = {
     currentSettings: DEFAULT_SETTINGS,
-    registeredAccelerator: buildAccelerator(DEFAULT_SETTINGS),
+    registeredAccelerator: isInitiallyRegistered ? buildAccelerator(DEFAULT_SETTINGS) : null,
     autoStartEnabled: false,
     savedSettings: [],
     autoStartCalls: [],
@@ -66,7 +68,10 @@ function createHarness({
     getHotkeyStatus: () => ({ hotkeyRegistered: state.registeredAccelerator !== null, hotkeyLabel: formatHotkeyLabel(state.currentSettings, false) }),
     autoStart: {
       isSupported: autoStartSupported,
-      isEnabled: async () => state.autoStartEnabled,
+      isEnabled: async () => {
+        if (autoStartReadFails) throw new Error('cannot read');
+        return state.autoStartEnabled;
+      },
       setEnabled: async (enabled) => {
         state.autoStartCalls.push(enabled);
         if (autoStartFails) throw new Error('registry error');
@@ -204,6 +209,33 @@ describe('設定の保存', () => {
     await new Promise((resolve) => setImmediate(resolve));
     releaseSave();
     assert.equal((await third).ok, true);
+  });
+});
+
+describe('設定の保存（見直しで見つかった場合）', () => {
+  test('起動時に登録できなかったキーは、同じ組み合わせのまま保存すると登録し直す', async () => {
+    const { handlers, state } = createHarness({ isInitiallyRegistered: false });
+    const result = await handlers.handleSave({}, { ...DEFAULT_SETTINGS, autoStart: false });
+    assert.equal(result.ok, true);
+    assert.equal(result.hotkeyRegistered, true);
+    assert.equal(state.registeredAccelerator, buildAccelerator(DEFAULT_SETTINGS));
+  });
+
+  test('同じキーがまだ使われていても、ほかの設定（予定の長さ）は保存できる', async () => {
+    const { handlers, state } = createHarness({ isInitiallyRegistered: false, isHotkeyAvailable: () => false });
+    const result = await handlers.handleSave({}, { ...DEFAULT_SETTINGS, durationMinutes: 30, autoStart: false });
+    assert.equal(result.ok, true);
+    assert.equal(result.hotkeyRegistered, false);
+    assert.equal(state.currentSettings.durationMinutes, 30);
+  });
+
+  test('自動起動の状態を読めないときは、変えたキーを元に戻して断る', async () => {
+    const { handlers, state } = createHarness({ autoStartReadFails: true });
+    const result = await handlers.handleSave({}, { ...DEFAULT_SETTINGS, hotkeyKey: 'K', autoStart: false });
+    assert.equal(result.ok, false);
+    assert.equal(state.registeredAccelerator, buildAccelerator(DEFAULT_SETTINGS));
+    assert.deepEqual(state.savedSettings, []);
+    assert.equal(state.currentSettings, DEFAULT_SETTINGS);
   });
 });
 

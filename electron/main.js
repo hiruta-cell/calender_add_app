@@ -36,6 +36,7 @@ import {
 import {
   DesktopIntegrationError,
   HIDDEN_START_ARGUMENT,
+  MAC_LAUNCHER_BUNDLE_NAME,
   WINDOWS_SHORTCUT_FILE_NAME,
   buildWindowsLoginItemSettings,
   buildWindowsShortcutOptions,
@@ -43,6 +44,7 @@ import {
   disableMacAutoStart,
   enableMacAutoStart,
   isMacAutoStartEnabled,
+  isReplaceableWindowsShortcut,
   writeMacLauncher,
 } from './desktopIntegration.js';
 import { SECURE_WEB_PREFERENCES, applySessionSecurity, hardenWebContents } from './security.js';
@@ -117,6 +119,12 @@ let trayController = null;
 /** 最初の確認ウインドウを、ウインドウを出さずに作るか（自動起動のとき。2つ目以降は通常どおり表示する） */
 let shouldStartHidden = START_HIDDEN;
 
+/**
+ * 起動処理（startApp）が終わったか。設定の読み込みを待つ間に Dock の activate や2つ目の起動が来ても、
+ * 通信の受け付け・トレイ・ホットキーがそろう前にウインドウを作らない（ウインドウが2つできるのを防ぐ）
+ */
+let isAppStarted = false;
+
 /** 取り込んだ画像の置き場所（メモリの中だけ） */
 const captureImageStore = createCaptureImageStore();
 
@@ -177,9 +185,12 @@ function createMainWindow() {
 }
 
 /**
- * 確認ウインドウを表示して前面に出す（なければ作る）。
+ * 確認ウインドウを表示して前面に出す（なければ作る）。起動処理の途中は何もしない（isAppStarted を参照）。
  */
 function showMainWindow() {
+  if (!isAppStarted) {
+    return; // 起動処理の最後に startApp がウインドウを作る
+  }
   if (mainWindow === null || mainWindow.isDestroyed()) {
     createMainWindow();
     return;
@@ -258,17 +269,15 @@ function getHotkeyStatus() {
  */
 async function createDesktopIcon() {
   if (IS_MAC) {
-    const launcherPath = await writeMacLauncher({
-      launcherDir: MAC_LAUNCHER_DIR,
-      electronPath: process.execPath,
-      appPath: APP_DIR,
-      iconPath: APP_ICON_ICNS_PATH,
-    });
+    const launcherPath = await writeCurrentMacLauncher();
     await createMacDesktopAlias({ desktopDir: app.getPath('desktop'), launcherPath });
     return;
   }
   if (IS_WINDOWS) {
     const shortcutPath = path.join(app.getPath('desktop'), WINDOWS_SHORTCUT_FILE_NAME);
+    if (existsSync(shortcutPath) && !isReplaceableWindowsShortcut(readWindowsShortcut(shortcutPath))) {
+      throw new DesktopIntegrationError(`デスクトップに「${WINDOWS_SHORTCUT_FILE_NAME}」という名前のものが既にあるため、アイコンを作れませんでした。`);
+    }
     const options = buildWindowsShortcutOptions({ electronPath: process.execPath, appPath: APP_DIR, iconPath: APP_ICON_ICO_PATH });
     if (!shell.writeShortcutLink(shortcutPath, 'create', options)) {
       throw new DesktopIntegrationError('デスクトップにアイコンを作れませんでした。');
@@ -276,6 +285,43 @@ async function createDesktopIcon() {
     return;
   }
   throw new DesktopIntegrationError('この OS では、デスクトップのアイコンを作れません。');
+}
+
+/**
+ * Mac の起動用アプリを、今のプロジェクトの場所・Electron の場所で launcher/ に書き出す（デスクトップのアイコンと自動起動で共通）。
+ *
+ * @returns {Promise<string>} 起動用アプリのパス
+ */
+function writeCurrentMacLauncher() {
+  return writeMacLauncher({
+    launcherDir: MAC_LAUNCHER_DIR,
+    electronPath: process.execPath,
+    appPath: APP_DIR,
+    iconPath: APP_ICON_ICNS_PATH,
+  });
+}
+
+/**
+ * Mac の LaunchAgents のフォルダ（~/Library/LaunchAgents）。自動起動の plist を置く場所。
+ *
+ * @returns {string}
+ */
+function getMacLaunchAgentsDir() {
+  return path.join(app.getPath('home'), 'Library', 'LaunchAgents');
+}
+
+/**
+ * Windows のショートカットの中身を読む。読めないときは null（このアプリが作ったものとはみなさない）。
+ *
+ * @param {string} shortcutPath ショートカットのパス
+ * @returns {Electron.ShortcutDetails | null}
+ */
+function readWindowsShortcut(shortcutPath) {
+  try {
+    return shell.readShortcutLink(shortcutPath);
+  } catch {
+    return null;
+  }
 }
 
 /** ログイン時の自動起動（OS の登録の状態を正とする。要件§12：G8） */
@@ -289,7 +335,10 @@ const autoStart = {
    */
   async isEnabled() {
     if (IS_MAC) {
-      return isMacAutoStartEnabled({ launchAgentsDir: path.join(app.getPath('home'), 'Library', 'LaunchAgents') });
+      return isMacAutoStartEnabled({
+        launchAgentsDir: getMacLaunchAgentsDir(),
+        launcherPath: path.join(MAC_LAUNCHER_DIR, MAC_LAUNCHER_BUNDLE_NAME),
+      });
     }
     if (IS_WINDOWS) {
       return app.getLoginItemSettings(buildWindowsLoginItemSettings({ electronPath: process.execPath, appPath: APP_DIR })).openAtLogin;
@@ -305,17 +354,12 @@ const autoStart = {
    */
   async setEnabled(enabled) {
     if (IS_MAC) {
-      const launchAgentsDir = path.join(app.getPath('home'), 'Library', 'LaunchAgents');
+      const launchAgentsDir = getMacLaunchAgentsDir();
       if (!enabled) {
         await disableMacAutoStart({ launchAgentsDir });
         return;
       }
-      const launcherPath = await writeMacLauncher({
-        launcherDir: MAC_LAUNCHER_DIR,
-        electronPath: process.execPath,
-        appPath: APP_DIR,
-        iconPath: APP_ICON_ICNS_PATH,
-      });
+      const launcherPath = await writeCurrentMacLauncher();
       await enableMacAutoStart({ launchAgentsDir, launcherPath });
       return;
     }
@@ -431,6 +475,7 @@ async function startApp() {
   registerCaptureHotkey(buildAccelerator(currentSettings));
 
   createMainWindow();
+  isAppStarted = true;
 }
 
 // ---- 多重起動の防止 ----

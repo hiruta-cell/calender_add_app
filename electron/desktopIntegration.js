@@ -18,7 +18,7 @@
  * このファイルは electron を import しない。単体テストでは一時フォルダに書き込んで確かめる。
  */
 
-import { chmod, copyFile, lstat, mkdir, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 /** デスクトップのアイコンと起動用のアプリの名前（確認ウインドウの見出しと同じ） */
@@ -50,6 +50,9 @@ const MAC_OPEN_COMMAND = '/usr/bin/open';
 
 /** Windows のデスクトップのショートカットのファイル名 */
 export const WINDOWS_SHORTCUT_FILE_NAME = `${APP_DISPLAY_NAME}.lnk`;
+
+/** Windows のショートカットの説明。このアプリが作ったショートカットかの見分けにも使う */
+export const WINDOWS_SHORTCUT_DESCRIPTION = `${APP_DISPLAY_NAME}（文章の日時から Googleカレンダーの予定を作る）`;
 
 /** 起動用のスクリプトの権限（本人が実行できる。ほかの人は読むだけ） */
 const EXECUTABLE_FILE_MODE = 0o755;
@@ -298,17 +301,17 @@ export async function disableMacAutoStart({ launchAgentsDir }) {
 }
 
 /**
- * Mac のログイン時の自動起動がオンか（自分の LaunchAgent の plist があるか）。
+ * Mac のログイン時の自動起動がオンか。自分の LaunchAgent の plist が、今の場所の起動用アプリを指しているときだけオンとみなす。
+ * プロジェクトのフォルダを移動すると plist は古い場所を指したままになる（ログインしても起動しない）ため、
+ * そのときはオフと表示し、利用者がオンにして保存し直せば今の場所で作り直されるようにする。
  *
- * @param {{launchAgentsDir: string}} options LaunchAgents のフォルダ
+ * @param {{launchAgentsDir: string, launcherPath: string}} options LaunchAgents のフォルダと、今の起動用のアプリのパス
  * @returns {Promise<boolean>}
  */
-export async function isMacAutoStartEnabled({ launchAgentsDir }) {
+export async function isMacAutoStartEnabled({ launchAgentsDir, launcherPath }) {
   assertSafeAbsolutePath(launchAgentsDir, 'posix');
-  return stat(path.join(launchAgentsDir, MAC_LAUNCH_AGENT_FILE_NAME)).then(
-    (stats) => stats.isFile(),
-    () => false,
-  );
+  const content = await readFile(path.join(launchAgentsDir, MAC_LAUNCH_AGENT_FILE_NAME), 'utf8').catch(() => null);
+  return content !== null && content === buildMacLaunchAgentPlist({ launcherPath });
 }
 
 /**
@@ -322,10 +325,21 @@ export function buildWindowsShortcutOptions({ electronPath, appPath, iconPath })
     target: assertSafeAbsolutePath(electronPath, 'win32'),
     args: quoteWindowsArgument(appPath),
     cwd: assertSafeAbsolutePath(appPath, 'win32'),
-    description: `${APP_DISPLAY_NAME}（文章の日時から Googleカレンダーの予定を作る）`,
+    description: WINDOWS_SHORTCUT_DESCRIPTION,
     icon: assertSafeAbsolutePath(iconPath, 'win32'),
     iconIndex: 0,
   };
+}
+
+/**
+ * デスクトップに同じ名前のショートカットがあるとき、作り直してよいか（このアプリが前に作ったものだけ作り直す）。
+ * 利用者が自分で置いた同じ名前のショートカットは上書きしない（Mac の createMacDesktopAlias と同じ考え方）。
+ *
+ * @param {{description?: string} | null} existingShortcut shell.readShortcutLink で読んだ内容。ない・読めないときは null
+ * @returns {boolean} 作り直してよければ true
+ */
+export function isReplaceableWindowsShortcut(existingShortcut) {
+  return existingShortcut !== null && existingShortcut.description === WINDOWS_SHORTCUT_DESCRIPTION;
 }
 
 /**
