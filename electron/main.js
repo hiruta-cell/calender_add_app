@@ -6,20 +6,28 @@
  * 常駐（要件§6.1）：確認ウインドウを閉じてもアプリは終了せず、トレイ（Mac はメニューバー）に残る。
  *   終了はトレイのメニューの「終了」（Mac は Cmd+Q も可）。
  * ホットキー（要件§12）：既定は Ctrl+Shift+Y（Mac は Cmd+Shift+Y）で範囲キャプチャを始める。設定画面で変えられる。終了時に解除する。
+ *   同じ修飾キー＋U（既定は Ctrl+Shift+U、Mac は Cmd+Shift+U）で、コピーした文章を読み取って抽出する（clipboardImport.js）。
  * 設定（要件§6.1）：予定の既定の長さ・ホットキーを settings.json に保存する（文章・画像は保存しない）。
  * デスクトップのアイコン・ログイン時の自動起動（要件§12）：設定画面から作る・切り替える（desktopIntegration.js）。
  *   自動起動では --hidden 付きで起動し、ウインドウを出さずに常駐する。
  */
 
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, protocol, session, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_SETTINGS, buildAccelerator, formatHotkeyLabel } from '../src/core/settings.js';
+import {
+  DEFAULT_SETTINGS,
+  buildAccelerator,
+  buildClipboardAccelerator,
+  formatClipboardHotkeyLabel,
+  formatHotkeyLabel,
+} from '../src/core/settings.js';
 import { APP_ENTRY_URL, APP_SCHEME, APP_SCHEME_PRIVILEGES, handleAppRequest, isAppUrl } from './appProtocol.js';
 import { OPEN_CALENDAR_EVENTS_CHANNEL, createOpenCalendarEventsHandler } from './calendarIpc.js';
 import { createCaptureController } from './captureController.js';
 import { createCaptureImageStore } from './captureImageStore.js';
+import { CLIPBOARD_READ_CHANNEL, createClipboardHandlers, readClipboardForExtraction } from './clipboardImport.js';
 import {
   CAPTURE_CLEAR_CHANNEL,
   CAPTURE_IMPORT_CHANNEL,
@@ -103,8 +111,11 @@ let mainWindow = null;
 /** アプリを終了しようとしているか（true なら確認ウインドウを閉じたとき隠さずに閉じる） */
 let isQuitting = false;
 
-/** 実際に登録できているホットキー（Electron の表記）。登録できていなければ null（ほかのアプリが使っている） */
+/** 実際に登録できている範囲キャプチャのホットキー（Electron の表記）。登録できていなければ null（ほかのアプリが使っている） */
 let registeredAccelerator = null;
+
+/** 実際に登録できている、コピーした文章を読み取るホットキー。登録できていなければ null */
+let registeredClipboardAccelerator = null;
 
 /** 今の設定（起動時に settings.json から読み込む。読めなければ既定値） */
 let currentSettings = DEFAULT_SETTINGS;
@@ -116,6 +127,24 @@ let settingsStore = null;
 let trayController = null;
 
 
+/**
+ * 取り込み・読み取りの進み具合と結果を、確認ウインドウに送る（ウインドウがなければ何もしない）。
+ * 読み込み中のウインドウには、読み込みが終わってから送る（自動起動で隠れている状態からホットキーを押したときなど）。
+ *
+ * @param {object} status 送る内容（state など）
+ */
+function sendCaptureStatus(status) {
+  if (mainWindow === null || mainWindow.isDestroyed()) {
+    return;
+  }
+  const { webContents } = mainWindow;
+  if (webContents.isLoadingMainFrame()) {
+    webContents.once('did-finish-load', () => webContents.send(CAPTURE_STATUS_CHANNEL, status));
+    return;
+  }
+  webContents.send(CAPTURE_STATUS_CHANNEL, status);
+}
+
 /** 取り込んだ画像の置き場所（メモリの中だけ） */
 const captureImageStore = createCaptureImageStore();
 
@@ -124,11 +153,7 @@ const captureController = createCaptureController({
   imageStore: captureImageStore,
   getMainWindow: () => mainWindow,
   showMainWindow,
-  sendStatus: (status) => {
-    if (mainWindow !== null && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(CAPTURE_STATUS_CHANNEL, status);
-    }
-  },
+  sendStatus: sendCaptureStatus,
   overlayPreloadPath: OVERLAY_PRELOAD_PATH,
   webPreferences: SECURE_WEB_PREFERENCES,
 });
@@ -204,38 +229,64 @@ function minimizeMainWindow() {
 }
 
 /**
- * ホットキーを登録する。
+ * ホットキーを1つ登録する。
  *
  * @param {string} accelerator Electron の表記（例：CommandOrControl+Shift+Y）
- * @returns {boolean} 登録できたら true（ほかのアプリが使っていると false）
+ * @param {() => void} onPressed 押されたときの処理
+ * @returns {string | null} 登録できたら accelerator、できなければ null（ほかのアプリが使っている）
  */
-function registerCaptureHotkey(accelerator) {
-  if (globalShortcut.register(accelerator, () => captureController.startCapture())) {
-    registeredAccelerator = accelerator;
-    return true;
+function registerHotkey(accelerator, onPressed) {
+  return globalShortcut.register(accelerator, onPressed) ? accelerator : null;
+}
+
+/**
+ * 範囲キャプチャと、コピーした文章の読み取りのホットキーを登録する。
+ *
+ * @param {string} captureAccelerator 範囲キャプチャのホットキー
+ * @param {string} clipboardAccelerator コピーした文章を読み取るホットキー
+ */
+function registerHotkeys(captureAccelerator, clipboardAccelerator) {
+  registeredAccelerator = registerHotkey(captureAccelerator, () => captureController.startCapture());
+  registeredClipboardAccelerator = registerHotkey(clipboardAccelerator, importClipboardText);
+}
+
+/**
+ * 登録しているホットキーを2つとも解除する。
+ */
+function unregisterHotkeys() {
+  for (const accelerator of [registeredAccelerator, registeredClipboardAccelerator]) {
+    if (accelerator !== null) {
+      globalShortcut.unregister(accelerator);
+    }
   }
-  return false;
+  registeredAccelerator = null;
+  registeredClipboardAccelerator = null;
 }
 
 /**
  * ホットキーを、設定の組み合わせに登録し直す（設定画面で変えたとき）。
- * 新しい組み合わせを登録できなければ、元の組み合わせに戻して false を返す。
+ * 範囲キャプチャのホットキーを登録できなければ、元の組み合わせに戻して false を返す。
+ * コピーした文章の読み取りのホットキーは、登録できなくても保存は続ける（状態は getHotkeyStatus で画面に知らせる）。
  *
  * @param {{hotkeyModifiers: string, hotkeyKey: string}} nextSettings 新しい設定（検証済み）
- * @returns {boolean} 登録できたら true
+ * @returns {boolean} 範囲キャプチャのホットキーを登録できたら true
  */
 function changeCaptureHotkey(nextSettings) {
-  const previousAccelerator = registeredAccelerator;
-  if (previousAccelerator !== null) {
-    globalShortcut.unregister(previousAccelerator);
-    registeredAccelerator = null;
-  }
-  if (registerCaptureHotkey(buildAccelerator(nextSettings))) {
-    trayController?.setHotkeyLabel(formatHotkeyLabel(nextSettings, IS_MAC));
+  const previousCapture = registeredAccelerator;
+  const previousClipboard = registeredClipboardAccelerator;
+  unregisterHotkeys();
+  registerHotkeys(buildAccelerator(nextSettings), buildClipboardAccelerator(nextSettings));
+  if (registeredAccelerator !== null) {
+    trayController?.setHotkeyLabels(formatHotkeyLabel(nextSettings, IS_MAC), formatClipboardHotkeyLabel(nextSettings, IS_MAC));
     return true;
   }
-  if (previousAccelerator !== null) {
-    registerCaptureHotkey(previousAccelerator); // 元に戻す
+  // 元に戻す（登録できていなかったものは、そのまま登録しない）
+  unregisterHotkeys();
+  if (previousCapture !== null) {
+    registeredAccelerator = registerHotkey(previousCapture, () => captureController.startCapture());
+  }
+  if (previousClipboard !== null) {
+    registeredClipboardAccelerator = registerHotkey(previousClipboard, importClipboardText);
   }
   return false;
 }
@@ -243,10 +294,38 @@ function changeCaptureHotkey(nextSettings) {
 /**
  * ホットキーの状態（登録できているか、利用者に見せる表記）を返す。
  *
- * @returns {{hotkeyRegistered: boolean, hotkeyLabel: string}}
+ * @returns {{hotkeyRegistered: boolean, hotkeyLabel: string, clipboardHotkeyRegistered: boolean, clipboardHotkeyLabel: string}}
  */
 function getHotkeyStatus() {
-  return { hotkeyRegistered: registeredAccelerator !== null, hotkeyLabel: formatHotkeyLabel(currentSettings, IS_MAC) };
+  return {
+    hotkeyRegistered: registeredAccelerator !== null,
+    hotkeyLabel: formatHotkeyLabel(currentSettings, IS_MAC),
+    clipboardHotkeyRegistered: registeredClipboardAccelerator !== null,
+    clipboardHotkeyLabel: formatClipboardHotkeyLabel(currentSettings, IS_MAC),
+  };
+}
+
+/**
+ * コピーした文章（クリップボード）を読み、確認ウインドウを出して抽出してもらう。
+ * ホットキー・トレイ・画面のボタンを利用者が操作したときだけ呼ばれる。文章は保存もログ出力もしない。
+ * 範囲の選択・読み取りの途中なら、その結果と取り違えないよう断る。
+ */
+function importClipboardText() {
+  showMainWindow();
+  if (captureController.isBusy()) {
+    sendCaptureStatus({ state: 'error', message: '範囲の選択または読み取りの途中です。終わるまでお待ちください。' });
+    return;
+  }
+  // 呼ぶたびに clipboard.readText を参照する（実機の自動確認で差し替えられるようにするため）
+  const result = readClipboardForExtraction(() => clipboard.readText());
+  if (!result.ok) {
+    sendCaptureStatus({ state: 'error', message: result.message });
+    return;
+  }
+  // 前に取り込んだ画像は、新しい文章と関係がないため消す
+  captureController.clearCapture();
+  sendCaptureStatus({ state: 'cleared' });
+  sendCaptureStatus({ state: 'clipboardText', text: result.text });
 }
 
 /**
@@ -399,6 +478,7 @@ function registerIpcHandlers() {
   ipcMain.handle(CAPTURE_CLEAR_CHANNEL, captureHandlers.handleClear);
   ipcMain.handle(OVERLAY_SELECT_CHANNEL, (event, rect) => captureController.handleOverlaySelect(event, rect));
   ipcMain.handle(OVERLAY_CANCEL_CHANNEL, (event) => captureController.handleOverlayCancel(event));
+  ipcMain.handle(CLIPBOARD_READ_CHANNEL, createClipboardHandlers({ isTrustedSender, importClipboardText }).handleRead);
   ipcMain.handle(
     OPEN_SCREEN_SETTINGS_CHANNEL,
     createOpenScreenSettingsHandler({ isTrustedSender, openExternal, platform: process.platform }),
@@ -449,7 +529,9 @@ async function startApp() {
     iconPath: TRAY_ICON_PATH,
     isTemplateImage: IS_MAC,
     hotkeyLabel: formatHotkeyLabel(currentSettings, IS_MAC),
+    clipboardHotkeyLabel: formatClipboardHotkeyLabel(currentSettings, IS_MAC),
     onCapture: () => captureController.startCapture(),
+    onReadClipboard: importClipboardText,
     onShowWindow: showMainWindow,
     onQuit: () => app.quit(),
   });
@@ -459,7 +541,7 @@ async function startApp() {
   }
 
   // 登録できなかった場合（ほかのアプリが使っている）は、確認ウインドウで知らせる（要件§12）
-  registerCaptureHotkey(buildAccelerator(currentSettings));
+  registerHotkeys(buildAccelerator(currentSettings), buildClipboardAccelerator(currentSettings));
 
   // 自動起動（--hidden）のときは、最初のウインドウを出さずに常駐する（トレイ・ホットキーから使う）
   createMainWindow({ show: !START_HIDDEN });

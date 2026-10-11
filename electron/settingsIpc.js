@@ -70,7 +70,8 @@ export function parseSaveRequest(rawRequest) {
  * @param {() => object} dependencies.getCurrentSettings 今の設定を返す関数
  * @param {(settings: object) => void} dependencies.setCurrentSettings 今の設定を置き換える関数
  * @param {(settings: object) => boolean} dependencies.changeHotkey ホットキーを登録し直す関数（失敗したら元のホットキーのまま false）
- * @param {() => {hotkeyRegistered: boolean, hotkeyLabel: string}} dependencies.getHotkeyStatus ホットキーの状態
+ * @param {() => {hotkeyRegistered: boolean, hotkeyLabel: string, clipboardHotkeyRegistered?: boolean}} dependencies.getHotkeyStatus
+ *   ホットキーの状態（clipboardHotkeyRegistered：コピーした文章を読み取るホットキーを登録できているか）
  * @param {{isSupported: boolean, isEnabled: () => Promise<boolean>, setEnabled: (enabled: boolean) => Promise<void>}} dependencies.autoStart
  *   ログイン時の自動起動（OS の登録の状態を正とする）
  * @param {() => Promise<void>} dependencies.createDesktopIcon デスクトップにアイコンを作る関数
@@ -141,14 +142,15 @@ export function createSettingsHandlers({
           return { ok: false, message: AUTO_START_UNSUPPORTED_MESSAGE };
         }
 
-        // 2. ホットキー。変わったら登録し直す。起動時に登録できなかったキーは、同じ組み合わせでも登録し直す
+        // 2. ホットキー。変わったら登録し直す。起動時に登録できなかったキー（コピーした文章の読み取りを含む）は、同じ組み合わせでも登録し直す
         //    （まだほかのアプリが使っていても保存は続け、結果は hotkeyRegistered で画面に知らせる）
         const previousSettings = getCurrentSettings();
         const isHotkeyChanged = buildAccelerator(request.settings) !== buildAccelerator(previousSettings);
         if (isHotkeyChanged && !changeHotkey(request.settings)) {
           return { ok: false, message: HOTKEY_UNAVAILABLE_MESSAGE };
         }
-        if (!isHotkeyChanged && !getHotkeyStatus().hotkeyRegistered) {
+        const hotkeyStatus = getHotkeyStatus();
+        if (!isHotkeyChanged && (!hotkeyStatus.hotkeyRegistered || hotkeyStatus.clipboardHotkeyRegistered === false)) {
           changeHotkey(request.settings);
         }
         /** ホットキーを元に戻す（このあとで失敗したとき） */

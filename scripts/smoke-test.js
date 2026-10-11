@@ -38,7 +38,7 @@ import { AUTO_RESET_DELAY_MS, AUTO_RESET_DELAY_SECONDS } from '../src/core/autoR
 import { formatCalendarDate, formatCalendarDateTime } from '../src/core/calendarUrl.js';
 import { MAX_INPUT_LENGTH, extractDateCandidates } from '../src/core/dateExtractor.js';
 import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
-import { DEFAULT_SETTINGS, buildAccelerator } from '../src/core/settings.js';
+import { DEFAULT_SETTINGS, buildAccelerator, buildClipboardAccelerator } from '../src/core/settings.js';
 
 /** プロジェクトのフォルダ */
 const PROJECT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -97,8 +97,11 @@ const FIND_MAIN_WINDOW_EXPRESSION = `BrowserWindow.getAllWindows().find((candida
 /** 既定のホットキー（Electron の表記。CommandOrControl+Shift+Y） */
 const DEFAULT_ACCELERATOR = buildAccelerator(DEFAULT_SETTINGS);
 
-/** 設定画面の確認で選ぶホットキー（既定の Y を U に変える） */
-const SETTINGS_TEST_ACCELERATOR = buildAccelerator({ ...DEFAULT_SETTINGS, hotkeyKey: 'U' });
+/** 設定画面の確認で選ぶホットキー（既定の Y を K に変える。U はコピーした文章の読み取りに使うため選べない） */
+const SETTINGS_TEST_ACCELERATOR = buildAccelerator({ ...DEFAULT_SETTINGS, hotkeyKey: 'K' });
+
+/** コピーした文章を読み取るホットキー（Electron の表記。CommandOrControl+Shift+U） */
+const CLIPBOARD_ACCELERATOR = buildClipboardAccelerator(DEFAULT_SETTINGS);
 
 /** 確認結果の一覧 { name, passed, detail } */
 const results = [];
@@ -405,6 +408,39 @@ function setSelectValue(connection, selector, value) {
 }
 
 /**
+ * メインプロセスのクリップボードの読み取り（clipboard.readText）を、決めた文章を返す関数に差し替える。
+ * 利用者のクリップボードの中身を読んだり書き換えたりしないため。元の関数は restoreClipboardText で戻す。
+ *
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ * @param {string} text 読み取ったことにする文章（架空のもの）
+ */
+async function replaceClipboardText(mainConnection, text) {
+  await mainConnection.evaluate(
+    `(() => {
+      const { clipboard } = require('electron');
+      globalThis.__smokeTestOriginalReadText ??= clipboard.readText;
+      clipboard.readText = () => ${JSON.stringify(text)};
+    })()`,
+    { commandLineApi: true },
+  );
+}
+
+/**
+ * replaceClipboardText で差し替えたクリップボードの読み取りを元に戻す。
+ *
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ */
+async function restoreClipboardText(mainConnection) {
+  await mainConnection.evaluate(
+    `(() => {
+      const { clipboard } = require('electron');
+      if (globalThis.__smokeTestOriginalReadText) clipboard.readText = globalThis.__smokeTestOriginalReadText;
+    })()`,
+    { commandLineApi: true },
+  );
+}
+
+/**
  * メインプロセスで、ホットキーが登録されているかを調べる。
  *
  * @param {DevToolsConnection} mainConnection メインプロセスへの接続
@@ -621,6 +657,7 @@ async function checkCapture(connection, mainConnection, port, screenshotDir) {
   await clickButton(connection, 'クリア');
 
   record('ホットキー（Ctrl/Cmd+Shift+Y）が登録されている', await isHotkeyRegistered(mainConnection, DEFAULT_ACCELERATOR));
+  record('コピーした文章を読み取るホットキー（Ctrl/Cmd+Shift+U）が登録されている', await isHotkeyRegistered(mainConnection, CLIPBOARD_ACCELERATOR));
 
   // 1. 取り込み → 範囲選択 → OCR → 日時の抽出
   await connection.evaluate(`[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る')).click()`);
@@ -1073,6 +1110,26 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   const mailCandidates = await connection.evaluate(`[...document.querySelectorAll('.candidate-date')].map((item) => item.textContent)`);
   record('メールの送信日・引用の見出しの日付は候補にしない', mailCandidates.length === 1 && mailCandidates[0].includes('1月8日'), mailCandidates.join(' / '));
 
+  // 10. コピーした文章の読み取り（クリップボードを読む関数を差し替え、利用者のクリップボードには触れない。架空の文面）
+  await replaceClipboardText(mainConnection, '定例会のお知らせ\n2030年1月8日(火) 15時30分から');
+  await clickButton(connection, 'クリア');
+  await connection.evaluate(`[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('コピーした文章を読み取る')).click()`);
+  const isClipboardExtracted = await waitForWithTimeout(
+    connection,
+    `document.querySelector('#source-text').value.includes('定例会') && document.querySelectorAll('.candidate-item').length === 1`,
+    5000,
+  );
+  const clipboardCandidate = await connection.evaluate(`document.querySelector('.candidate-date')?.textContent ?? ''`);
+  record('「コピーした文章を読み取る」で、コピーした文章が入力欄に入り、そのまま抽出される', isClipboardExtracted && clipboardCandidate.includes('1月8日'), clipboardCandidate);
+  record('コピーした文章の件名も下書きされる', (await connection.evaluate(`document.querySelector('#event-title').value`)) === '定例会のお知らせ');
+  await replaceClipboardText(mainConnection, '');
+  await connection.evaluate(`[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('コピーした文章を読み取る')).click()`);
+  const isEmptyClipboardShown = await waitForWithTimeout(connection, `(document.querySelector('.error-banner')?.textContent ?? '').includes('コピーされた文章がありません')`, 5000);
+  record('コピーした文章がないときは、コピーし直すよう案内する（入力欄はそのまま）', isEmptyClipboardShown &&
+    (await connection.evaluate(`document.querySelector('#source-text').value.includes('定例会')`)));
+  await restoreClipboardText(mainConnection);
+  await clickButton(connection, 'クリア');
+
   // 5. 長すぎる文章 → エラーを表示して待機状態に戻る
   await replaceInputText(connection, 'あ'.repeat(MAX_INPUT_LENGTH + 1));
   await clickButton(connection, '日時を抽出');
@@ -1124,22 +1181,27 @@ async function checkSettings(connection, mainConnection, screenshotDir) {
   );
   const settingsImage = await saveScreenshot(connection, screenshotDir, '06-settings.png');
 
-  // 予定の長さを30分、ホットキーを Ctrl/Cmd+Shift+U に変えて保存する
+  record('範囲キャプチャのキーの選択肢に U（コピーした文章の読み取り用）がない', await connection.evaluate(
+    `![...document.querySelectorAll('#settings-hotkey-key option')].some((option) => option.value === 'U')`,
+  ));
+
+  // 予定の長さを30分、ホットキーを Ctrl/Cmd+Shift+K に変えて保存する
   await setSelectValue(connection, '#settings-duration', '30');
-  await setSelectValue(connection, '#settings-hotkey-key', 'U');
+  await setSelectValue(connection, '#settings-hotkey-key', 'K');
   await saveSettings();
   record(
     'ホットキーを変えて保存すると、新しいキーだけが登録される（前のキーは解除）',
     (await isHotkeyRegistered(mainConnection, SETTINGS_TEST_ACCELERATOR)) && !(await isHotkeyRegistered(mainConnection, DEFAULT_ACCELERATOR)),
   );
+  record('キーだけを変えても、コピーした文章の読み取りのホットキー（Ctrl/Cmd+Shift+U）は登録されたまま', await isHotkeyRegistered(mainConnection, CLIPBOARD_ACCELERATOR));
   const captureButtonLabel = await connection.evaluate(
     `[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る'))?.textContent ?? ''`,
   );
-  record('「画面から読み取る」ボタンのキーの表記も変わる', captureButtonLabel.includes('+Shift+U'), captureButtonLabel);
+  record('「画面から読み取る」ボタンのキーの表記も変わる', captureButtonLabel.includes('+Shift+K'), captureButtonLabel);
   const savedText = await readFile(path.join(userDataDir, SETTINGS_FILE_NAME), 'utf8');
   record(
     '設定は、専用の設定フォルダの settings.json に設定の項目だけ保存される',
-    savedText === `${JSON.stringify({ durationMinutes: 30, hotkeyModifiers: 'CommandOrControl+Shift', hotkeyKey: 'U' }, null, 2)}\n`,
+    savedText === `${JSON.stringify({ durationMinutes: 30, hotkeyModifiers: 'CommandOrControl+Shift', hotkeyKey: 'K' }, null, 2)}\n`,
     savedText.replaceAll('\n', ' '),
   );
   await replaceInputText(connection, DEMO_TEXT);
@@ -1265,9 +1327,9 @@ async function checkSecurity(connection, mainConnection) {
   isExpectingErrors = true; // ここで起きるエラーは意図的に起こしたもの
 
   record(
-    '画面に公開されている機能は、決めた関数だけ（登録・取り込み・画像・システム設定・設定・アイコンの10個）',
+    '画面に公開されている機能は、決めた関数だけ（登録・取り込み・画像・クリップボード・システム設定・設定・アイコンの11個）',
     JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp).sort()`)) ===
-      JSON.stringify(['clearCapture', 'createDesktopIcon', 'getSettings', 'importImage', 'onCaptureStatus', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'saveSettings', 'startCapture']) &&
+      JSON.stringify(['clearCapture', 'createDesktopIcon', 'getSettings', 'importImage', 'onCaptureStatus', 'openCalendarEvents', 'openScreenRecordingSettings', 'readClipboard', 'rereadCapture', 'saveSettings', 'startCapture']) &&
       (await connection.evaluate(`typeof window.ipcRenderer === 'undefined' && typeof window.electron === 'undefined'`)),
   );
   const openedBefore = (await getOpenedUrls(mainConnection)).length;

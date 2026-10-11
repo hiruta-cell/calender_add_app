@@ -3,7 +3,8 @@
  * 目的：確認ウインドウの画面全体。次の流れを管理する。
  *   文章の貼り付け → 日時の抽出（件名・場所・URL の下書きも）→ 候補の選択・追記 → Googleカレンダーの予定作成画面を開く
  *   → 60秒操作がなければ、次の登録に備えて表示を初期状態に戻す（依頼者の指示）
- * 文章は、貼り付けのほか、範囲キャプチャ＋OCR（ホットキー・トレイ・「画面から読み取る」ボタン）でも入れられる。
+ * 文章は、貼り付けのほか、範囲キャプチャ＋OCR（ホットキー・トレイ・「画面から読み取る」ボタン）や、
+ * コピーした文章の読み取り（ホットキー・トレイ・「コピーした文章を読み取る」ボタン）でも入れられる。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -51,7 +52,7 @@ const CAPTURE_ERROR_SCREEN_PERMISSION = 'screenPermission';
 
 /** ホットキーを登録できなかったときの案内 */
 const HOTKEY_UNAVAILABLE_MESSAGE =
-  'ホットキーを登録できませんでした（ほかのアプリが使っている可能性があります）。「画面から読み取る」ボタンか、トレイのメニューを使ってください。';
+  'ホットキーを登録できませんでした（ほかのアプリが使っている可能性があります）。画面のボタンか、トレイのメニューを使ってください。';
 
 /** 予定の内容の入力欄の初期値（メモへの元の文章の貼り付けは既定オフ：要件§6.2） */
 const EMPTY_EVENT_DETAILS = Object.freeze({
@@ -105,6 +106,8 @@ export default function App() {
   const [capture, setCapture] = useState(EMPTY_CAPTURE);
   /** ホットキーの表記（例：Ctrl+Shift+Y）。メインプロセスから受け取る */
   const [hotkeyLabel, setHotkeyLabel] = useState('');
+  /** コピーした文章を読み取るホットキーの表記（例：Ctrl+Shift+U）。メインプロセスから受け取る */
+  const [clipboardHotkeyLabel, setClipboardHotkeyLabel] = useState('');
   /** 予定の既定の長さ（分）。終了時刻が書かれていないときに使う。設定から受け取る（要件§5.4・§6.1） */
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_SETTINGS.durationMinutes);
   /** 設定画面の表示中かどうか */
@@ -251,6 +254,14 @@ export default function App() {
       case 'cleared':
         setCapture(EMPTY_CAPTURE);
         break;
+      case 'clipboardText': {
+        // コピーした文章（ホットキー・トレイ・ボタン）：入力欄に入れて、そのまま抽出する
+        const text = typeof status.text === 'string' ? status.text : '';
+        setErrorMessage('');
+        setInputText(text);
+        extractFromText(text);
+        break;
+      }
       default: // cancelled など
         setCapture((previous) => ({ ...previous, status: 'idle' }));
         break;
@@ -343,7 +354,8 @@ export default function App() {
         if (!result.ok) return;
         setDurationMinutes(result.settings.durationMinutes);
         setHotkeyLabel(result.hotkeyLabel);
-        if (!result.hotkeyRegistered) {
+        setClipboardHotkeyLabel(result.clipboardHotkeyLabel);
+        if (!result.hotkeyRegistered || !result.clipboardHotkeyRegistered) {
           setErrorMessage(HOTKEY_UNAVAILABLE_MESSAGE);
         }
       })
@@ -355,12 +367,13 @@ export default function App() {
    * 設定画面で保存できたとき：予定の長さとホットキーの表記を新しい設定にする。
    * ホットキーを登録できるようになったら、「登録できませんでした」の表示を消す。
    *
-   * @param {{settings: {durationMinutes: number}, hotkeyRegistered: boolean, hotkeyLabel: string}} result 保存の結果
+   * @param {{settings: {durationMinutes: number}, hotkeyRegistered: boolean, hotkeyLabel: string, clipboardHotkeyRegistered: boolean, clipboardHotkeyLabel: string}} result 保存の結果
    */
   function handleSettingsSaved(result) {
     setDurationMinutes(result.settings.durationMinutes);
     setHotkeyLabel(result.hotkeyLabel);
-    if (result.hotkeyRegistered && errorMessage === HOTKEY_UNAVAILABLE_MESSAGE) {
+    setClipboardHotkeyLabel(result.clipboardHotkeyLabel);
+    if (result.hotkeyRegistered && result.clipboardHotkeyRegistered && errorMessage === HOTKEY_UNAVAILABLE_MESSAGE) {
       setErrorMessage('');
     }
   }
@@ -378,6 +391,22 @@ export default function App() {
     } catch (error) {
       setErrorMessage('画面の取り込みを始められませんでした。もう一度お試しください。');
       console.error('範囲キャプチャを始められませんでした:', error?.name);
+    }
+  }
+
+  /**
+   * 「コピーした文章を読み取る」：クリップボードの文章を読んでもらう（結果は handleCaptureStatus の clipboardText に届く）。
+   */
+  async function handleReadClipboard() {
+    setErrorMessage('');
+    try {
+      const result = await window.calendarApp.readClipboard();
+      if (!result.ok) {
+        setErrorMessage(result.message);
+      }
+    } catch (error) {
+      setErrorMessage('コピーした文章を読み取れませんでした。もう一度お試しください。');
+      console.error('コピーした文章を読み取れませんでした:', error?.name); // 文章の内容はログに出さない
     }
   }
 
@@ -565,8 +594,17 @@ export default function App() {
             >
               画面から読み取る{hotkeyLabel !== '' && `（${hotkeyLabel}）`}
             </button>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={handleReadClipboard}
+              disabled={capture.status === 'reading'}
+            >
+              コピーした文章を読み取る{clipboardHotkeyLabel !== '' && `（${clipboardHotkeyLabel}）`}
+            </button>
             <span className="field-note">
-              画面の範囲を選んで文字を読み取ります（実験機能）。画像の貼り付け（{hotkeyLabel.startsWith('Cmd') ? 'Cmd' : 'Ctrl'}+V）やドラッグ＆ドロップでも読み取れます
+              ほかのアプリで文章をコピーしてから {clipboardHotkeyLabel || 'ホットキー'} を押すと、そのまま抽出します。
+              「画面から読み取る」は範囲を選んで文字を読み取ります（実験機能）。画像の貼り付け（{hotkeyLabel.startsWith('Cmd') ? 'Cmd' : 'Ctrl'}+V）やドラッグ＆ドロップでも読み取れます
             </span>
           </div>
           {(capture.imageUrl !== '' || capture.status === 'reading') && (

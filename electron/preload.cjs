@@ -25,6 +25,9 @@ const CAPTURE_STATUS_CHANNEL = 'capture:status';
 /** Mac の画面収録の設定画面を開く */
 const OPEN_SCREEN_SETTINGS_CHANNEL = 'system:open-screen-settings';
 
+/** コピーした文章を読み取る（electron/clipboardImport.js の同名の定数と同じ値） */
+const CLIPBOARD_READ_CHANNEL = 'clipboard:read';
+
 /** 以下は electron/settingsIpc.js の同名の定数と同じ値 */
 /** 設定を取得する */
 const SETTINGS_GET_CHANNEL = 'settings:get';
@@ -74,6 +77,14 @@ contextBridge.exposeInMainWorld('calendarApp', {
   clearCapture: () => ipcRenderer.invoke(CAPTURE_CLEAR_CHANNEL),
 
   /**
+   * コピーした文章（クリップボード）を読み取ってもらう（結果は onCaptureStatus の state: 'clipboardText' で届く）。
+   * 引数は受け取らない。クリップボードを読むのはメインプロセス側。
+   *
+   * @returns {Promise<{ok: boolean, message?: string}>}
+   */
+  readClipboard: () => ipcRenderer.invoke(CLIPBOARD_READ_CHANNEL),
+
+  /**
    * Mac の「画面収録とシステムオーディオ録音」の設定画面を開いてもらう（開く URL はメインプロセスで決まっている）。
    *
    * @returns {Promise<{ok: boolean, message?: string}>}
@@ -83,7 +94,7 @@ contextBridge.exposeInMainWorld('calendarApp', {
   /**
    * 今の設定（予定の既定の長さ・ホットキー）と、自動起動・ホットキーの状態を受け取る。
    *
-   * @returns {Promise<{ok: boolean, settings?: object, autoStart?: boolean, autoStartSupported?: boolean, platform?: string, hotkeyRegistered?: boolean, hotkeyLabel?: string, message?: string}>}
+   * @returns {Promise<{ok: boolean, settings?: object, autoStart?: boolean, autoStartSupported?: boolean, platform?: string, hotkeyRegistered?: boolean, hotkeyLabel?: string, clipboardHotkeyRegistered?: boolean, clipboardHotkeyLabel?: string, message?: string}>}
    */
   getSettings: () => ipcRenderer.invoke(SETTINGS_GET_CHANNEL),
 

@@ -249,6 +249,28 @@ describe('設定の保存（見直しで見つかった場合）', () => {
     assert.equal(state.registeredAccelerator, buildAccelerator(DEFAULT_SETTINGS));
   });
 
+  test('コピーした文章の読み取りのホットキーだけ登録できていないときも、同じ組み合わせのまま保存すると登録し直す', async () => {
+    let changeCount = 0;
+    const handlers = createSettingsHandlers({
+      isTrustedSender: () => true,
+      store: { save: async () => {} },
+      getCurrentSettings: () => DEFAULT_SETTINGS,
+      setCurrentSettings: () => {},
+      changeHotkey: () => {
+        changeCount += 1;
+        return true;
+      },
+      getHotkeyStatus: () => ({ hotkeyRegistered: true, hotkeyLabel: '', clipboardHotkeyRegistered: changeCount > 0, clipboardHotkeyLabel: '' }),
+      autoStart: { isSupported: true, isEnabled: async () => false, setEnabled: async () => {} },
+      createDesktopIcon: async () => {},
+      platform: 'windows',
+    });
+    const result = await handlers.handleSave({}, { ...DEFAULT_SETTINGS, autoStart: false });
+    assert.equal(result.ok, true);
+    assert.equal(changeCount, 1);
+    assert.equal(result.clipboardHotkeyRegistered, true);
+  });
+
   test('同じキーがまだ使われていても、ほかの設定（予定の長さ）は保存できる', async () => {
     const { handlers, state } = createHarness({ isInitiallyRegistered: false, isHotkeyAvailable: () => false });
     const result = await handlers.handleSave({}, { ...DEFAULT_SETTINGS, durationMinutes: 30, autoStart: false });
@@ -294,7 +316,7 @@ describe('preload との整合', () => {
     }
   });
 
-  test('画面から送れる（invoke する）チャンネルは、決めた9個だけ（使わなくなった app:get-status は公開しない）', async () => {
+  test('画面から送れる（invoke する）チャンネルは、決めた10個だけ（使わなくなった app:get-status は公開しない）', async () => {
     const preload = await preloadSource();
     const invokedChannels = [...preload.matchAll(/ipcRenderer\.invoke\(([^,)]+)/g)].map((match) => match[1].trim()).sort();
     assert.deepEqual(invokedChannels, [
@@ -302,6 +324,7 @@ describe('preload との整合', () => {
       'CAPTURE_IMPORT_CHANNEL',
       'CAPTURE_REREAD_CHANNEL',
       'CAPTURE_START_CHANNEL',
+      'CLIPBOARD_READ_CHANNEL',
       'DESKTOP_ICON_CHANNEL',
       'OPEN_CALENDAR_EVENTS_CHANNEL',
       'OPEN_SCREEN_SETTINGS_CHANNEL',

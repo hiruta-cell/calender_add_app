@@ -6,12 +6,15 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
+  CLIPBOARD_HOTKEY_KEY,
   DEFAULT_SETTINGS,
   DURATION_CHOICES,
   HOTKEY_KEY_CHOICES,
   HOTKEY_MODIFIER_CHOICES,
   SettingsError,
   buildAccelerator,
+  buildClipboardAccelerator,
+  formatClipboardHotkeyLabel,
   formatHotkeyLabel,
   formatModifierLabel,
   normalizeStoredSettings,
@@ -28,8 +31,8 @@ describe('設定の既定値と選択肢', () => {
     assert.ok(HOTKEY_MODIFIER_CHOICES.every((modifiers) => modifiers.startsWith('CommandOrControl+')));
   });
 
-  test('キーは英字（大文字）と数字の36個', () => {
-    assert.equal(HOTKEY_KEY_CHOICES.length, 36);
+  test('キーは英字（大文字）と数字の36個から、コピーした文章の読み取りの U を除いた35個', () => {
+    assert.equal(HOTKEY_KEY_CHOICES.length, 35);
     assert.ok(HOTKEY_KEY_CHOICES.every((key) => /^[A-Z0-9]$/.test(key)));
   });
 });
@@ -68,8 +71,8 @@ describe('validateSettings：画面から届いた設定の検証', () => {
 describe('normalizeStoredSettings：設定ファイルから読んだ値', () => {
   test('正しい項目はそのまま、おかしな項目は既定値、知らない項目は捨てる', () => {
     assert.deepEqual(
-      normalizeStoredSettings({ durationMinutes: 90, hotkeyModifiers: 'Shift', hotkeyKey: 'U', unknown: 'x' }),
-      { durationMinutes: 90, hotkeyModifiers: 'CommandOrControl+Shift', hotkeyKey: 'U' },
+      normalizeStoredSettings({ durationMinutes: 90, hotkeyModifiers: 'Shift', hotkeyKey: 'K', unknown: 'x' }),
+      { durationMinutes: 90, hotkeyModifiers: 'CommandOrControl+Shift', hotkeyKey: 'K' },
     );
   });
 
@@ -91,5 +94,22 @@ describe('ホットキーの表記', () => {
     assert.equal(formatHotkeyLabel(DEFAULT_SETTINGS, true), 'Cmd+Shift+Y');
     assert.equal(formatModifierLabel('CommandOrControl+Alt+Shift', false), 'Ctrl+Alt+Shift');
     assert.equal(formatModifierLabel('CommandOrControl+Alt+Shift', true), 'Cmd+Option+Shift');
+  });
+});
+
+describe('コピーした文章を読み取るホットキー', () => {
+  test('修飾キーは範囲キャプチャと同じで、キーは U', () => {
+    assert.equal(CLIPBOARD_HOTKEY_KEY, 'U');
+    assert.equal(buildClipboardAccelerator(DEFAULT_SETTINGS), 'CommandOrControl+Shift+U');
+    assert.equal(buildClipboardAccelerator({ hotkeyModifiers: 'CommandOrControl+Alt', hotkeyKey: 'K' }), 'CommandOrControl+Alt+U');
+    assert.equal(formatClipboardHotkeyLabel(DEFAULT_SETTINGS, false), 'Ctrl+Shift+U');
+    assert.equal(formatClipboardHotkeyLabel(DEFAULT_SETTINGS, true), 'Cmd+Shift+U');
+  });
+
+  test('範囲キャプチャのキーに U は選べない（同じ組み合わせになるため）。保存されていた U は既定値に戻す', () => {
+    assert.equal(HOTKEY_KEY_CHOICES.includes('U'), false);
+    assert.equal(HOTKEY_KEY_CHOICES.length, 35);
+    assert.throws(() => validateSettings({ ...DEFAULT_SETTINGS, hotkeyKey: 'U' }), SettingsError);
+    assert.equal(normalizeStoredSettings({ ...DEFAULT_SETTINGS, hotkeyKey: 'U' }).hotkeyKey, DEFAULT_SETTINGS.hotkeyKey);
   });
 });

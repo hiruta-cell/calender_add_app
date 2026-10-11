@@ -75,6 +75,7 @@
 | `electron/captureGeometry.js` | 範囲選択の座標の検証と、画面の座標から画像の画素への変換 |
 | `electron/captureImageStore.js` | 取り込んだ画像をメモリの中だけで持つ（app://bundle/capture/〜 で表示） |
 | `electron/captureIpc.js` | 範囲キャプチャの通信の受け付け（送信元・読み直しの向きの検証） |
+| `electron/clipboardImport.js` | コピーした文章（クリップボード）を読み取り、抽出に回せるかを確かめる。画面のボタンからの要求の受け付け |
 | `electron/overlayPreload.cjs` | 範囲選択の画面に「選んだ範囲を送る」「中止する」の2つだけを公開する |
 | `electron/screenPermission.js` | Mac の画面収録の許可がないとき、起動元のアプリ（ターミナル・VSCode など）の名前を入れて案内する |
 | `electron/preload.cjs` | 確認ウインドウに、登録・範囲キャプチャ・設定に必要な関数だけを公開する |
@@ -356,7 +357,8 @@
 |---|---|---|---|
 | `DURATION_CHOICES` | 定数（公開） | 15・30・45・60・90・120（分） | 予定の既定の長さの選択肢 |
 | `HOTKEY_MODIFIER_CHOICES` | 定数（公開） | Ctrl（Mac は Cmd）+Shift ／ +Alt ／ +Alt+Shift | Ctrl・Cmd を必ず含め、普段の文字入力を横取りしない |
-| `HOTKEY_KEY_CHOICES` | 定数（公開） | A〜Z・0〜9 | ホットキーの文字 |
+| `CLIPBOARD_HOTKEY_KEY` | 定数（公開） | 'U' | コピーした文章を読み取るホットキーのキー（修飾キーは範囲キャプチャと同じ） |
+| `HOTKEY_KEY_CHOICES` | 定数（公開） | A〜Z・0〜9 から U を除いた35個 | 範囲キャプチャのホットキーの文字（U は同じ組み合わせになるため除く） |
 | `DEFAULT_SETTINGS` | 定数（公開） | 60分・CommandOrControl+Shift・Y | 要件§5.4・§12 の既定値 |
 | `SETTING_KEYS` / `MODIFIER_LABELS` | 定数（内部） | 設定の項目名／修飾キーの表示名（Windows：Ctrl・Alt、Mac：Cmd・Option） | 検証・表記 |
 | `SettingsError` | クラス（公開） | 利用者向けの文付きのエラー | 画面に表示できるエラー |
@@ -364,6 +366,7 @@
 | `normalizeStoredSettings(storedSettings)` | 関数（公開） | ファイルから読んだ設定を整える（おかしな項目は既定値、知らない項目は捨てる） | ファイルが壊れていても起動できる |
 | `buildAccelerator(settings)` | 関数（公開） | Electron に登録するホットキーの表記を作る（例：CommandOrControl+Shift+Y） | ホットキーの登録 |
 | `formatModifierLabel(hotkeyModifiers, isMac)` / `formatHotkeyLabel(settings, isMac)` | 関数（公開） | 利用者に見せる表記（例：Ctrl+Shift+Y、Mac は Cmd+Shift+Y） | ボタン・トレイ・設定画面の表示 |
+| `buildClipboardAccelerator(settings)` / `formatClipboardHotkeyLabel(settings, isMac)` | 関数（公開） | コピーした文章を読み取るホットキーの Electron の表記／利用者に見せる表記（例：Ctrl+Shift+U） | ホットキーの登録・ボタン・トレイ・設定画面の表示 |
 
 ## src/renderer/（画面）
 
@@ -397,7 +400,7 @@
 | `registeredCount` | 状態 | 直前に予定作成画面を開いた件数（0 なら案内を出さない） | 登録ボタンの下の案内 |
 | `autoResetId` / `autoResetSequenceRef` | 状態・参照 | 自動のクリアの予約番号（0 なら予約なし）／その通し番号 | 登録のたびに60秒を数え直す。操作・読み取りで 0 に戻して取り消す |
 | `capture` | 状態 | 範囲キャプチャの状態（EMPTY_CAPTURE の形） | 読み取り中の表示、取り込んだ画像、精度の案内 |
-| `hotkeyLabel` | 状態 | ホットキーの表記 | ボタンに表示する |
+| `hotkeyLabel` / `clipboardHotkeyLabel` | 状態 | 範囲キャプチャ／コピーした文章の読み取りのホットキーの表記 | ボタンに表示する |
 | `durationMinutes` | 状態 | 予定の既定の長さ（分。起動時に設定から読む） | 終了時刻がないときの長さ（設定画面で変えられる） |
 | `isSettingsOpen` | 状態 | 設定画面を表示中か | ヘッダーの「設定」ボタン |
 | `captureStatusHandlerRef` | 参照 | 読み取り結果を受け取る最新の処理 | 起動時に1回だけ登録しても最新の処理を呼ぶ |
@@ -411,6 +414,7 @@
 | `handleCaptureStatus(status)` | 関数 | 読み取り中・結果（文章を入れて抽出）・エラー・中止・画像の消去を画面に反映 | 範囲キャプチャの結果の表示 |
 | `handleOpenScreenSettings()` | 関数 | Mac の画面収録の設定画面を開いてもらう | 「システム設定を開く」 |
 | （画像の貼り付け・ドロップの受け付け） | 処理 | 画像の貼り付け（文章の貼り付けは邪魔しない）・ドロップを受け、PNG にそろえて読み取ってもらう | 画像の取り込み（要件§12） |
+| `handleReadClipboard()` | 関数 | コピーした文章を読み取ってもらう（文章は handleCaptureStatus の `clipboardText` で届き、入力欄に入れて抽出する） | 「コピーした文章を読み取る」ボタン |
 | `handleStartCapture()` / `handleRereadCapture(orientation)` | 関数 | 範囲キャプチャを始めてもらう／向きを指定して読み直してもらう | 「画面から読み取る」「横書き／縦書きで読み直す」 |
 | `resetResults()` | 関数 | 抽出結果・選択・入力欄を初期状態に戻す | エラー時・クリア時の後始末 |
 | `resetToInitialState()` | 関数 | 入力・結果・エラー・取り込んだ画像・登録の案内を消し、自動のクリアの予約もやめて最初の状態に戻す | 「クリア」ボタンと、登録して60秒操作がなかったとき |
@@ -531,12 +535,13 @@
 | `window.calendarApp.openCalendarEvents(events)` | 関数（画面に公開） | 予定の一覧をメインプロセスに渡す | 登録。ipcRenderer そのものは公開しない |
 | `CAPTURE_START_CHANNEL` などのチャンネル名 | 定数 | captureIpc.js と同じ値 | 範囲キャプチャの通信 |
 | `window.calendarApp.startCapture()` | 関数（画面に公開） | 範囲キャプチャを始めてもらう | 「画面から読み取る」 |
+| `CLIPBOARD_READ_CHANNEL` / `window.calendarApp.readClipboard()` | 定数・関数（画面に公開） | 'clipboard:read'／コピーした文章を読み取ってもらう（引数なし。読むのはメインプロセス） | 「コピーした文章を読み取る」 |
 | `window.calendarApp.importImage(pngBytes)` | 関数（画面に公開） | PNG にそろえた画像を読み取ってもらう | 画像の貼り付け・ドラッグ＆ドロップ |
 | `window.calendarApp.rereadCapture(orientation)` | 関数（画面に公開） | 向きを指定して読み直してもらう | 「横書き／縦書きで読み直す」 |
 | `window.calendarApp.clearCapture()` | 関数（画面に公開） | 取り込んだ画像を消してもらう | 「クリア」 |
 | `window.calendarApp.openScreenRecordingSettings()` | 関数（画面に公開） | Mac の画面収録の設定画面を開いてもらう | 「システム設定を開く」 |
 | `SETTINGS_GET_CHANNEL` / `SETTINGS_SAVE_CHANNEL` / `DESKTOP_ICON_CHANNEL` | 定数 | settingsIpc.js と同じ値 | 設定の通信 |
-| `window.calendarApp.getSettings()` / `saveSettings(settings)` / `createDesktopIcon()` | 関数（画面に公開） | 今の設定を尋ねる／設定を保存してもらう／デスクトップにアイコンを作ってもらう | 設定画面（公開する関数は全部で10個。ホットキーの状態も getSettings の結果に入る） |
+| `window.calendarApp.getSettings()` / `saveSettings(settings)` / `createDesktopIcon()` | 関数（画面に公開） | 今の設定を尋ねる／設定を保存してもらう／デスクトップにアイコンを作ってもらう | 設定画面（公開する関数は全部で11個。ホットキーの状態も getSettings の結果に入る） |
 | `window.calendarApp.onCaptureStatus(callback)` | 関数（画面に公開） | 読み取りの進み具合と結果を受け取る（内容だけを渡す。解除する関数を返す） | 読み取り結果の表示 |
 
 ### ocrEngine.js（文字の読み取り）
@@ -576,16 +581,19 @@
 | `MAIN_WINDOW_SIZE` | 定数 | ウインドウの大きさ（980×660、最小 760×500） | 確認ウインドウの表示（2026-10-11 依頼者の指示で画面をコンパクトにし、小さくした） |
 | `mainWindow` / `trayController` | 変数 | 確認ウインドウ／トレイ（アイコンとメニューの表記の変更） | 表示・常駐 |
 | `isQuitting` | 変数 | 終了しようとしているか | 閉じるボタンで隠す（常駐）か、本当に閉じるかを分ける |
-| `registeredAccelerator` | 変数 | 実際に登録できたホットキー（できなければ null） | 使えないときの案内、設定で変えるときの解除 |
+| `registeredAccelerator` / `registeredClipboardAccelerator` | 変数 | 実際に登録できた範囲キャプチャ／コピーした文章の読み取りのホットキー（できなければ null） | 使えないときの案内、設定で変えるときの解除 |
 | `currentSettings` / `settingsStore` | 変数 | 今の設定／設定の保存先 | 設定の読み込み・保存 |
 | `captureImageStore` | 定数 | 取り込んだ画像の置き場所（メモリだけ） | app:// での表示・読み直し |
 | `captureController` | 定数 | 範囲キャプチャから OCR までの処理 | ホットキー・トレイ・ボタンから呼ぶ |
 | `createMainWindow({show})` | 関数 | 安全な設定でウインドウを作る（show が false なら読み込み後も出さない）。閉じるボタンでは隠して画像を消す | 常駐（要件§6.1） |
 | `showMainWindow()` | 関数 | 確認ウインドウを表示して前面に出す（なければ作る。まだ読み込み中なら読み込み後に表示し、白い画面を出さない）。起動処理が終わってから呼ぶ | トレイ・2つ目の起動・読み取り後 |
 | `minimizeMainWindow()` | 関数 | 確認ウインドウを最小化する（ウインドウがなければ何もしない） | 予定作成画面をすべて開いたあと、ブラウザの操作の邪魔にならないように（依頼者の指示） |
-| `registerCaptureHotkey(accelerator)` | 関数 | ホットキーを登録し、できたか返す | 範囲キャプチャを始めるキー |
-| `changeCaptureHotkey(nextSettings)` | 関数 | 今のホットキーを外して新しいものを登録する（できなければ元に戻す）。トレイの表記も変える | 設定画面でのホットキーの変更 |
-| `getHotkeyStatus()` | 関数 | ホットキーが使えるか・その表記を返す | 画面の案内 |
+| `registerHotkey(accelerator, onPressed)` | 関数 | ホットキーを1つ登録し、できたら accelerator、できなければ null を返す | 2つのホットキーで共通に使う |
+| `registerHotkeys(captureAccelerator, clipboardAccelerator)` / `unregisterHotkeys()` | 関数 | 範囲キャプチャとコピーした文章の読み取りのホットキーを登録する／2つとも解除する | 起動時・設定の変更時 |
+| `changeCaptureHotkey(nextSettings)` | 関数 | 今のホットキーを外して新しいものを登録する（範囲キャプチャのキーを登録できなければ元に戻す）。トレイの表記も変える | 設定画面でのホットキーの変更 |
+| `getHotkeyStatus()` | 関数 | 2つのホットキーが使えるか・その表記を返す | 画面の案内 |
+| `sendCaptureStatus(status)` | 関数 | 取り込み・読み取りの結果を確認ウインドウに送る（読み込み中なら読み込み後に送る） | 範囲キャプチャとコピーした文章の読み取りで共通に使う |
+| `importClipboardText()` | 関数 | 確認ウインドウを出し、コピーした文章を読んで送る（範囲の選択・読み取りの途中なら断る。前に取り込んだ画像は消す） | ホットキー・トレイ・ボタンからのコピーした文章の読み取り |
 | `createDesktopIcon()` | 関数 | Mac は起動用の .app を作ってデスクトップに別名を置く。Windows はデスクトップにショートカットを作る（同じ名前の利用者のショートカットは上書きしない） |
 | `writeCurrentMacLauncher()` / `getMacLaunchAgentsDir()` | 関数 | 今の場所で起動用の .app を書き出す／~/Library/LaunchAgents | アイコンと自動起動で同じ内容を使う（重複をなくす） |
 | `readWindowsShortcut(shortcutPath)` | 関数 | 既存のショートカットを読む（読めなければ null） | このアプリが作ったものかの見分け | 「デスクトップにアイコンを作る」（ゴール G7） |
@@ -598,7 +606,7 @@
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
-| `createAppTray(options)` | 関数（公開） | アイコンとメニュー（範囲を選んで読み取る／確認ウインドウを開く／終了）を作る。Windows は左クリックで確認ウインドウ。`{tray, setHotkeyLabel(label)}` を返す | 常駐（要件§6.1）。設定でホットキーを変えたらメニューの表記も変える |
+| `createAppTray(options)` | 関数（公開） | アイコンとメニュー（範囲を選んで読み取る／コピーした文章を読み取る／確認ウインドウを開く／終了）を作る。Windows は左クリックで確認ウインドウ。`{tray, setHotkeyLabels(captureLabel, clipboardLabel)}` を返す | 常駐（要件§6.1）。設定でホットキーを変えたらメニューの表記も変える |
 
 ### settingsStore.js（設定の保存）
 
@@ -662,6 +670,16 @@
 | `IMAGE_NAMES` / `CAPTURE_PATH_PREFIX` | 定数 | 配信してよい名前の一覧／'/capture/' | 決めた画像以外を配信しない |
 | `createCaptureImageStore()` | 関数（公開） | メモリの中に画像を置く・取り出す・消す（置くたびに版が上がる） | ファイルに保存しない（CLAUDE.md） |
 | `getCaptureImageName(requestUrl)` | 関数（公開） | URL が取り込んだ画像を指していれば名前を返す | app:// での配信 |
+
+### clipboardImport.js（コピーした文章の読み取り）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `CLIPBOARD_READ_CHANNEL` | 定数（公開） | 'clipboard:read' | 画面のボタンからの要求のチャンネル名 |
+| `CLIPBOARD_EMPTY_MESSAGE` | 定数（公開） | コピーした文章がないときの案内 | コピーし直すよう案内する |
+| `UNTRUSTED_SENDER_MESSAGE` / `CLIPBOARD_READ_FAILED_MESSAGE` | 定数（内部） | 送信元を確認できない／クリップボードを読めないときの文 | エラーの表示（中身を含めない） |
+| `readClipboardForExtraction(readText)` | 関数（公開） | クリップボードの文章を読み、空・長すぎる（20000文字超）・読めないときは断る | 抽出に回す前の確認 |
+| `createClipboardHandlers({isTrustedSender, importClipboardText})` | 関数（公開） | 送信元を確かめてから読み取りを始める `handleRead` を作る | 「コピーした文章を読み取る」ボタン |
 
 ### captureIpc.js（範囲キャプチャの通信の受け付け）
 
@@ -740,6 +758,8 @@
 | `sleep(milliseconds)` | 関数 | 指定時間待つ | 画面の更新待ち |
 | `DevToolsConnection` | クラス | DevTools への接続（`open` / `send` / `handleMessage` / `evaluate(式, {commandLineApi})` / `close`）。commandLineApi はメインプロセスで require を使う式のとき | 画面・メインプロセスを外から操作する |
 | `FIND_MAIN_WINDOW_EXPRESSION` / `DEFAULT_ACCELERATOR` | 定数 | メインプロセスで確認ウインドウを探す式／既定のホットキー（buildAccelerator(DEFAULT_SETTINGS)） | 同じ式・値を何か所にも書かない |
+| `SETTINGS_TEST_ACCELERATOR` / `CLIPBOARD_ACCELERATOR` | 定数 | 設定画面の確認で選ぶホットキー（Ctrl/Cmd+Shift+K）／コピーした文章を読み取るホットキー（Ctrl/Cmd+Shift+U） | ホットキーの登録の確認 |
+| `replaceClipboardText(mainConnection, text)` / `restoreClipboardText(mainConnection)` | 関数 | メインプロセスの clipboard.readText を決めた文章を返す関数に差し替える／元に戻す | 利用者のクリップボードを読まず・書き換えずに、コピーした文章の読み取りを確かめる |
 | `isHotkeyRegistered(mainConnection, accelerator)` | 関数 | メインプロセスでホットキーが登録されているか調べる | 範囲キャプチャ・設定・--hidden の確認で共通に使う |
 | `launchApp(appArguments)` | 関数 | 確認用の接続口（画面用・メインプロセス用）と一時的な設定フォルダを付けて Electron を起動（`--hidden` などを追加で渡せる） | アプリの起動 |
 | `preventFocusStealing(mainConnection)` / `showMainWindowWithoutFocus(mainConnection)` | 関数 | ウインドウの表示・前面化を「選択しないで表示」に差し替える／確認ウインドウを選択せずに表示する（できるまで待つ） | 確認中に、利用者が別のアプリで打っている文字を横取りしない |
@@ -755,7 +775,7 @@
 | `restoreMinimizedMainWindow(mainConnection)` | 関数 | 確認ウインドウが最小化されるのを待って元に戻す | 最初の登録で最小化を確かめる。戻さないと続く確認・画面の画像が取れないため |
 | `replaceMinimize(mainConnection)` / `getMinimizeCount(mainConnection)` | 関数 | 確認ウインドウの最小化を、回数を数えるだけの関数に差し替える／その回数を受け取る | 2回目以降の登録で最小化の動きを待たない。不正な登録要求で最小化しないことの確認 |
 | `saveScreenshot(connection, directory, fileName)` | 関数 | 画面の画像を保存 | 見た目の確認 |
-| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出し直すと右の欄が一番上に戻ること・件名の上限と残りの文字数・URL のフィッシングの注意（会議サービス・それ以外。画面の画像 07-event-details.png）・抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・曜日が日付と合わないときの警告と件名の下書きの直し・メールの送信日を候補にしないこと・エラー表示を確認 | 機能の確認 |
+| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出し直すと右の欄が一番上に戻ること・件名の上限と残りの文字数・URL のフィッシングの注意（会議サービス・それ以外。画面の画像 07-event-details.png）・抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・曜日が日付と合わないときの警告と件名の下書きの直し・メールの送信日を候補にしないこと・コピーした文章の読み取り（ボタン・空のとき）・エラー表示を確認 | 機能の確認 |
 | `checkAutoReset(connection, mainConnection)` | 関数 | 登録のあと、操作するとクリアせず、操作しないと初期状態に戻ることを確認（画面の setTimeout の60秒だけを短くする） | 自動のクリアの確認（依頼者の指示） |
 | `replaceScreenCapture(mainConnection)` | 関数 | 画面の撮影を、架空の画像を返す関数に差し替える | 利用者の画面を撮影しない |
 | `connectToOverlay(port, connection)` / `waitForOverlayClosed(port)` | 関数 | 範囲選択の画面に接続する／閉じるまで待つ（上限付き） | 範囲選択の確認 |
@@ -825,6 +845,7 @@
 | settings.test.js | — | 設定の選択肢・検証・ファイルから読んだ値の整え方・表記の確認 | 選択肢にない値・余分な項目を断る、壊れた値は既定値、Ctrl・Cmd を必ず含む |
 | settingsStore.test.js | — | 設定の保存・読み込みの確認（一時フォルダを使う） | 3項目だけ保存、権限 600、壊れた・大きすぎるファイルでも既定値で動く |
 | settingsIpc.test.js | — | 設定の通信の確認（偽のホットキー・自動起動・保存先を使う） | 送信元・内容の検証、失敗したら元に戻す、重ねた保存を断る、preload と一致 |
+| clipboardImport.test.js | — | コピーした文章の読み取りの確認（クリップボードを読む関数を差し替える） | 空・長すぎる・読めないときの案内、送信元の検証、preload と一致 |
 | desktopIntegration.test.js | — | アイコン・自動起動の中身の確認（一時フォルダ、空白や引用符を含む名前を使う） | 起動用スクリプトを偽の Electron で実際に動かす、plist の検証（Mac は plutil）、利用者のファイルを上書きしない、Windows の引数 |
 | fixtures/ | — | app:// のテスト用ファイル（`outside-secret.txt` は配信フォルダの外） | パストラバーサル対策の確認 |
 | fixtures/ocr/ | — | OCR のテスト用の架空の画像（横書きのメール 等倍・2倍、チャット、縦書きのお知らせ） | 文字の読み取りの確認 |

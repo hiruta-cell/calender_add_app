@@ -6,6 +6,8 @@
  * - 画面から届いた設定は、決まった選択肢に入っているかを厳しく検証し、外れていれば断る（CLAUDE.md：IPC の引数の検証）。
  * - 保存した設定ファイルは書き換えられている可能性があるため、読み込むたびに検証し、おかしな項目は既定値に戻す。
  * - ホットキーは、決まった組み合わせ（Ctrl・Mac は Cmd を必ず含む）からだけ選べる。普段の文字入力を横取りしないため。
+ * - コピーした文章を読み取るホットキーは、範囲キャプチャと同じ修飾キー＋ CLIPBOARD_HOTKEY_KEY（U）に固定する
+ *   （設定の項目を増やさないため。修飾キーを変えると両方が変わる。依頼者承認 2026-10-11）。
  * - ログイン時の自動起動のオン／オフは、OS の登録の状態そのものを正とし、このファイルの設定には含めない。
  */
 
@@ -24,8 +26,16 @@ export const HOTKEY_MODIFIER_CHOICES = Object.freeze([
   'CommandOrControl+Alt+Shift',
 ]);
 
-/** ホットキーのキーとして選べる文字（英字 A〜Z と数字 0〜9） */
-export const HOTKEY_KEY_CHOICES = Object.freeze([...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789']);
+/** コピーした文章を読み取るホットキーのキー（修飾キーは範囲キャプチャと同じ。例：Ctrl+Shift+U） */
+export const CLIPBOARD_HOTKEY_KEY = 'U';
+
+/**
+ * 範囲キャプチャのホットキーのキーとして選べる文字（英字 A〜Z と数字 0〜9）。
+ * コピーした文章の読み取りのキー（U）は、同じ組み合わせになってしまうため選べない。
+ */
+export const HOTKEY_KEY_CHOICES = Object.freeze(
+  [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'].filter((key) => key !== CLIPBOARD_HOTKEY_KEY),
+);
 
 /** 設定の既定値（ホットキーの既定値は要件§12：Ctrl+Shift+Y、Mac は Cmd+Shift+Y） */
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -131,4 +141,25 @@ export function formatModifierLabel(hotkeyModifiers, isMac) {
  */
 export function formatHotkeyLabel(settings, isMac) {
   return `${formatModifierLabel(settings.hotkeyModifiers, isMac)}+${settings.hotkeyKey}`;
+}
+
+/**
+ * コピーした文章を読み取るホットキーの、Electron に登録する表記を作る（修飾キーは範囲キャプチャと同じ）。
+ *
+ * @param {{hotkeyModifiers: string}} settings 検証済みの設定
+ * @returns {string} 例：CommandOrControl+Shift+U
+ */
+export function buildClipboardAccelerator(settings) {
+  return `${settings.hotkeyModifiers}+${CLIPBOARD_HOTKEY_KEY}`;
+}
+
+/**
+ * コピーした文章を読み取るホットキーの、利用者に見せる表記を作る。
+ *
+ * @param {{hotkeyModifiers: string}} settings 検証済みの設定
+ * @param {boolean} isMac Mac なら true（Cmd・Option と表記する）
+ * @returns {string} 例：Windows は Ctrl+Shift+U、Mac は Cmd+Shift+U
+ */
+export function formatClipboardHotkeyLabel(settings, isMac) {
+  return `${formatModifierLabel(settings.hotkeyModifiers, isMac)}+${CLIPBOARD_HOTKEY_KEY}`;
 }

@@ -12,10 +12,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  CLIPBOARD_HOTKEY_KEY,
   DEFAULT_SETTINGS,
   DURATION_CHOICES,
   HOTKEY_KEY_CHOICES,
   HOTKEY_MODIFIER_CHOICES,
+  formatClipboardHotkeyLabel,
   formatHotkeyLabel,
   formatModifierLabel,
 } from '../../core/settings.js';
@@ -202,6 +204,8 @@ export default function SettingsDialog({ open, onClose, onSaved }) {
       </div>
       <p className="field-note">
         今の選択：{formatHotkeyLabel(form, isMac)}（文字の入力を邪魔しないよう、{formatModifierLabel('CommandOrControl', isMac)} を含む組み合わせだけ選べます）
+        <br />
+        コピーした文章の読み取り：{formatClipboardHotkeyLabel(form, isMac)}（修飾キーは上と同じ。{CLIPBOARD_HOTKEY_KEY} は範囲キャプチャには選べません）
       </p>
 
       <label className="settings-row settings-checkbox">
