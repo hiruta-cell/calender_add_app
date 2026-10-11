@@ -389,6 +389,22 @@ describe('英語圏の日付', () => {
   });
 });
 
+describe('日付と時刻が別の行に書かれたメール', () => {
+  test('次の行が「時間：」「Time:」で始まれば、その時刻を結び付ける', () => {
+    const japanese = extractSingle('日付：10月22日(木)\n時間：14時〜15時30分');
+    assert.deepEqual(japanese.start, dateTime(2026, 10, 22, 14, 0));
+    assert.deepEqual(japanese.end, dateTime(2026, 10, 22, 15, 30));
+    const english = extractSingle('Date: Thursday, October 29, 2026\nTime: 2:00–3:00 PM');
+    assert.deepEqual(english.start, dateTime(2026, 10, 29, 14, 0));
+    assert.deepEqual(english.end, dateTime(2026, 10, 29, 15, 0));
+  });
+
+  test('見出しのない行の時刻・日付の後ろに言葉がある場合は結び付けない', () => {
+    assert.equal(extractSingle('10月22日(木)\n14時から別件があります').hasTime, false);
+    assert.equal(extractSingle('10月22日(木)締切\n時間：14時').hasTime, false);
+  });
+});
+
 describe('英語の時刻の範囲', () => {
   test('後ろにだけ PM：2:00–3:00 PM、2-3pm → 14:00〜15:00', () => {
     for (const text of ['Oct 15, 2:00–3:00 PM', 'Oct 15 2-3pm']) {

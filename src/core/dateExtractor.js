@@ -15,6 +15,7 @@
  *   時刻：14:00、14時、14時30分、14時半、午前/午後、全角数字、3pm・3:00 PM・PM3:00（英語の AM/PM）
  *   時間帯：正午(12時)、朝(9時)、昼(11時)、夕方(15時)、夜(18時)。「夜7時」→19時のように手がかりにもする
  *   範囲：14時〜15時、15:00-16:00、14時から15時、14時15時（OCR で「〜」が抜けた形。後ろが遅いときだけ）
+ *   別の行の時刻：日付が行末にあり、次の行が「時間：」「時刻：」「開始：」「Time:」「Start:」で始まるときだけ結び付ける
  *         英語：2:00–3:00 PM、2-3pm、11am-1pm、from 2pm to 3pm、at 3pm（後ろの PM は前の時刻にも当てはめる）
  * 対象外：複数日にまたがる範囲（10/15〜10/17）、英語の next Tuesday（「今週」と「来週」の両方の意味で使われるため）
  *
@@ -181,6 +182,17 @@ const RANGE_SEPARATOR_PATTERN = /[ \t]{0,3}(?:[~〜\-―–—ー‐−]|から|
 /** 区切りなしで続く2つ目の時刻の前に許す空白（OCR で「〜」が抜けた「14:00 15:00」など） */
 const ADJACENT_TIME_GAP_PATTERN = /[ \t]?/y;
 
+/** 日付の後ろが行末か（空白のあとに改行が来るか）。次の行の時刻を結び付けてよいかの判定に使う */
+const LINE_END_PATTERN = /[ \t]{0,20}\r?\n/y;
+
+/**
+ * 次の行の先頭の「時間の見出し」。日付と時刻が別の行に書かれたメールに対応する。
+ * 例：「日付：10月22日(木)」の次の行の「時間：14時〜15時」、「Date: October 29」の次の行の「Time: 2:00–3:00 PM」
+ * 見出しのない行の時刻は、別の話題の可能性があるため結び付けない。
+ */
+const NEXT_LINE_TIME_LABEL_PATTERN =
+  /[ \t]{0,8}(?:[■□●○◆◇▼▽▶・*#>\-]{1,3}[ \t]{0,4})?(?:開始時刻|開始|時間|時刻|Start[ \t]?time|Start|Time)[ \t]{0,4}:?[ \t]{0,4}/iy;
+
 /**
  * 文章が長すぎるときのエラー。message はそのまま利用者に表示できる文にしている。
  */
@@ -233,8 +245,10 @@ export function extractDateCandidates(text, options = {}) {
       cursor = skipPattern(WEEKDAY_PATTERN, normalizedText, cursor);
     }
 
-    // 日付の直後（つなぎの言葉の後）に時刻があれば読み取る
-    const timeRange = matchTimeRange(normalizedText, skipPattern(CONNECTOR_PATTERN, normalizedText, cursor));
+    // 日付の直後（つなぎの言葉の後）に時刻があれば読み取る。なければ、次の行の「時間：」「Time:」の時刻を探す
+    const timeRange =
+      matchTimeRange(normalizedText, skipPattern(CONNECTOR_PATTERN, normalizedText, cursor)) ??
+      matchNextLineTimeRange(normalizedText, cursor);
     const range = { start: match.index, end: timeRange === null ? cursor : timeRange.endIndex };
     const candidate = buildCandidate(resolved.date, timeRange, current, defaultDurationMinutes, resolved.warnings);
 
@@ -488,6 +502,26 @@ function matchTimeRange(text, index) {
   }
 
   return { startTime, endTime, endIndex };
+}
+
+/**
+ * 日付が行末にあり、次の行が「時間」「時刻」「開始」「Time」などの見出しで始まるとき、その行の時刻を読み取る。
+ *
+ * @param {string} text 半角にそろえた文章
+ * @param {number} index 日付（と曜日）の直後の位置
+ * @returns {{startTime: object, endTime: object | null, endIndex: number} | null} 時刻がなければ null
+ */
+function matchNextLineTimeRange(text, index) {
+  const lineEnd = matchAt(LINE_END_PATTERN, text, index);
+  if (lineEnd === null) {
+    return null; // 日付の後ろに別の言葉がある（行末ではない）
+  }
+  const nextLineIndex = index + lineEnd[0].length;
+  const label = matchAt(NEXT_LINE_TIME_LABEL_PATTERN, text, nextLineIndex);
+  if (label === null) {
+    return null; // 時間の見出しがない
+  }
+  return matchTimeRange(text, nextLineIndex + label[0].length);
 }
 
 /**

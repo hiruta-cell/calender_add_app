@@ -34,8 +34,8 @@ const REPLY_PREFIX_PATTERN = /^(?:(?:re|fw|fwd|返信|転送)[ \t]*:[ \t]*)+/i;
  */
 const HTTPS_URL_PATTERN = /https:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]{1,2000}/g;
 
-/** 値の先頭の区切り記号（OCR で「：」が「・」に読まれた「場所:・オンライン」など） */
-const LEADING_SEPARATOR_PATTERN = /^[・･:：\s]+/;
+/** 値の先頭の区切り記号や記号のごみ（OCR で「：」が「・」に読まれた「場所:・オンライン」、「Location: _ Room 101」など） */
+const LEADING_SEPARATOR_PATTERN = /^[・･:：_|\s]+/;
 
 /** URL の末尾にあっても URL の一部ではないことが多い記号 */
 const TRAILING_PUNCTUATION = '.,;:!?\'"';

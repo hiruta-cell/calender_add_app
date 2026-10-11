@@ -16,6 +16,7 @@
 | `electron/` | Electron のメインプロセス。アプリの起動、ウインドウ、セキュリティ設定など PC 側の処理 |
 | `scripts/` | 開発者用の補助スクリプト（実機の自動確認、テスト用の画像やアイコンの作成） |
 | `assets/icons/` | タスクトレイ（Mac はメニューバー）のアイコン（コードで描いたもの） |
+| `demo/images/` | 読み取りテストと発表のデモに使う架空の文面の画像（日本語のメール・チャット・縦書き・英語のメール） |
 | `test/` | 単体テスト（Node.js 標準の `node:test`） |
 | `test/fixtures/` | テスト用の小さなファイル（app:// の配信テスト、OCR のテスト用の架空の画像） |
 | `docs/` | 説明ファイル（このファイル、受け入れ基準） |
@@ -75,6 +76,7 @@
 | `scripts/smoke-test.js` | アプリを実際に起動し、画面を自動操作して機能とセキュリティを確認する |
 | `scripts/generate-ocr-fixtures.js` | OCR のテスト用の画像（架空の文章）を作る（開発者が一度だけ実行） |
 | `scripts/generate-icons.js` | トレイのアイコンをコードで描いて作る（開発者がアイコンを作り直すときだけ実行） |
+| `scripts/generate-demo-images.js` | デモ用の架空の文面の画像を作る（開発者がデモ画像を作り直すときだけ実行） |
 | `test/*.test.js` | 各ファイルの単体テスト（詳しくは末尾の「test/」の表） |
 | `README.md` | 利用者向けの説明（起動手順、使い方、対応する書き方） |
 | `CLAUDE.md` | 開発のルール（セキュリティ方針、コーディング規約など） |
@@ -178,6 +180,8 @@
 | `AMBIGUOUS_HOUR_MAX` | 定数（内部） | 11 | 言葉から午前/午後を推定する上限（12時以降は書かれた時刻を優先） |
 | `NOON_WORD_PM_MAX_HOUR` | 定数（内部） | 6 | 「昼1時」を13時とみなす上限 |
 | `RANGE_SEPARATOR_PATTERN` | 定数（内部） | 範囲の区切り（〜、-、から、to、until など） | 開始〜終了の時刻を読む |
+| `LINE_END_PATTERN` | 定数（内部） | 日付の後ろが行末か | 次の行の時刻を結び付けてよいかの判定 |
+| `NEXT_LINE_TIME_LABEL_PATTERN` | 定数（内部） | 次の行の先頭の「時間：」「時刻：」「開始：」「Time:」「Start:」 | 日付と時刻が別の行のメールに対応 |
 | `ADJACENT_TIME_GAP_PATTERN` | 定数（内部） | 区切りなしで続く2つ目の時刻の前の空白（0〜1個） | OCR で「〜」が抜けた「14時15時」を範囲として読む |
 | `InputTooLongError` | クラス（公開） | 長すぎる文章のエラー（利用者向けの文付き） | 画面でそのまま表示できるエラーにする |
 | `extractDateCandidates(text, options)` | 関数（公開） | 文章から日時の候補を抽出し `{candidates, truncated}` を返す | このアプリの中心機能（要件§5.2〜§5.7、§12） |
@@ -190,6 +194,7 @@
 | `resolveCalendarDate(yearText, monthText, dayText, today)` | 関数（内部） | 年月日を決める。年がなければ今日以降で最も近い日 | 要件§12：年なしの日付の扱い |
 | `resolveNextWeekWeekday(weekdayCharacter, today)` | 関数（内部） | 「来週◯曜」の年月日を決める | 要件§12：月曜始まりの週 |
 | `matchTimeRange(text, index)` | 関数（内部） | 時刻または時刻の範囲を読む（後ろにだけ PM があれば前の時刻にも当てはめる） | 開始・終了の時刻を得る（2-3pm → 14〜15時） |
+| `matchNextLineTimeRange(text, index)` | 関数（内部） | 日付が行末で、次の行が時間の見出しで始まるとき、その行の時刻を読む | 「Date:」「Time:」が別の行のメール |
 | `matchTimeAt(text, index, inheritedMeridiem)` | 関数（内部） | 時刻を1つ読む（時間帯の言葉にも対応） | 「夜7時→19時」「夜→18時」の解釈 |
 | `toMinutesOfDay(time)` | 関数（内部） | 時刻をその日の 0:00 からの分数にする | 区切りのない2つの時刻の前後を比べる |
 | `normalizeMeridiem(text)` | 関数（内部） | 午前/午後/AM/PM/a.m./p.m. を「午前」「午後」にそろえる | 12時間表記の混在に対応 |
@@ -231,7 +236,7 @@
 | `NEXT_LINE_LOOKAHEAD` | 定数（内部） | 2 | 「■会場」の次の行の値を探す行数 |
 | `REPLY_PREFIX_PATTERN` | 定数（内部） | Re: Fw: Fwd: 返信: 転送: | 件名から返信・転送の印を除く |
 | `HTTPS_URL_PATTERN` | 定数（内部） | https の URL（半角の URL 文字だけ） | 日本語の手前で URL を止める |
-| `LEADING_SEPARATOR_PATTERN` | 定数（内部） | 値の先頭の「・」「：」と空白 | OCR で「場所:・オンライン」となった場合の「・」を除く |
+| `LEADING_SEPARATOR_PATTERN` | 定数（内部） | 値の先頭の「・」「：」「_」「|」と空白 | OCR で「場所:・オンライン」となった場合の「・」を除く |
 | `TRAILING_PUNCTUATION` | 定数（内部） | URL の末尾から除く記号 | 「…/1.」の「.」などを除く |
 | `TITLE_LINE_PATTERN` / `LOCATION_LINE_PATTERN` | 定数（内部） | ラベルの行に一致する正規表現 | 件名・場所の行を見つける |
 | `buildLabelPattern(labels)` | 関数（内部） | ラベルの一覧から行の正規表現を作る | 「件名：」「【件名】」「■件名」などに対応 |
@@ -637,6 +642,15 @@
 | `TEMPLATE_COLOR` / `BRAND_COLOR` | 定数 | 黒（Mac のテンプレート画像）／青 #1a73e8（Windows） | アイコンの色 |
 | `drawCalendarIcon(size, color)` | 関数 | カレンダーの形の画素を作る | 外部の画像素材を使わない |
 | `saveIcon(fileName, size, color)` | 関数 | PNG で保存する | アイコンの作成 |
+
+## scripts/generate-demo-images.js（デモ用の画像を作る）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `OUTPUT_DIR` | 定数 | demo/images | 保存先 |
+| `FONT_FAMILY` / `BASE_STYLE` | 定数 | 標準の日本語書体／共通の見た目 | 画面の文字に近い画像にする |
+| `DEMO_IMAGES` | 定数 | 作る画像の一覧（日本語のメール・チャット・縦書きのお知らせ・英語のメール。日付は発表日より後） | 読み取りテスト・発表のデモ |
+| `renderDemoImage(window, demoImage)` | 関数 | 1枚の画像を作って保存する | 画像の作成 |
 
 ## test/（単体テスト）
 
