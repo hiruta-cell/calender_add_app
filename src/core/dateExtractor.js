@@ -16,6 +16,7 @@
  *   時刻：14:00、14時、14時30分、14時半、午前/午後、全角数字、3pm・3:00 PM・PM3:00（英語の AM/PM）
  *   時間帯：正午(12時)、朝(9時)、昼(11時)、夕方(15時)、夜(18時)。「夜7時」→19時のように手がかりにもする
  *   範囲：14時〜15時、15:00-16:00、14時から15時、14時15時（OCR で「〜」が抜けた形。後ろが遅いときだけ）
+ *         範囲は1つの書き方として読み飛ばすだけで、終了の時刻は使わない（2026-10-12 依頼者の仕様変更：終了は画面で選ぶ）
  *   別の行の時刻：日付が行末にあり、次の行が「時間：」「時刻：」「開始：」「Time:」「Start:」で始まるときだけ結び付ける
  *         英語：2:00–3:00 PM、2-3pm、11am-1pm、from 2pm to 3pm、at 3pm（後ろの PM は前の時刻にも当てはめる）
  * 対象外：複数日にまたがる範囲（10/15〜10/17）、英語の next Tuesday（「今週」と「来週」の両方の意味で使われるため）
@@ -23,7 +24,6 @@
  * 判定のルール：
  *   - 年の記載がない日付は「今日以降で最も近い日」にする（要件§12）
  *   - 「来週」は月曜始まりの週で、今日の次の週（要件§12）
- *   - 終了時刻がない予定は既定の長さ（60分）にする（要件§5.4）
  *   - 過去の日時には警告を付ける（要件§12）
  */
 
@@ -32,23 +32,15 @@ import { normalizeWidth } from './textNormalizer.js';
 import { findMailHeaderRanges, isInRanges } from './mailHeader.js';
 import {
   DAYS_PER_WEEK,
-  MINUTES_PER_DAY,
   MINUTES_PER_HOUR,
   WEEKDAY_CHARACTERS,
   addDays,
-  addMinutes,
   compareDateTimes,
   compareDates,
   getMondayBasedWeekday,
   getTokyoDateTime,
   isValidDate,
 } from './dateUtils.js';
-
-/** 終了時刻が書かれていない予定の長さ（分）。要件§5.4 の既定値 */
-export const DEFAULT_DURATION_MINUTES = 60;
-
-/** 予定の長さとして受け付ける最大値（分）。設定で変更されても1日を超えないようにする */
-export const MAX_DURATION_MINUTES = MINUTES_PER_DAY;
 
 /** 受け付ける文章の最大文字数。極端に長い入力で処理が重くならないようにする（CLAUDE.md） */
 export const MAX_INPUT_LENGTH = 20000;
@@ -90,9 +82,6 @@ const ENGLISH_MONTH_PATTERN =
 
 /** 年の記載がない日付で、実在する日を探す年数（2月29日は最長で4年後になる） */
 const MAX_YEAR_LOOKAHEAD = 4;
-
-/** 正午をまたぐ補正に使う12時間（分） */
-const HALF_DAY_MINUTES = 12 * MINUTES_PER_HOUR;
 
 /** 午前・午後の表記 */
 const MERIDIEM_AM = '午前';
@@ -227,7 +216,6 @@ export class InputTooLongError extends Error {
  * @param {string} text 貼り付けた文章（または OCR の結果）
  * @param {object} [options]
  * @param {Date} [options.now] 「今日」「明日」などの基準となる現在時刻（テストでは固定値を渡す）
- * @param {number} [options.defaultDurationMinutes] 終了時刻がないときの予定の長さ（分）
  * @returns {{candidates: Array<object>, truncated: boolean}}
  *   candidates：文章に出てきた順の候補。各候補の形は buildCandidate() の説明を参照
  *   truncated：候補が MAX_CANDIDATES 件を超えたため、残りを省いた場合 true
@@ -236,8 +224,7 @@ export class InputTooLongError extends Error {
  */
 export function extractDateCandidates(text, options = {}) {
   const now = options.now ?? new Date();
-  const defaultDurationMinutes = options.defaultDurationMinutes ?? DEFAULT_DURATION_MINUTES;
-  validateArguments(text, now, defaultDurationMinutes);
+  validateArguments(text, now);
 
   // 全角を半角にそろえる（文字数は変わらないので、位置は元の文章と同じ）
   const normalizedText = normalizeWidth(text);
@@ -270,7 +257,7 @@ export function extractDateCandidates(text, options = {}) {
       matchTimeRange(normalizedText, skipPattern(CONNECTOR_PATTERN, normalizedText, cursor)) ??
       matchNextLineTimeRange(normalizedText, cursor);
     const range = { start: match.index, end: timeRange === null ? cursor : timeRange.endIndex };
-    const candidate = buildCandidate(resolved.date, timeRange, current, defaultDurationMinutes, dateWarnings);
+    const candidate = buildCandidate(resolved.date, timeRange, current, dateWarnings);
 
     // 同じ日時がすでにあれば、新しい候補は作らず、色付けする位置だけ追加する
     const key = getCandidateKey(candidate);
@@ -303,9 +290,8 @@ export function extractDateCandidates(text, options = {}) {
  *
  * @param {unknown} text
  * @param {unknown} now
- * @param {unknown} defaultDurationMinutes
  */
-function validateArguments(text, now, defaultDurationMinutes) {
+function validateArguments(text, now) {
   if (typeof text !== 'string') {
     throw new TypeError('文章は文字列で指定してください。');
   }
@@ -314,13 +300,6 @@ function validateArguments(text, now, defaultDurationMinutes) {
   }
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
     throw new TypeError('基準の日時が正しくありません。');
-  }
-  if (
-    !Number.isInteger(defaultDurationMinutes) ||
-    defaultDurationMinutes < 1 ||
-    defaultDurationMinutes > MAX_DURATION_MINUTES
-  ) {
-    throw new RangeError('予定の長さが正しくありません。');
   }
 }
 
@@ -351,7 +330,7 @@ function matchAt(pattern, text, index) {
  */
 export function correctWrittenWeekdays(text, options = {}) {
   const now = options.now ?? new Date();
-  validateArguments(text, now, DEFAULT_DURATION_MINUTES);
+  validateArguments(text, now);
 
   // 全角を半角にそろえても文字数は変わらないため、半角の文章で見つけた位置で元の文章を書き換えられる
   const normalizedText = normalizeWidth(text);
@@ -764,87 +743,41 @@ function applyMeridiem(hour, meridiem) {
 
 /**
  * 年月日と時刻の読み取り結果から、候補の本体を作る。
+ * 終了の時刻は使わない（終了は画面で「開始から何分後」か「終日」を選ぶ。2026-10-12 依頼者の仕様変更）。
  *
  * @param {{year: number, month: number, day: number}} date 開始日
- * @param {{startTime: object, endTime: object | null} | null} timeRange 時刻（なければ null）
+ * @param {{startTime: object} | null} timeRange 時刻（なければ null）
  * @param {{year: number, month: number, day: number, hour: number, minute: number}} current 現在の東京の日時
- * @param {number} defaultDurationMinutes 終了時刻がないときの予定の長さ（分）
  * @param {string[]} [dateWarnings] 日付の読み方に関する警告（WARNING_AMBIGUOUS_ORDER、WARNING_WEEKDAY_MISMATCH など）
  * @returns {{
- *   hasTime: boolean,        時刻の記載があるか（false なら日付だけ。画面で終日か時刻指定かを尋ねる）
+ *   hasTime: boolean,        時刻の記載があるか（false なら日付だけ。画面の終了の選択の初めの値が「終日」になる）
  *   start: object,           開始日時 {year, month, day, hour, minute}。hasTime が false なら hour/minute は null
- *   end: object | null,      終了日時。hasTime が false なら null
- *   endInferred: boolean,    終了時刻を既定の長さで補ったか
  *   warnings: string[]       警告コード（WARNING_PAST など）
  * }}
  */
-function buildCandidate(date, timeRange, current, defaultDurationMinutes, dateWarnings = []) {
+function buildCandidate(date, timeRange, current, dateWarnings = []) {
   const warnings = [...dateWarnings];
 
   if (timeRange === null) {
     if (compareDates(date, current) < 0) {
       warnings.push(WARNING_PAST);
     }
-    return {
-      hasTime: false,
-      start: { ...date, hour: null, minute: null },
-      end: null,
-      endInferred: false,
-      warnings,
-    };
+    return { hasTime: false, start: { ...date, hour: null, minute: null }, warnings };
   }
 
   const start = { ...date, hour: timeRange.startTime.hour, minute: timeRange.startTime.minute };
-  const { end, endInferred } = resolveEnd(start, timeRange, defaultDurationMinutes);
   if (compareDateTimes(start, current) < 0) {
     warnings.push(WARNING_PAST);
   }
-  return { hasTime: true, start, end, endInferred, warnings };
-}
-
-/**
- * 終了日時を決める。
- *   - 終了時刻がない、または開始と同じ → 開始 + 既定の長さ
- *   - 「11時〜1時」のように終了が開始より前で、午前/午後の記載がない → 12時間足す（13時）
- *   - それでも開始より前（例：22時〜1時）→ 翌日の時刻とみなす
- *
- * @param {object} start 開始日時
- * @param {{startTime: object, endTime: object | null}} timeRange 時刻の読み取り結果
- * @param {number} defaultDurationMinutes 既定の予定の長さ（分）
- * @returns {{end: object, endInferred: boolean}}
- */
-function resolveEnd(start, timeRange, defaultDurationMinutes) {
-  const { startTime, endTime } = timeRange;
-  if (endTime === null) {
-    return { end: addMinutes(start, defaultDurationMinutes), endInferred: true };
-  }
-
-  const startMinutes = startTime.hour * MINUTES_PER_HOUR + startTime.minute;
-  let endMinutes = endTime.hour * MINUTES_PER_HOUR + endTime.minute;
-
-  if (
-    endMinutes <= startMinutes &&
-    endTime.meridiem === null &&
-    endTime.hour < 12 &&
-    endMinutes + HALF_DAY_MINUTES > startMinutes
-  ) {
-    endMinutes += HALF_DAY_MINUTES;
-  }
-  if (endMinutes === startMinutes) {
-    return { end: addMinutes(start, defaultDurationMinutes), endInferred: true };
-  }
-  if (endMinutes < startMinutes) {
-    endMinutes += MINUTES_PER_DAY; // 日付をまたぐ
-  }
-  return { end: addMinutes(start, endMinutes - startMinutes), endInferred: false };
+  return { hasTime: true, start, warnings };
 }
 
 /**
  * 同じ日時の候補を見分けるためのキーを作る。
  *
- * @param {{hasTime: boolean, start: object, end: object | null}} candidate
+ * @param {{hasTime: boolean, start: object}} candidate
  * @returns {string}
  */
 function getCandidateKey(candidate) {
-  return JSON.stringify([candidate.hasTime, candidate.start, candidate.end]);
+  return JSON.stringify([candidate.hasTime, candidate.start]);
 }

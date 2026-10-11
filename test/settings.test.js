@@ -20,11 +20,21 @@ import {
   normalizeStoredSettings,
   validateSettings,
 } from '../src/core/settings.js';
+import { END_DURATION_CHOICES } from '../src/core/registration.js';
 
 describe('設定の既定値と選択肢', () => {
   test('既定は 60分・Ctrl+Shift+Y（Mac は Cmd+Shift+Y）（要件§5.4・§12）', () => {
     assert.deepEqual(DEFAULT_SETTINGS, { durationMinutes: 60, hotkeyModifiers: 'CommandOrControl+Shift', hotkeyKey: 'Y' });
     assert.ok(DURATION_CHOICES.includes(DEFAULT_SETTINGS.durationMinutes));
+  });
+
+  test('予定の長さの選択肢は 30・60・90・120分で、終了の選択（30分刻み）に含まれる。15・45分は断り、保存済みなら既定に戻す', () => {
+    assert.deepEqual(DURATION_CHOICES, [30, 60, 90, 120]);
+    assert.ok(DURATION_CHOICES.every((minutes) => END_DURATION_CHOICES.includes(minutes)));
+    for (const minutes of [15, 45]) {
+      assert.throws(() => validateSettings({ ...DEFAULT_SETTINGS, durationMinutes: minutes }), SettingsError);
+      assert.equal(normalizeStoredSettings({ ...DEFAULT_SETTINGS, durationMinutes: minutes }).durationMinutes, 60);
+    }
   });
 
   test('ホットキーの組み合わせは、どれも Ctrl（Mac は Cmd）を含む（文字の入力を横取りしない）', () => {

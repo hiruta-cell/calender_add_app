@@ -12,12 +12,7 @@ import { AUTO_RESET_DELAY_SECONDS, scheduleAutoReset } from '../core/autoReset.j
 import { CalendarEventError, buildCalendarUrl } from '../core/calendarUrl.js';
 import { InputTooLongError, MAX_CANDIDATES, correctWrittenWeekdays, extractDateCandidates } from '../core/dateExtractor.js';
 import { extractEventDetails } from '../core/detailExtractor.js';
-import {
-  DEFAULT_TIME_CHOICE,
-  TIME_MODE_SPECIFIED,
-  buildCalendarEvents,
-  createManualCandidate,
-} from '../core/registration.js';
+import { END_CHOICE_ALL_DAY, buildCalendarEvents, createDefaultTimeChoice, createManualCandidate } from '../core/registration.js';
 import { DEFAULT_SETTINGS } from '../core/settings.js';
 import CandidateList from './components/CandidateList.jsx';
 import CaptureImagePanel from './components/CaptureImagePanel.jsx';
@@ -108,7 +103,7 @@ export default function App() {
   const [hotkeyLabel, setHotkeyLabel] = useState('');
   /** コピーした文章を読み取るホットキーの表記（例：Ctrl+Shift+U）。メインプロセスから受け取る */
   const [clipboardHotkeyLabel, setClipboardHotkeyLabel] = useState('');
-  /** 予定の既定の長さ（分）。終了時刻が書かれていないときに使う。設定から受け取る（要件§5.4・§6.1） */
+  /** 予定の既定の長さ（分）。時刻のある候補の「終了」の初めの選択に使う。設定から受け取る（要件§5.4・§6.1） */
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_SETTINGS.durationMinutes);
   /** 設定画面の表示中かどうか */
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -151,7 +146,7 @@ export default function App() {
     setAutoResetId(0); // 新しい内容を、自動のクリアで消さない
     try {
       const now = new Date();
-      const result = extractDateCandidates(text, { now, defaultDurationMinutes: durationMinutes });
+      const result = extractDateCandidates(text, { now });
       const drafts = extractEventDetails(text);
       setExtraction({ text, candidates: result.candidates, truncated: result.truncated });
       // 新しい文章に合わせて、選択・時刻の扱い・手入力・入力欄をすべて置き換える（前の文章の内容を残さない）
@@ -461,43 +456,44 @@ export default function App() {
   }
 
   /**
-   * 日付だけの候補の、時刻の扱い（終日／時刻を指定、開始・終了時刻）を変える。
+   * 候補の終了の選択（開始からの長さ／終日、日付だけの候補の開始時刻）を変える。
+   * まだ選んでいない候補は、初めの値（設定の長さ、日付だけなら終日）に変更を重ねる。
    *
-   * @param {string} candidateId 候補の ID
-   * @param {object} changes 変える項目（mode / startTime / endTime）
+   * @param {{id: string, hasTime: boolean}} candidate 候補
+   * @param {object} changes 変える項目（end / startTime）
    */
-  function handleTimeChoiceChange(candidateId, changes) {
+  function handleTimeChoiceChange(candidate, changes) {
     setTimeChoices((previous) => ({
       ...previous,
-      [candidateId]: { ...(previous[candidateId] ?? DEFAULT_TIME_CHOICE), ...changes },
+      [candidate.id]: { ...(previous[candidate.id] ?? createDefaultTimeChoice(candidate, durationMinutes)), ...changes },
     }));
   }
 
   /**
    * 手入力した日付（と時刻）を候補に追加し、チェックを付ける（要件§5.8）。
-   * 開始時刻があれば「時刻を指定」、なければ「終日」の候補になる。
+   * 開始時刻と終了の長さがあれば時刻のある予定、なければ「終日」の候補になる。
    *
    * @param {{year: number, month: number, day: number}} date 手入力した日付
    * @param {string} [startTime] 開始時刻（HH:MM。空なら終日）
-   * @param {string} [endTime] 終了時刻（HH:MM。空なら既定の長さ）
+   * @param {string | number} [end] 終了の選択（開始からの長さ（分）か END_CHOICE_ALL_DAY）
    */
-  function handleAddManualDate(date, startTime = '', endTime = '') {
+  function handleAddManualDate(date, startTime = '', end = END_CHOICE_ALL_DAY) {
     manualSequenceRef.current += 1;
     const candidate = createManualCandidate(date, manualSequenceRef.current, new Date());
     setManualCandidates((previous) => [...previous, candidate]);
     setSelectedIds((previousIds) => new Set(previousIds).add(candidate.id));
-    if (startTime !== '') {
-      setTimeChoices((previous) => ({ ...previous, [candidate.id]: { mode: TIME_MODE_SPECIFIED, startTime, endTime } }));
+    if (startTime !== '' && end !== END_CHOICE_ALL_DAY) {
+      setTimeChoices((previous) => ({ ...previous, [candidate.id]: { end, startTime } }));
     }
   }
 
   /**
    * 「日時の情報がありません」のポップアップで日時を入れて「追加する」を押した。
    *
-   * @param {{date: object, startTime: string, endTime: string}} entry 入力した日時
+   * @param {{date: object, startTime: string, end: string | number}} entry 入力した日時
    */
-  function handleAddFromDialog({ date, startTime, endTime }) {
-    handleAddManualDate(date, startTime, endTime);
+  function handleAddFromDialog({ date, startTime, end }) {
+    handleAddManualDate(date, startTime, end);
   }
 
   /**

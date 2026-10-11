@@ -11,10 +11,11 @@
  * - ログイン時の自動起動のオン／オフは、OS の登録の状態そのものを正とし、このファイルの設定には含めない。
  */
 
-import { DEFAULT_DURATION_MINUTES } from './dateExtractor.js';
+/** 予定の長さの既定値（分）。確認ウインドウの終了の選択で、時刻のある候補の初めの値になる（要件§5.4） */
+export const DEFAULT_DURATION_MINUTES = 60;
 
-/** 予定の既定の長さとして選べる値（分） */
-export const DURATION_CHOICES = Object.freeze([15, 30, 45, 60, 90, 120]);
+/** 予定の既定の長さとして選べる値（分）。終了の選択（30分刻み）に合わせる（2026-10-12 依頼者の仕様変更で 15・45分を除いた） */
+export const DURATION_CHOICES = Object.freeze([30, 60, 90, 120]);
 
 /**
  * ホットキーの修飾キーとして選べる組み合わせ（Electron の表記）。

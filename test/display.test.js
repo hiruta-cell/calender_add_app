@@ -9,6 +9,7 @@ import {
   describeWarning,
   formatCandidateLabel,
   formatDateLabel,
+  formatEndChoiceLabel,
   formatTimeLabel,
 } from '../src/core/candidateFormatter.js';
 import { WARNING_AMBIGUOUS_ORDER, WARNING_PAST, WARNING_WEEKDAY_MISMATCH, extractDateCandidates } from '../src/core/dateExtractor.js';
@@ -28,15 +29,20 @@ describe('candidateFormatter：候補の表示文字列', () => {
     assert.equal(formatTimeLabel({ hour: 9, minute: 5 }), '09:05');
   });
 
-  test('時刻ありの候補', () => {
-    assert.equal(formatCandidateLabel(firstCandidate('10/15 14:00')), '2026年10月15日(木) 14:00〜15:00');
+  test('時刻ありの候補は開始だけ（終了は画面で選ぶ。範囲の書き方でも同じ）', () => {
+    assert.equal(formatCandidateLabel(firstCandidate('10/15 14:00')), '2026年10月15日(木) 14:00');
+    assert.equal(formatCandidateLabel(firstCandidate('10/15 14時〜16時')), '2026年10月15日(木) 14:00');
   });
 
-  test('日をまたぐ候補は終了側にも日付を付ける', () => {
-    assert.equal(
-      formatCandidateLabel(firstCandidate('10/15 23:30')),
-      '2026年10月15日(木) 23:30〜2026年10月16日(金) 00:30',
-    );
+  test('formatEndChoiceLabel：長さと終了時刻（日をまたぐと「翌日」）。開始が分からなければ長さだけ', () => {
+    const start = { year: 2026, month: 10, day: 15, hour: 14, minute: 0 };
+    assert.equal(formatEndChoiceLabel(30, start), '30分後（14:30）');
+    assert.equal(formatEndChoiceLabel(60, start), '1時間後（15:00）');
+    assert.equal(formatEndChoiceLabel(90, start), '1時間30分後（15:30）');
+    assert.equal(formatEndChoiceLabel(600, start), '10時間後（翌日 00:00）');
+    assert.equal(formatEndChoiceLabel(1410, start), '23時間30分後（翌日 13:30）');
+    assert.equal(formatEndChoiceLabel(1410, { year: 2026, month: 12, day: 31, hour: 23, minute: 30 }), '23時間30分後（翌日 23:00）');
+    assert.equal(formatEndChoiceLabel(150, null), '2時間30分後');
   });
 
   test('時刻なしの候補は日付だけ', () => {

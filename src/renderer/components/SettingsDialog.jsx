@@ -1,7 +1,7 @@
 /**
  * SettingsDialog.jsx
  * 目的：設定画面（要件§6.1・§12）。次を変えられる。
- *   - 予定の既定の長さ（終了時刻が書かれていないときの長さ）
+ *   - 予定の既定の長さ（候補の「終了」で初めに選ばれている長さ。30分刻み）
  *   - ホットキー（範囲キャプチャを始めるキー）
  *   - ログイン時の自動起動（オンのときはウインドウを出さずに常駐する）
  *   - デスクトップにアイコンを作る（npm start を使わずに起動できるようにする）
@@ -164,7 +164,7 @@ export default function SettingsDialog({ open, onClose, onSaved }) {
           ))}
         </select>
       </label>
-      <p className="field-note">終了時刻が書かれていないときの長さです。次に「日時を抽出」したときから使われます。</p>
+      <p className="field-note">候補の「終了」で、初めに選ばれている長さです（あとから候補ごとに選び直せます）。</p>
 
       <div className="settings-row">
         <span className="settings-label" id="settings-hotkey-label">

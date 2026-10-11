@@ -2,7 +2,8 @@
  * registration.js
  * 目的：画面で選んだ候補と入力欄の内容から、Googleカレンダーに渡す「予定の一覧」を組み立てる。
  *
- * - 日付だけの候補は「終日」（既定）か「時刻を指定」かを選べる（要件§5.10）。
+ * - 終了は文章から読み取らず、候補ごとに「開始から30分〜23時間30分後（30分刻み）」か「終日」を選ぶ（2026-10-12 依頼者の仕様変更）。
+ *   時刻のある候補の初めの選択は設定の長さ、日付だけの候補は「終日」（要件§5.10）。日付だけの候補で長さを選んだら開始時刻を入れる。
  * - 日時が見つからないときに使う「手入力の候補」もここで作る（要件§5.8）。
  * - オンライン会議の URL は、場所が空なら「場所」に、場所があれば「メモ」の先頭に入れる（要件§12）。
  * - 元の文章をメモに入れるのは、利用者が選んだときだけ（既定はオフ。要件§6.2）。
@@ -12,15 +13,19 @@ import { formatDateLabel } from './candidateFormatter.js';
 import { CalendarEventError, MAX_DETAILS_LENGTH } from './calendarUrl.js';
 import { WARNING_PAST } from './dateExtractor.js';
 import { parseMeetingUrl } from './detailExtractor.js';
-import { addMinutes, compareDateTimes, compareDates, getTokyoDateTime, isValidDate } from './dateUtils.js';
+import { addMinutes, compareDates, getTokyoDateTime, isValidDate } from './dateUtils.js';
 
-/** 日付だけの候補の時刻の扱い：終日 */
-export const TIME_MODE_ALL_DAY = 'allDay';
-/** 日付だけの候補の時刻の扱い：時刻を指定 */
-export const TIME_MODE_SPECIFIED = 'specified';
+/** 終了の選択：終日（時刻のある候補でも、開始日の終日の予定にする） */
+export const END_CHOICE_ALL_DAY = 'allDay';
 
-/** 日付だけの候補の、時刻の扱いの初期値（要件§5.10：既定は終日） */
-export const DEFAULT_TIME_CHOICE = Object.freeze({ mode: TIME_MODE_ALL_DAY, startTime: '', endTime: '' });
+/** 終了を選ぶ刻み（分） */
+export const END_DURATION_STEP_MINUTES = 30;
+/** 選べる最も長い長さ（分）：23時間30分 */
+export const MAX_END_DURATION_MINUTES = 23 * 60 + 30;
+/** 選べる長さの一覧（分）：30, 60, 90, … 1410 の47通り */
+export const END_DURATION_CHOICES = Object.freeze(
+  Array.from({ length: MAX_END_DURATION_MINUTES / END_DURATION_STEP_MINUTES }, (_, index) => (index + 1) * END_DURATION_STEP_MINUTES),
+);
 
 /** メモに入れる元の文章の最大文字数（URL が長くなりすぎないよう抜粋にする） */
 export const SOURCE_TEXT_EXCERPT_LENGTH = 500;
@@ -87,11 +92,22 @@ export function createManualCandidate(date, sequence, now) {
     sourceText: '手入力',
     hasTime: false,
     start: { year: date.year, month: date.month, day: date.day, hour: null, minute: null },
-    end: null,
-    endInferred: false,
     warnings: compareDates(date, today) < 0 ? [WARNING_PAST] : [],
     isManual: true,
   };
+}
+
+/**
+ * 候補の終了の選択の初めの値を作る。
+ *
+ * @param {{hasTime: boolean}} candidate 候補
+ * @param {number} defaultDurationMinutes 設定の予定の長さ（分。END_DURATION_CHOICES のどれか）
+ * @returns {{end: string | number, startTime: string}}
+ *   end：END_CHOICE_ALL_DAY か長さ（分）。時刻のある候補は設定の長さ、日付だけの候補は終日（要件§5.10）
+ *   startTime：日付だけの候補で長さを選んだときの開始時刻（HH:MM。初めは空）
+ */
+export function createDefaultTimeChoice(candidate, defaultDurationMinutes) {
+  return { end: candidate.hasTime ? defaultDurationMinutes : END_CHOICE_ALL_DAY, startTime: '' };
 }
 
 /**
@@ -141,10 +157,10 @@ export function composeEventTexts(details, sourceText) {
  * @param {object} input
  * @param {Array<object>} input.candidates 表示中の候補（抽出した候補と手入力の候補）
  * @param {Set<string>} input.selectedIds チェックを付けた候補の ID
- * @param {Record<string, {mode: string, startTime: string, endTime: string}>} input.timeChoices 日付だけの候補の時刻の扱い
+ * @param {Record<string, {end: string | number, startTime: string}>} input.timeChoices 候補ごとの終了の選択（なければ初めの値）
  * @param {object} input.details 入力欄の内容（composeEventTexts を参照）
  * @param {string} input.sourceText 抽出に使った元の文章
- * @param {number} input.defaultDurationMinutes 終了時刻がないときの予定の長さ（分）
+ * @param {number} input.defaultDurationMinutes 設定の予定の長さ（分。終了の選択の初めの値）
  * @returns {{events: Array<object>, errors: string[]}}
  *   events：calendarUrl.js の validateCalendarEvent に渡せる形の予定（候補の表示順）
  *   errors：利用者に表示するエラーの文（1つでもあれば登録しない）
@@ -166,18 +182,14 @@ export function buildCalendarEvents({ candidates, selectedIds, timeChoices, deta
     if (!selectedIds.has(candidate.id)) {
       continue;
     }
-    if (candidate.hasTime) {
-      events.push({ ...texts, allDay: false, start: candidate.start, end: candidate.end });
+    const choice = timeChoices[candidate.id] ?? createDefaultTimeChoice(candidate, defaultDurationMinutes);
+    if (choice.end === END_CHOICE_ALL_DAY) {
+      const { year, month, day } = candidate.start;
+      events.push({ ...texts, allDay: true, start: { year, month, day, hour: null, minute: null }, end: null });
       continue;
     }
 
-    const choice = timeChoices[candidate.id] ?? DEFAULT_TIME_CHOICE;
-    if (choice.mode !== TIME_MODE_SPECIFIED) {
-      events.push({ ...texts, allDay: true, start: candidate.start, end: null });
-      continue;
-    }
-
-    const result = resolveSpecifiedTime(candidate.start, choice, defaultDurationMinutes);
+    const result = resolveTimedEvent(candidate, choice);
     if (result.error !== null) {
       errors.push(`${formatDateLabel(candidate.start)}：${result.error}`);
     } else {
@@ -188,31 +200,26 @@ export function buildCalendarEvents({ candidates, selectedIds, timeChoices, deta
 }
 
 /**
- * 日付だけの候補に、利用者が指定した時刻を当てはめる。終了時刻が空なら既定の長さにする。
+ * 終了の選択（長さ）から、時刻のある予定の開始・終了を決める。
+ *   時刻のある候補：開始は候補の時刻。日付だけの候補：開始は入力された開始時刻（必須）
  *
- * @param {{year: number, month: number, day: number}} date 候補の日付
- * @param {{startTime: string, endTime: string}} choice 入力された時刻（HH:MM）
- * @param {number} defaultDurationMinutes 既定の予定の長さ（分）
+ * @param {{hasTime: boolean, start: object}} candidate 候補
+ * @param {{end: string | number, startTime: string}} choice 終了の選択（end は長さ（分））
  * @returns {{start: object | null, end: object | null, error: string | null}}
  */
-function resolveSpecifiedTime(date, choice, defaultDurationMinutes) {
-  const startTime = parseTimeInput(choice.startTime);
-  if (startTime === null) {
-    return { start: null, end: null, error: '開始時刻を入力してください。' };
+function resolveTimedEvent(candidate, choice) {
+  if (!END_DURATION_CHOICES.includes(choice.end)) {
+    return { start: null, end: null, error: '終了の選択が正しくありません。' };
   }
-  const start = { year: date.year, month: date.month, day: date.day, ...startTime };
-  if (choice.endTime === '') {
-    return { start, end: addMinutes(start, defaultDurationMinutes), error: null };
+  let start = candidate.start;
+  if (!candidate.hasTime) {
+    const startTime = parseTimeInput(choice.startTime);
+    if (startTime === null) {
+      return { start: null, end: null, error: '開始時刻を入力してください。' };
+    }
+    start = { year: start.year, month: start.month, day: start.day, ...startTime };
   }
-  const endTime = parseTimeInput(choice.endTime);
-  if (endTime === null) {
-    return { start: null, end: null, error: '終了時刻が正しくありません。' };
-  }
-  const end = { year: date.year, month: date.month, day: date.day, ...endTime };
-  if (compareDateTimes(end, start) <= 0) {
-    return { start: null, end: null, error: '終了時刻は開始時刻より後にしてください。' };
-  }
-  return { start, end, error: null };
+  return { start, end: addMinutes(start, choice.end), error: null };
 }
 
 /**

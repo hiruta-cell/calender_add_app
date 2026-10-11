@@ -4,7 +4,7 @@
  */
 
 import { WARNING_AMBIGUOUS_ORDER, WARNING_PAST, WARNING_WEEKDAY_MISMATCH } from './dateExtractor.js';
-import { WEEKDAY_CHARACTERS, compareDates, getMondayBasedWeekday } from './dateUtils.js';
+import { MINUTES_PER_HOUR, WEEKDAY_CHARACTERS, addMinutes, compareDates, getMondayBasedWeekday } from './dateUtils.js';
 
 /** 警告コードと、利用者に表示する文の対応表 */
 export const WARNING_MESSAGES = Object.freeze({
@@ -48,24 +48,37 @@ export function formatTimeLabel(time) {
 }
 
 /**
- * 候補の日時を1行の文字列にする。
- *   時刻あり：2026年10月15日(木) 14:00〜15:00
- *   日をまたぐ：2026年10月15日(木) 23:00〜2026年10月16日(金) 01:00
+ * 候補の日時を1行の文字列にする（終了は画面で選ぶため、開始だけを表示する）。
+ *   時刻あり：2026年10月15日(木) 14:00
  *   時刻なし：2026年10月15日(木)
  *
- * @param {{hasTime: boolean, start: object, end: object | null}} candidate dateExtractor.js が返す候補
+ * @param {{hasTime: boolean, start: object}} candidate dateExtractor.js が返す候補
  * @returns {string}
  */
 export function formatCandidateLabel(candidate) {
   const startDateLabel = formatDateLabel(candidate.start);
-  if (!candidate.hasTime) {
-    return startDateLabel;
+  return candidate.hasTime ? `${startDateLabel} ${formatTimeLabel(candidate.start)}` : startDateLabel;
+}
+
+/**
+ * 終了の選択の1項目を「1時間30分後（15:30）」の形にする。
+ *   開始時刻が分からない（日付だけの候補で未入力）ときは「1時間30分後」だけ。
+ *   日をまたぐときは「（翌日 01:00）」とする（長さは最大23時間30分なので、終了は同じ日か翌日）。
+ *
+ * @param {number} durationMinutes 開始からの長さ（分。30分刻み）
+ * @param {{year: number, month: number, day: number, hour: number, minute: number} | null} start 開始日時（分からなければ null）
+ * @returns {string}
+ */
+export function formatEndChoiceLabel(durationMinutes, start) {
+  const hours = Math.floor(durationMinutes / MINUTES_PER_HOUR);
+  const minutes = durationMinutes % MINUTES_PER_HOUR;
+  const durationLabel = `${hours > 0 ? `${hours}時間` : ''}${minutes > 0 ? `${minutes}分` : ''}後`;
+  if (start === null) {
+    return durationLabel;
   }
-  const isSameDay = compareDates(candidate.start, candidate.end) === 0;
-  const endLabel = isSameDay
-    ? formatTimeLabel(candidate.end)
-    : `${formatDateLabel(candidate.end)} ${formatTimeLabel(candidate.end)}`;
-  return `${startDateLabel} ${formatTimeLabel(candidate.start)}〜${endLabel}`;
+  const end = addMinutes(start, durationMinutes);
+  const dayLabel = compareDates(start, end) === 0 ? '' : '翌日 ';
+  return `${durationLabel}（${dayLabel}${formatTimeLabel(end)}）`;
 }
 
 /**

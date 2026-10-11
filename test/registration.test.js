@@ -7,11 +7,13 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { WARNING_PAST, extractDateCandidates } from '../src/core/dateExtractor.js';
 import {
-  DEFAULT_TIME_CHOICE,
+  END_CHOICE_ALL_DAY,
+  END_DURATION_CHOICES,
+  MAX_END_DURATION_MINUTES,
   SOURCE_TEXT_EXCERPT_LENGTH,
-  TIME_MODE_SPECIFIED,
   buildCalendarEvents,
   composeEventTexts,
+  createDefaultTimeChoice,
   createManualCandidate,
   parseDateInput,
   parseTimeInput,
@@ -109,30 +111,57 @@ describe('buildCalendarEvents：選んだ候補から予定の一覧を作る', 
     assert.equal(events[1].title, '定例会');
   });
 
-  test('「時刻を指定」：開始だけなら既定の長さ、開始と終了なら指定どおり', () => {
+  test('時刻のある候補：選んだ長さで終了を決める（文章の「〜16時」は使わない）。日をまたいでもよい', () => {
+    const [ranged, late] = candidatesOf('10/15 14時〜16時 と 10/16 23:00');
+    const { events, errors } = buildCalendarEvents({
+      candidates: [ranged, late],
+      selectedIds: new Set([ranged.id, late.id]),
+      timeChoices: { [late.id]: { end: MAX_END_DURATION_MINUTES, startTime: '' } },
+      details: emptyDetails(),
+      sourceText: '',
+      defaultDurationMinutes: 90,
+    });
+    assert.deepEqual(errors, []);
+    assert.deepEqual(events[0].start, { year: 2026, month: 10, day: 15, hour: 14, minute: 0 });
+    assert.deepEqual(events[0].end, { year: 2026, month: 10, day: 15, hour: 15, minute: 30 }); // 選んでいなければ設定の長さ
+    assert.deepEqual(events[1].end, { year: 2026, month: 10, day: 17, hour: 22, minute: 30 }); // 23時間30分後
+  });
+
+  test('時刻のある候補でも「終日」を選べば、開始日の終日の予定になる', () => {
     const { events } = buildCalendarEvents({
       candidates,
-      selectedIds: new Set([tomorrow.id, nextTuesday.id]),
-      timeChoices: {
-        [tomorrow.id]: { mode: TIME_MODE_SPECIFIED, startTime: '09:00', endTime: '' },
-        [nextTuesday.id]: { mode: TIME_MODE_SPECIFIED, startTime: '13:00', endTime: '14:30' },
-      },
+      selectedIds: new Set([timed.id]),
+      timeChoices: { [timed.id]: { end: END_CHOICE_ALL_DAY, startTime: '' } },
       details: emptyDetails(),
       sourceText: '',
       defaultDurationMinutes: 60,
     });
-    assert.deepEqual(events[0].start, { year: 2026, month: 10, day: 12, hour: 9, minute: 0 });
-    assert.deepEqual(events[0].end, { year: 2026, month: 10, day: 12, hour: 10, minute: 0 });
-    assert.deepEqual(events[1].end, { year: 2026, month: 10, day: 13, hour: 14, minute: 30 });
+    assert.equal(events[0].allDay, true);
+    assert.deepEqual(events[0].start, { year: 2026, month: 10, day: 15, hour: null, minute: null });
+    assert.equal(events[0].end, null);
   });
 
-  test('「時刻を指定」で開始がない・終了が開始以前ならエラー（日付付きの文）', () => {
+  test('日付だけの候補で長さを選ぶと、入力した開始時刻から終了を決める', () => {
+    const { events } = buildCalendarEvents({
+      candidates,
+      selectedIds: new Set([tomorrow.id]),
+      timeChoices: { [tomorrow.id]: { end: 150, startTime: '09:00' } },
+      details: emptyDetails(),
+      sourceText: '',
+      defaultDurationMinutes: 60,
+    });
+    assert.equal(events[0].allDay, false);
+    assert.deepEqual(events[0].start, { year: 2026, month: 10, day: 12, hour: 9, minute: 0 });
+    assert.deepEqual(events[0].end, { year: 2026, month: 10, day: 12, hour: 11, minute: 30 });
+  });
+
+  test('日付だけの候補で開始時刻がない・選んだ長さが一覧にないならエラー（日付付きの文）', () => {
     const { events, errors } = buildCalendarEvents({
       candidates,
-      selectedIds: new Set([tomorrow.id, nextTuesday.id]),
+      selectedIds: new Set([timed.id, tomorrow.id]),
       timeChoices: {
-        [tomorrow.id]: { mode: TIME_MODE_SPECIFIED, startTime: '', endTime: '' },
-        [nextTuesday.id]: { mode: TIME_MODE_SPECIFIED, startTime: '13:00', endTime: '12:00' },
+        [timed.id]: { end: 45, startTime: '' },
+        [tomorrow.id]: { end: 60, startTime: '' },
       },
       details: emptyDetails(),
       sourceText: '',
@@ -140,8 +169,8 @@ describe('buildCalendarEvents：選んだ候補から予定の一覧を作る', 
     });
     assert.equal(events.length, 0);
     assert.deepEqual(errors, [
+      '2026年10月15日(木)：終了の選択が正しくありません。',
       '2026年10月12日(月)：開始時刻を入力してください。',
-      '2026年10月13日(火)：終了時刻は開始時刻より後にしてください。',
     ]);
   });
 
@@ -158,7 +187,15 @@ describe('buildCalendarEvents：選んだ候補から予定の一覧を作る', 
     assert.equal(errors.length, 1);
   });
 
-  test('時刻の扱いの初期値は終日', () => {
-    assert.equal(DEFAULT_TIME_CHOICE.mode, 'allDay');
+  test('終了の選択の初めの値：時刻のある候補は設定の長さ、日付だけの候補は終日（要件§5.10）', () => {
+    assert.deepEqual(createDefaultTimeChoice(timed, 90), { end: 90, startTime: '' });
+    assert.deepEqual(createDefaultTimeChoice(tomorrow, 90), { end: END_CHOICE_ALL_DAY, startTime: '' });
+  });
+
+  test('選べる長さは 30分〜23時間30分の30分刻み（47通り）', () => {
+    assert.equal(END_DURATION_CHOICES.length, 47);
+    assert.equal(END_DURATION_CHOICES[0], 30);
+    assert.equal(END_DURATION_CHOICES.at(-1), 23 * 60 + 30);
+    assert.ok(END_DURATION_CHOICES.every((minutes, index) => minutes === (index + 1) * 30));
   });
 });

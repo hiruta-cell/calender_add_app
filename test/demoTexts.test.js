@@ -12,9 +12,10 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { formatCandidateLabel } from '../src/core/candidateFormatter.js';
 import { buildCalendarUrl } from '../src/core/calendarUrl.js';
-import { DEFAULT_DURATION_MINUTES, extractDateCandidates } from '../src/core/dateExtractor.js';
+import { extractDateCandidates } from '../src/core/dateExtractor.js';
 import { extractEventDetails } from '../src/core/detailExtractor.js';
 import { buildCalendarEvents } from '../src/core/registration.js';
+import { DEFAULT_DURATION_MINUTES } from '../src/core/settings.js';
 
 /** デモの文面のフォルダ */
 const DEMO_TEXT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'demo', 'texts');
@@ -56,9 +57,9 @@ function openedQueries(demo, indexes, details) {
 }
 
 describe('デモ1：日本語のメール（見出し付き・Zoom・予備日）', () => {
-  test('候補は 10/22 14:00〜15:30 と 10/29（日付だけ）。件名・場所・URL が下書きされる', async () => {
+  test('候補は 10/22 14:00（「〜15:30」は使わない）と 10/29（日付だけ）。件名・場所・URL が下書きされる', async () => {
     const demo = await runDemo('1-mail-ja.txt');
-    assert.deepEqual(demo.labels, ['2026年10月22日(木) 14:00〜15:30', '2026年10月29日(木)']);
+    assert.deepEqual(demo.labels, ['2026年10月22日(木) 14:00', '2026年10月29日(木)']);
     assert.equal(demo.candidates[1].hasTime, false);
     assert.deepEqual(demo.details, {
       title: '【架空】秋の社内勉強会のご案内',
@@ -68,11 +69,11 @@ describe('デモ1：日本語のメール（見出し付き・Zoom・予備日�
     });
   });
 
-  test('2件とも選ぶと、時刻指定と終日の予定作成 URL が開く（場所があるので URL はメモへ）', async () => {
+  test('2件とも選ぶと、時刻指定（終了は既定の1時間後）と終日の予定作成 URL が開く（場所があるので URL はメモへ）', async () => {
     const demo = await runDemo('1-mail-ja.txt');
     const [timed, allDay] = openedQueries(demo, [0, 1], demo.details);
     assert.equal(timed.text, '【架空】秋の社内勉強会のご案内');
-    assert.equal(timed.dates, '20261022T140000/20261022T153000');
+    assert.equal(timed.dates, '20261022T140000/20261022T150000');
     assert.equal(timed.location, '本社3階 第一会議室');
     assert.ok(timed.details.includes('https://zoom.us/j/0000000000?pwd=demo'));
     assert.equal(timed.ctz, 'Asia/Tokyo');
@@ -81,10 +82,9 @@ describe('デモ1：日本語のメール（見出し付き・Zoom・予備日�
 });
 
 describe('デモ2：チャット（見出しなし・「来週火曜」・夜7時）', () => {
-  test('候補は 10/20 15:00〜16:00（終了なし→60分）と 10/23 19:00〜20:00。件名などは空', async () => {
+  test('候補は 10/20 15:00 と 10/23 19:00。件名などは空', async () => {
     const demo = await runDemo('2-chat-ja.txt');
-    assert.deepEqual(demo.labels, ['2026年10月20日(火) 15:00〜16:00', '2026年10月23日(金) 19:00〜20:00']);
-    assert.ok(demo.candidates.every((candidate) => candidate.endInferred));
+    assert.deepEqual(demo.labels, ['2026年10月20日(火) 15:00', '2026年10月23日(金) 19:00']);
     assert.equal(demo.details.title, '');
     assert.equal(demo.details.location, '');
     assert.equal(demo.details.meetingUrl, '');
@@ -99,9 +99,9 @@ describe('デモ2：チャット（見出しなし・「来週火曜」・夜7�
 });
 
 describe('デモ3：英語のメール（Subject・Venue・Google Meet）', () => {
-  test('候補は 10/28 14:00〜15:00。件名・場所・URL が下書きされる', async () => {
+  test('候補は 10/28 14:00。件名・場所・URL が下書きされる', async () => {
     const demo = await runDemo('3-mail-en.txt');
-    assert.deepEqual(demo.labels, ['2026年10月28日(水) 14:00〜15:00']);
+    assert.deepEqual(demo.labels, ['2026年10月28日(水) 14:00']);
     assert.deepEqual(demo.details, {
       title: '[Demo] Project Kickoff',
       location: 'Room 5B',

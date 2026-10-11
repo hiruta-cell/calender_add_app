@@ -37,7 +37,7 @@ import { SETTINGS_FILE_NAME } from '../electron/settingsStore.js';
 import { AUTO_RESET_DELAY_MS, AUTO_RESET_DELAY_SECONDS } from '../src/core/autoReset.js';
 import { formatCalendarDate, formatCalendarDateTime } from '../src/core/calendarUrl.js';
 import { MAX_INPUT_LENGTH, extractDateCandidates } from '../src/core/dateExtractor.js';
-import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
+import { addDays, addMinutes, getTokyoDateTime } from '../src/core/dateUtils.js';
 import { DEFAULT_SETTINGS, buildAccelerator, buildClipboardAccelerator } from '../src/core/settings.js';
 
 /** プロジェクトのフォルダ */
@@ -690,7 +690,7 @@ async function checkCapture(connection, mainConnection, port, screenshotDir) {
   );
   record('OCR で読み取った文章が入力欄に入り、日時が抽出される', isRead);
   const firstCandidate = await connection.evaluate(`document.querySelector('.candidate-date')?.textContent ?? ''`);
-  record('1件目は「10月15日 14:00〜15:00」（等倍の画面を拡大して読み取り）', firstCandidate.includes('10月15日') && firstCandidate.endsWith('14:00〜15:00'), firstCandidate);
+  record('1件目は「10月15日 14:00」（等倍の画面を拡大して読み取り。終了は表示しない）', firstCandidate.includes('10月15日') && firstCandidate.endsWith('14:00'), firstCandidate);
   record(
     '取り込んだ画像が表示され、横書きとして読み取った',
     await connection.evaluate(`(() => {
@@ -788,7 +788,7 @@ async function checkCapture(connection, mainConnection, port, screenshotDir) {
   );
   record('画像を貼り付けると読み取り、日時が抽出される', isImported);
   const importedCandidate = await connection.evaluate(`document.querySelector('.candidate-date')?.textContent ?? ''`);
-  record('貼り付けた画像の1件目は「10月22日 14:00〜15:30」', importedCandidate.includes('10月22日') && importedCandidate.endsWith('14:00〜15:30'), importedCandidate);
+  record('貼り付けた画像の1件目は「10月22日 14:00」', importedCandidate.includes('10月22日') && importedCandidate.endsWith('14:00'), importedCandidate);
 
   // 7. 画像でないファイルをドロップ → 案内を表示（読み取らない）
   await connection.evaluate(`(() => {
@@ -914,8 +914,8 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   }))`);
   record('日時の候補が3件表示される', candidates.length === 3, `${candidates.length}件`);
   record(
-    '1件目は「10月15日 14:00〜15:00」',
-    candidates[0]?.date.includes('10月15日') && candidates[0]?.date.endsWith('14:00〜15:00'),
+    '1件目は「10月15日 14:00」（「〜15時」は使わず、終了は表示しない）',
+    candidates[0]?.date.includes('10月15日') && candidates[0]?.date.endsWith('14:00'),
     candidates[0]?.date,
   );
   record(
@@ -983,10 +983,20 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[2].click()`);
   await sleep(UI_SETTLE_MS);
   record('選択件数が2件になる', (await connection.evaluate(`document.querySelector('.candidate-panel .hint').textContent`)).includes('選択中：2 件'));
+  const endChoices = await connection.evaluate(`[...document.querySelectorAll('.candidate-item')].map((item) => item.querySelector('.time-choice select')?.value ?? null)`);
   record(
-    '日付だけの候補は「終日」が選ばれている',
-    await connection.evaluate(`document.querySelector('.time-choice input[value="allDay"]')?.checked === true`),
+    '終了の選択：時刻のある候補は設定の長さ（60分）、日付だけの候補は「終日」が選ばれている。チェックのない候補には出ない',
+    JSON.stringify(endChoices) === JSON.stringify(['60', null, 'allDay']),
+    JSON.stringify(endChoices),
   );
+  const endOptions = await connection.evaluate(`[...document.querySelectorAll('.candidate-item')[0].querySelectorAll('.time-choice option')].map((option) => option.textContent)`);
+  record(
+    '終了の一覧は「30分後（14:30）」〜「23時間30分後（翌日 13:30）」の47通りと「終日」',
+    endOptions.length === 48 && endOptions[0] === '30分後（14:30）' && endOptions[46] === '23時間30分後（翌日 13:30）' && endOptions[47] === '終日',
+    `${endOptions.length}件 ${endOptions[0]} … ${endOptions.at(-1)}`,
+  );
+  // 1件目の終了を「1時間30分後」に選び直す（文章の「〜15時」ではなく、選んだ長さで登録されること）
+  await setSelectValue(connection, '.candidate-item .time-choice select', '90');
   // 右の欄を一番上まで戻した状態でも、登録ボタンがスクロールせずに見えること（使いやすさの確認）
   record('登録ボタンがスクロールしなくても見える位置にある', await connection.evaluate(`(() => {
     const button = document.querySelector('.register-section button');
@@ -1009,8 +1019,8 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   record('すべて開いたら確認ウインドウが最小化される（ブラウザの操作の邪魔にならないように）', minimizedAfterRegister);
   const [timedQuery, allDayQuery] = openedUrls.map((url) => new URL(url).searchParams);
   record(
-    '1件目：日時（開始/終了）とタイムゾーンが正しい',
-    timedQuery?.get('dates') === `${formatCalendarDateTime(expected[0].start)}/${formatCalendarDateTime(expected[0].end)}` &&
+    '1件目：開始と、選んだ終了（1時間30分後）とタイムゾーンが正しい',
+    timedQuery?.get('dates') === `${formatCalendarDateTime(expected[0].start)}/${formatCalendarDateTime(addMinutes(expected[0].start, 90))}` &&
       timedQuery?.get('ctz') === 'Asia/Tokyo',
     timedQuery?.get('dates'),
   );
@@ -1038,15 +1048,17 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   );
   const registeredImage = await saveScreenshot(connection, screenshotDir, '02-registered.png');
 
-  // 5. 日付だけの候補で「時刻を指定」に切り替える（1件目のチェックは外す）
+  // 5. 日付だけの候補で終了の長さを選ぶと、開始時刻の欄が出る（1件目のチェックは外す）
   await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[0].click()`);
-  await connection.evaluate(`document.querySelector('.time-choice input[value="specified"]').click()`);
   await sleep(UI_SETTLE_MS);
+  await setSelectValue(connection, '.time-choice select', '60');
+  await sleep(UI_SETTLE_MS);
+  record('日付だけの候補で長さを選ぶと、開始時刻の欄が出る', await connection.evaluate(`document.querySelector('.time-choice input[type="time"]') !== null`));
   await setInputValue(connection, '.time-choice input[type="time"]', '09:00');
   await clickRegister(connection);
   const specifiedUrl = (await getOpenedUrls(mainConnection)).at(-1);
   record(
-    '「時刻を指定」で9:00を入れると 9:00〜10:00 の予定になる',
+    '「1時間後」を選び開始に9:00を入れると 9:00〜10:00 の予定になる',
     new URL(specifiedUrl).searchParams.get('dates') ===
       `${formatCalendarDate(tomorrow)}T090000/${formatCalendarDate(tomorrow)}T100000`,
   );
@@ -1070,9 +1082,9 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   const dialogImage = await saveScreenshot(connection, screenshotDir, '03-no-date-dialog.png');
   await clickButton(connection, '追加する');
   record('「追加する」でポップアップが閉じる', (await connection.evaluate(`document.querySelector('dialog').open`)) === false);
-  record('入力した日時が、チェック付き・「時刻を指定」の候補として加わる', await connection.evaluate(
+  record('入力した日時が、チェック付き・開始 9:30・終了「1時間後」（設定の長さ）の候補として加わる', await connection.evaluate(
     `document.querySelectorAll('.candidate-item').length === 1 && document.querySelector('.candidate-checkbox').checked &&
-     document.querySelector('.time-choice input[value="specified"]')?.checked === true`,
+     document.querySelector('.time-choice select')?.value === '60' && document.querySelector('.time-choice input[type="time"]')?.value === '09:30'`,
   ));
   await clickRegister(connection);
   const manualUrl = (await getOpenedUrls(mainConnection)).at(-1);
@@ -1087,7 +1099,7 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   await clickButton(connection, '追加');
   record('右の欄から追加した日付は、チェック付き・「終日」の候補になる', await connection.evaluate(
     `document.querySelectorAll('.candidate-item').length === 2 && document.querySelectorAll('.candidate-checkbox')[1].checked &&
-     document.querySelectorAll('.candidate-item')[1].querySelector('.time-choice input[value="allDay"]')?.checked === true`,
+     document.querySelectorAll('.candidate-item')[1].querySelector('.time-choice select')?.value === 'allDay'`,
   ));
 
   // 8. 書かれた曜日が日付と合わない → 候補に警告を表示し、件名の下書きは日付の曜日に直す（2030年1月1日は火曜日。架空の文面）
@@ -1207,11 +1219,16 @@ async function checkSettings(connection, mainConnection, screenshotDir) {
   );
   await replaceInputText(connection, DEMO_TEXT);
   await clickButton(connection, '日時を抽出');
-  const secondCandidate = await connection.evaluate(`document.querySelectorAll('.candidate-item')[1]?.textContent ?? ''`);
+  await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[1].click()`);
+  await sleep(UI_SETTLE_MS);
+  const secondEndChoice = await connection.evaluate(`(() => {
+    const select = document.querySelectorAll('.candidate-item')[1]?.querySelector('.time-choice select');
+    return select ? select.value + ' ' + select.selectedOptions[0].textContent : '';
+  })()`);
   record(
-    '予定の長さを30分にすると、終了時刻のない候補が30分になる（来週火曜 15:30〜16:00）',
-    secondCandidate.includes('15:30〜16:00') && secondCandidate.includes('30分で設定'),
-    secondCandidate,
+    '予定の長さを30分にすると、終了の初めの選択が「30分後」になる（来週火曜 15:30 → 16:00）',
+    secondEndChoice === '30 30分後（16:00）',
+    secondEndChoice,
   );
 
   // 元の設定に戻す

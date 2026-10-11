@@ -239,7 +239,7 @@ body {
   list-style: none;
 }
 
-/* 候補の枠。「終日／時刻を指定」の欄も同じ枠の中に入れて、どの候補の設定か分かるようにする */
+/* 候補の枠。「終了」の選択の欄も同じ枠の中に入れて、どの候補の設定か分かるようにする */
 .candidate-item {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -487,6 +487,11 @@ body {
 }
 
 .time-input {
+  width: auto;
+}
+
+/* 終了の選択（開始から何時間後か・終日）。項目名の長さに合わせ、欄いっぱいに広げない */
+.end-choice {
   width: auto;
 }
 

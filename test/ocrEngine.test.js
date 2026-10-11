@@ -72,7 +72,6 @@ describe('recognizeText：実際に読み取る（架空の画像）', { timeout
     assert.deepEqual(result.triedOrientations, [ORIENTATION_HORIZONTAL]);
     const [candidate] = extractDateCandidates(result.text, { now: NOW }).candidates;
     assert.deepEqual(candidate.start, { year: 2026, month: 10, day: 15, hour: 14, minute: 0 });
-    assert.deepEqual(candidate.end, { year: 2026, month: 10, day: 15, hour: 15, minute: 0 });
     const details = extractEventDetails(result.text);
     assert.match(details.title, /定例会のご案内/);
     assert.match(details.location, /オンライン/);

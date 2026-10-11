@@ -39,12 +39,12 @@
 | `src/core/japaneseNumber.js` | 漢字の数字（十五、二〇二六など）を数値に変換する |
 | `src/core/dateUtils.js` | 日付の計算（東京の日時、日数・分の加算、曜日、比較、差） |
 | `src/core/dateExtractor.js` | 文章から日時の候補を抽出する（このアプリの中心） |
-| `src/core/candidateFormatter.js` | 候補を「2026年10月15日(木) 14:00〜15:00」のような表示用の文字列にする |
+| `src/core/candidateFormatter.js` | 候補を「2026年10月15日(木) 14:00」のような表示用の文字列にする。終了の一覧の項目名（「1時間30分後（15:30）」）も作る |
 | `src/core/highlight.js` | 文章の日時部分を色付けするために、文章を分割する |
 | `src/core/detailExtractor.js` | 文章から件名・場所・オンライン会議の URL を取り出して下書きにする |
 | `src/core/mailHeader.js` | メールの送信日・受信日・引用の見出しの行を見つける（その行の日付を候補にしないため） |
 | `src/core/calendarUrl.js` | Googleカレンダーの予定作成画面の URL を組み立て、内容と URL を検証する |
-| `src/core/registration.js` | 選んだ候補と入力欄の内容から、登録する予定の一覧を作る（終日／時刻指定、手入力の候補も） |
+| `src/core/registration.js` | 選んだ候補と入力欄の内容から、登録する予定の一覧を作る（終了は「開始から何分後」か「終日」、手入力の候補も） |
 | `src/core/autoReset.js` | 登録のあと、60秒操作がなければ表示を初期状態に戻す「自動のクリア」を予約する（操作したら取り消す） |
 | `src/core/ocrText.js` | OCR の結果の文章を整える（日本語の文字の間の余分な空白を除く） |
 | `src/core/settings.js` | 設定（予定の既定の長さ・ホットキー）の既定値・選択肢・検証と、ホットキーの表記 |
@@ -57,7 +57,7 @@
 | `src/renderer/components/TextInputPanel.jsx` | 文章の入力欄と「日時を抽出」「クリア」ボタン |
 | `src/renderer/components/HighlightedText.jsx` | 抽出に使った文章を、日時部分を色付けして表示する |
 | `src/renderer/components/CandidateList.jsx` | 日時の候補をチェックボックス付きで一覧表示する |
-| `src/renderer/components/TimeChoiceFields.jsx` | 日付だけの候補で「終日／時刻を指定」を選ぶ欄 |
+| `src/renderer/components/TimeChoiceFields.jsx` | 候補ごとに終了（開始から30分〜23時間30分後・終日）を選ぶ欄。日付だけの候補で長さを選ぶと開始時刻の欄も出す |
 | `src/renderer/components/ManualDateForm.jsx` | 日時を手入力して候補に追加する欄 |
 | `src/renderer/components/EventDetailsForm.jsx` | 件名・場所・オンライン会議 URL・メモの入力欄 |
 | `src/renderer/components/RegisterSection.jsx` | 「Googleカレンダーで開く」ボタンと、開いたあとの案内（右の欄の下端に固定） |
@@ -103,11 +103,9 @@
 |---|---|---|
 | `id` | 文字列 | 候補の ID（`candidate-0` から順番） |
 | `ranges` | `{start, end}` の配列 | 元の文章の中で、この日時が書かれていた位置（色付けに使う。同じ日時が複数回あれば複数） |
-| `sourceText` | 文字列 | 元の表記（例：`10月15日(木)14時〜15時`） |
-| `hasTime` | 真偽 | 時刻の記載があるか。false なら日付だけ（登録時に終日か時刻指定かを尋ねる） |
+| `sourceText` | 文字列 | 元の表記（例：`10月15日(木)14時〜15時`。範囲は1つの書き方として読むが、終了の時刻は使わない） |
+| `hasTime` | 真偽 | 時刻の記載があるか。false なら日付だけ（終了の選択の初めの値が「終日」になる） |
 | `start` | `{year, month, day, hour, minute}` | 開始日時。`hasTime` が false なら `hour`・`minute` は null |
-| `end` | 同上 または null | 終了日時。`hasTime` が false なら null |
-| `endInferred` | 真偽 | 終了時刻を既定の長さ（60分）で補ったか |
 | `warnings` | 文字列の配列 | 警告コード（`past`：過去の日時、`ambiguousOrder`：月と日の順番、`weekdayMismatch`：曜日が日付と合わない） |
 
 ## データの形：予定（登録のとき画面からメインプロセスへ渡すもの）
@@ -156,7 +154,7 @@
 | `getTokyoDateTime(instant)` | 関数（公開） | ある瞬間の東京の年月日時分を返す | PC の設定に関係なく「今日」を決める |
 | `isValidDate(year, month, day)` | 関数（公開） | 実在する日付か調べる | 2/30・4/31 などを候補から除く |
 | `addDays(date, days)` | 関数（公開） | 年月日に日数を足す | 「明日」「来週」の計算 |
-| `addMinutes(dateTime, minutes)` | 関数（公開） | 年月日時分に分を足す | 終了時刻の計算（日付をまたぐ場合も） |
+| `addMinutes(dateTime, minutes)` | 関数（公開） | 年月日時分に分を足す | 選んだ長さから終了日時を求める（日付をまたぐ場合も） |
 | `getMondayBasedWeekday(date)` | 関数（公開） | 曜日番号（月曜=0〜日曜=6）を返す | 月曜始まりの週の計算、曜日の表示 |
 | `compareDates(a, b)` | 関数（公開） | 年月日の前後を比べる | 年の決定、過去の日付の判定 |
 | `compareDateTimes(a, b)` | 関数（公開） | 年月日時分の前後を比べる | 過去の日時の判定 |
@@ -167,8 +165,6 @@
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
-| `DEFAULT_DURATION_MINUTES` | 定数（公開） | 60 | 要件§5.4：終了時刻がない予定の長さ |
-| `MAX_DURATION_MINUTES` | 定数（公開） | 1440 | 設定できる予定の長さの上限 |
 | `MAX_INPUT_LENGTH` | 定数（公開） | 20000 | 長すぎる入力で処理が重くならないようにする |
 | `MAX_CANDIDATES` | 定数（公開） | 30 | 候補で画面やブラウザのタブがあふれないようにする |
 | `WARNING_PAST` | 定数（公開） | `'past'` | 「過去の日時」の警告コード |
@@ -181,7 +177,6 @@
 | `MONTHS_PER_YEAR` | 定数（内部） | 12 | 月と日の順番の判定 |
 | `ENGLISH_MONTH_NUMBERS` / `ENGLISH_MONTH_PATTERN` | 定数（内部） | 英語の月名と数字の対応／月名の正規表現の部品 | 英語の日付を読む |
 | `MAX_YEAR_LOOKAHEAD` | 定数（内部） | 4 | 年なしの 2/29 で次のうるう年まで探す |
-| `HALF_DAY_MINUTES` | 定数（内部） | 720 | 「11時〜1時」を 13時と解釈する補正 |
 | `MERIDIEM_AM` / `MERIDIEM_PM` | 定数（内部） | `'午前'` / `'午後'` | 午前・午後の判定 |
 | `HALF_HOUR_MINUTES` | 定数（内部） | 30 | 「14時半」の「半」 |
 | `DATE_PATTERN` | 定数（内部） | 日付の書き方の正規表現（10/15、10月15日、2026年10月15日、十月十五日、2026/10/15、26.10.15、10/15/2026、October 15, 2026、15 Oct、明日、tomorrow、来週火曜） | 文章から日付を探す。「再来週」「説明日程」は除外 |
@@ -199,7 +194,7 @@
 | `ADJACENT_TIME_GAP_PATTERN` | 定数（内部） | 区切りなしで続く2つ目の時刻の前の空白（0〜1個） | OCR で「〜」が抜けた「14時15時」を範囲として読む |
 | `InputTooLongError` | クラス（公開） | 長すぎる文章のエラー（利用者向けの文付き） | 画面でそのまま表示できるエラーにする |
 | `extractDateCandidates(text, options)` | 関数（公開） | 文章から日時の候補を抽出し `{candidates, truncated}` を返す | このアプリの中心機能（要件§5.2〜§5.7、§12） |
-| `validateArguments(text, now, minutes)` | 関数（内部） | 引数を検証し、問題があれば例外を投げる | 不正な入力で誤動作しないようにする |
+| `validateArguments(text, now)` | 関数（内部） | 引数を検証し、問題があれば例外を投げる | 不正な入力で誤動作しないようにする |
 | `matchAt(pattern, text, index)` | 関数（内部） | 正規表現を指定した位置から一致させる | 日付の直後の曜日・時刻を読む |
 | `readWrittenWeekday(text, dateMatch, date)` | 関数（内部） | 日付の直後の曜日を読み、日付の本当の曜日と合わなければ位置と正しい書き方を返す | 警告と下書きの書き換えで共通に使う |
 | `toEnglishWeekdayLike(writtenText, weekday)` | 関数（内部） | 書かれた英語の曜日と同じ書き方（略称・大文字小文字）で正しい曜日を作る | 下書きの英語の曜日を直す |
@@ -217,9 +212,8 @@
 | `meridiemFromTimeWord(word, rawHour)` | 関数（内部） | 時間帯の言葉から午前/午後を推定する | 朝→午前、夕方・夜→午後、昼1〜6時→午後。「朝17時」など食い違う書き方は書かれた時刻を優先 |
 | `parseTime(groups, inheritedMeridiem, timeWord)` | 関数（内部） | 時刻を24時間制の時・分にする | 午前/午後・半・分の解釈 |
 | `applyMeridiem(hour, meridiem)` | 関数（内部） | 午前/午後を反映した「時」を返す | 午前12時→0時、午後3時→15時 |
-| `buildCandidate(date, timeRange, current, minutes, dateWarnings)` | 関数（内部） | 候補の本体（開始・終了・警告）を作る | 候補の形をそろえる |
-| `resolveEnd(start, timeRange, minutes)` | 関数（内部） | 終了日時を決める（省略時は既定の長さ、日またぎも対応） | 要件§5.4 |
-| `getCandidateKey(candidate)` | 関数（内部） | 同じ日時を見分けるキーを作る | 重複する候補を1件にまとめる |
+| `buildCandidate(date, timeRange, current, dateWarnings)` | 関数（内部） | 候補の本体（開始・警告）を作る。範囲の終了の時刻は使わない | 候補の形をそろえる（終了は画面で選ぶ。2026-10-12 仕様変更） |
+| `getCandidateKey(candidate)` | 関数（内部） | 同じ日時（時刻の有無と開始）を見分けるキーを作る | 重複する候補を1件にまとめる（終了が違っても開始が同じなら1件） |
 
 ## src/core/mailHeader.js（メールの送信日・受信日の行）
 
@@ -247,7 +241,8 @@
 | `padTwoDigits(value)` | 関数（内部） | 数字を2桁にそろえる | 「09:05」の表示 |
 | `formatDateLabel(date)` | 関数（公開） | 「2026年10月15日(木)」の形にする | 候補の表示 |
 | `formatTimeLabel(time)` | 関数（公開） | 「14:00」の形にする | 候補の表示 |
-| `formatCandidateLabel(candidate)` | 関数（公開） | 候補を1行の文字列にする（日またぎは終了側にも日付） | 候補の一覧の表示 |
+| `formatCandidateLabel(candidate)` | 関数（公開） | 候補を1行の文字列にする（開始だけ。終了は画面で選ぶ） | 候補の一覧の表示 |
+| `formatEndChoiceLabel(durationMinutes, start)` | 関数（公開） | 終了の一覧の1項目を「1時間30分後（15:30）」の形にする（日をまたぐと「翌日」、開始が分からなければ長さだけ） | 終了を選ぶとき、終わる時刻が分かるようにする |
 | `describeWarning(warningCode)` | 関数（公開） | 警告コードを表示文にする | 警告バッジの表示 |
 
 ## src/core/highlight.js（色付け）
@@ -344,8 +339,10 @@
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
-| `TIME_MODE_ALL_DAY` / `TIME_MODE_SPECIFIED` | 定数（公開） | 'allDay' ／ 'specified' | 日付だけの候補の時刻の扱い |
-| `DEFAULT_TIME_CHOICE` | 定数（公開） | 終日、時刻は空 | 要件§5.10：既定は終日 |
+| `END_CHOICE_ALL_DAY` | 定数（公開） | 'allDay' | 終了の選択の「終日」 |
+| `END_DURATION_STEP_MINUTES` / `MAX_END_DURATION_MINUTES` | 定数（公開） | 30 ／ 1410（23時間30分） | 終了を選ぶ刻みと最長の長さ（2026-10-12 依頼者の仕様変更） |
+| `END_DURATION_CHOICES` | 定数（公開） | 30, 60, … 1410（分）の47通り | 終了の一覧の項目 |
+| `createDefaultTimeChoice(candidate, minutes)` | 関数（公開） | 終了の選択の初めの値（時刻のある候補は設定の長さ、日付だけは終日）を作る | 要件§5.4・§5.10 |
 | `SOURCE_TEXT_EXCERPT_LENGTH` | 定数（公開） | 500 | メモに入れる元の文章の抜粋の長さ |
 | `MEETING_URL_HEADING` / `SOURCE_TEXT_HEADING` / `OMISSION_MARK` | 定数（内部） | メモの見出しと省略の印 | メモの書式 |
 | `TIME_INPUT_PATTERN` / `DATE_INPUT_PATTERN` | 定数（内部） | HH:MM ／ YYYY-MM-DD | 入力欄の値の形式 |
@@ -354,7 +351,7 @@
 | `createManualCandidate(date, sequence, now)` | 関数（公開） | 手入力した日付から候補を作る（過去なら警告） | 要件§5.8 |
 | `composeEventTexts(details, sourceText)` | 関数（公開） | 件名・場所・メモの文字列を作る（会議 URL の振り分け、元の文章の抜粋） | 要件§12・§6.2 |
 | `buildCalendarEvents(input)` | 関数（公開） | 選んだ候補から予定の一覧とエラーを作る | 登録ボタンの処理 |
-| `resolveSpecifiedTime(date, choice, minutes)` | 関数（内部） | 日付だけの候補に指定の時刻を当てはめる | 時刻指定（終了が空なら既定の長さ） |
+| `resolveTimedEvent(candidate, choice)` | 関数（内部） | 選んだ長さから開始・終了を決める（日付だけの候補は入力した開始時刻が必須。一覧にない長さはエラー） | 終了の選択を予定にする |
 | `excerpt(text, maxLength)` | 関数（内部） | 最大文字数までにし、省略の印を付ける | メモが長くなりすぎないようにする |
 
 ## src/core/ocrText.js（OCR の結果の整形）
@@ -371,7 +368,8 @@
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
-| `DURATION_CHOICES` | 定数（公開） | 15・30・45・60・90・120（分） | 予定の既定の長さの選択肢 |
+| `DEFAULT_DURATION_MINUTES` | 定数（公開） | 60 | 要件§5.4：予定の既定の長さ（終了の初めの選択） |
+| `DURATION_CHOICES` | 定数（公開） | 30・60・90・120（分） | 予定の既定の長さの選択肢（終了の30分刻みに合わせる。2026-10-12 に 15・45分を除いた） |
 | `HOTKEY_MODIFIER_CHOICES` | 定数（公開） | Ctrl（Mac は Cmd）+Shift ／ +Alt ／ +Alt+Shift | Ctrl・Cmd を必ず含め、普段の文字入力を横取りしない |
 | `CLIPBOARD_HOTKEY_KEY` | 定数（公開） | 'U' | コピーした文章を読み取るホットキーのキー（修飾キーは範囲キャプチャと同じ） |
 | `HOTKEY_KEY_CHOICES` | 定数（公開） | A〜Z・0〜9 から U を除いた35個 | 範囲キャプチャのホットキーの文字（U は同じ組み合わせになるため除く） |
@@ -407,7 +405,7 @@
 | `manualCandidates` | 状態 | 手入力で追加した候補 | 要件§5.8 |
 | `manualSequenceRef` | 参照 | 手入力の候補の通し番号 | ID が重ならないようにする |
 | `selectedIds` | 状態 | チェックを付けた候補の ID の集合 | 要件§5.3：登録する候補を選ぶ |
-| `timeChoices` | 状態 | 日付だけの候補の時刻の扱い（候補の ID → 選択） | 要件§5.10 |
+| `timeChoices` | 状態 | 候補ごとの終了の選択（候補の ID → `{end, startTime}`。選んでいない候補は初めの値） | 終了を選ぶ（要件§5.4・§5.10） |
 | `eventDetails` | 状態 | 件名・場所・会議 URL・メモ・元の文章を入れるか | 予定の内容 |
 | `errorMessage` | 状態 | 画面上部に表示するエラーの文 | 要件§5.9：エラーの内容を表示 |
 | `errorAction` | 状態 | エラーの帯に出す追加の操作（対象のエラーの文が表示されている間だけ有効） | 「システム設定を開く」ボタン |
@@ -436,8 +434,8 @@
 | `resetToInitialState()` | 関数 | 入力・結果・エラー・取り込んだ画像・登録の案内を消し、自動のクリアの予約もやめて最初の状態に戻す | 「クリア」ボタンと、登録して60秒操作がなかったとき |
 | （自動のクリアの予約） | 処理 | 予約番号が 0 でない間、scheduleAutoReset で60秒後のクリアと操作の監視を動かす | 次の登録に備える（依頼者の指示） |
 | `handleToggleCandidate(candidateId)` | 関数 | 候補のチェックを切り替える | 候補の選択 |
-| `handleTimeChoiceChange(candidateId, changes)` | 関数 | 終日／時刻指定・時刻を変える | 要件§5.10 |
-| `handleAddManualDate(date, startTime, endTime)` | 関数 | 手入力した日付（と時刻）を候補に加えてチェックを付ける。時刻があれば「時刻を指定」 | 要件§5.8 |
+| `handleTimeChoiceChange(candidate, changes)` | 関数 | 終了の選択（長さ／終日）と、日付だけの候補の開始時刻を変える | 終了を選ぶ |
+| `handleAddManualDate(date, startTime, end)` | 関数 | 手入力した日付（と開始時刻・終了の選択）を候補に加えてチェックを付ける。開始時刻がなければ終日 | 要件§5.8 |
 | `handleAddFromDialog(entry)` | 関数 | ポップアップで入れた日時を候補に加える | 手入力（依頼者の指摘で、ポップアップの中で完結する形に改善） |
 | `handleDetailChange(field, value)` | 関数 | 予定の内容の入力欄を変える | 追記（要件§5.5） |
 | `handleRegister()` | 関数 | 内容を確かめ、メインプロセスに予定作成画面を開いてもらう。開けたら件数を案内し、自動のクリアを予約する | 登録ボタン（要件§5.6） |
@@ -474,9 +472,10 @@
 | TextInputPanel.jsx | `handleKeyDown(event)` | 関数 | Ctrl+Enter（Mac は Command+Enter）で抽出 | キーボードだけで操作できるようにする |
 | HighlightedText.jsx | `HighlightedText` | コンポーネント | 文章を表示し、日時部分を `<mark>` で色付け | 要件§6.1：日時部分の色付け |
 | HighlightedText.jsx | `segments` | 計算値 | `splitTextByRanges` の結果 | 描画する部分の一覧 |
-| CandidateList.jsx | `CandidateList` | コンポーネント | 候補をチェックボックス付きで一覧表示（警告・補足のバッジ付き。「終了時刻の記載なし（N分）」は候補の実際の長さ）。日付だけの候補は選ぶと時刻の扱いを表示 | 要件§5.3・§5.10 |
-| TimeChoiceFields.jsx | `TimeChoiceFields` | コンポーネント | 「終日／時刻を指定」と開始・終了時刻の入力欄 | 要件§5.10 |
-| TimeChoiceFields.jsx | `groupName` | 計算値 | ラジオボタンのグループ名（候補ごと） | 候補ごとに選択を分ける |
+| CandidateList.jsx | `CandidateList` | コンポーネント | 候補をチェックボックス付きで一覧表示（警告・補足のバッジ付き）。チェックを付けた候補には終了の選択の欄を出す | 要件§5.3・§5.10 |
+| TimeChoiceFields.jsx | `TimeChoiceFields` | コンポーネント | 終了の一覧（開始から30分〜23時間30分後・終日）。日付だけの候補で長さを選ぶと開始時刻の欄も出す | 終了を選ぶ（2026-10-12 仕様変更） |
+| TimeChoiceFields.jsx | `ALL_DAY_LABEL` / `toEndChoice(value)` | 定数・関数（内部） | 「終日」の文字／一覧の値を終了の選択の値に戻す | 一覧の値は文字列のため |
+| TimeChoiceFields.jsx | `isAllDay` / `needsStartTime` / `start` | 計算値 | 終日か／開始時刻の欄が要るか／項目名に終わる時刻を添えるための開始日時 | 表示の切り替え |
 | ManualDateForm.jsx | `ManualDateForm` | コンポーネント | 日付欄と「追加」ボタン、次にすることの説明 | 要件§5.8：手入力 |
 | ManualDateForm.jsx | `dateValue` / `date` / `handleAdd()` | 状態・計算値・関数 | 日付欄の値／読み取った日付／候補に追加 | 手入力の候補の追加 |
 | EventDetailsForm.jsx | `EventDetailsForm` | コンポーネント | 件名・場所・会議 URL・メモ・「元の文章をメモに入れる」 | 要件§5.5・§6.2・§12 |
@@ -485,9 +484,9 @@
 | EventDetailsForm.jsx | `remainingTitleLength` | 計算値 | 件名に入力できる残りの文字数 | 「50文字まで（残り N 文字）」の表示（依頼者の指示） |
 | RegisterSection.jsx | `RegisterSection` | コンポーネント | 登録ボタンと、開いたあとの案内（開いた件数、「60秒操作しないとクリア」）。右の欄の下端に固定し、スクロールしなくても押せる | 要件§5.6・使いやすさ（依頼者の指摘） |
 | NoDateDialog.jsx | `SUPPORTED_FORMAT_EXAMPLES` | 定数 | 対応している書き方の例 | 利用者が書き方を確かめられるようにする |
-| NoDateDialog.jsx | `NoDateDialog` | コンポーネント | 「日時の情報がありません」のポップアップ。日付（必須）・開始／終了時刻（任意）を入れて「追加する」 | 要件§5.8 |
-| NoDateDialog.jsx | `dateValue` / `startTimeValue` / `endTimeValue` | 状態 | ポップアップの入力欄の値 | 手入力 |
-| NoDateDialog.jsx | `isEndBeforeStart` / `canAdd` / `handleAdd()` | 計算値・関数 | 終了が開始以前か／追加できるか／候補に加えて閉じる | 入力の誤りをその場で知らせる |
+| NoDateDialog.jsx | `NoDateDialog` | コンポーネント | 「日時の情報がありません」のポップアップ。日付（必須）・開始時刻（任意）・終了（開始から何分後か）を入れて「追加する」 | 要件§5.8 |
+| NoDateDialog.jsx | `dateValue` / `startTimeValue` / `endChoice` | 状態 | ポップアップの入力欄の値（終了の初めの選択は設定の長さ） | 手入力 |
+| NoDateDialog.jsx | `start` / `canAdd` / `handleAdd()` | 計算値・関数 | 終了の項目名に添える開始日時／追加できるか（日付が必要）／候補に加えて閉じる | 手入力 |
 | CaptureImagePanel.jsx | `ORIENTATION_LABELS` | 定数 | 向きの表示名（横書き・縦書き） | 読み取った向きの表示 |
 | CaptureImagePanel.jsx | `CaptureImagePanel` | コンポーネント | 取り込んだ画像、読み取り中、向きと確信度、精度が低い・読めないときの案内、読み直しのボタン | 要件§6.1・§12 |
 | NoDateDialog.jsx | `dialogRef` | 参照 | `<dialog>` 要素 | 開閉（`showModal` / `close`）を呼ぶ |

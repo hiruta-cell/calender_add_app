@@ -49,7 +49,7 @@ export default function ManualDateForm({ onAdd, disabled }) {
       <p className="field-note">
         {disabled
           ? '候補が上限に達したため、これ以上追加できません。'
-          : '日付を選んで「追加」を押すと、候補に加わります（時刻はそのあと「時刻を指定」で入れられます）。'}
+          : '日付を選んで「追加」を押すと、候補に加わります（時刻は、そのあと「終了」で長さを選ぶと入れられます）。'}
       </p>
     </div>
   );

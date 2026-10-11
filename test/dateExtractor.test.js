@@ -7,7 +7,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  DEFAULT_DURATION_MINUTES,
   InputTooLongError,
   MAX_CANDIDATES,
   MAX_INPUT_LENGTH,
@@ -48,28 +47,22 @@ function dateTime(year, month, day, hour, minute) {
 }
 
 describe('要件§5.7 の5種類の書き方', () => {
-  test('10/15 14:00 → 10/15 14:00〜15:00（終了は既定の1時間）', () => {
+  test('10/15 14:00 → 10/15 14:00', () => {
     const candidate = extractSingle('10/15 14:00');
     assert.equal(candidate.hasTime, true);
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0));
-    assert.equal(candidate.endInferred, true);
     assert.deepEqual(candidate.warnings, []);
   });
 
-  test('10月15日(木)14時〜15時 → 10/15 14:00〜15:00', () => {
+  test('10月15日(木)14時〜15時 → 開始は 10/15 14:00（終了の時刻は使わない）', () => {
     const candidate = extractSingle('10月15日(木)14時〜15時');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0));
-    assert.equal(candidate.endInferred, false);
   });
 
   test('2026年10月15日 → 時刻なし（日付だけ）', () => {
     const candidate = extractSingle('2026年10月15日');
     assert.equal(candidate.hasTime, false);
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, null, null));
-    assert.equal(candidate.end, null);
-    assert.equal(candidate.endInferred, false);
   });
 
   test('明日 → 10/12（時刻なし）', () => {
@@ -93,7 +86,6 @@ describe('要件§12 の時刻・範囲の書き方', () => {
   test('全角の括弧と範囲：１０月１５日（木）１４時～１５時', () => {
     const candidate = extractSingle('１０月１５日（木）１４時～１５時');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0));
   });
 
   test('午後：10月15日 午後3時 → 15:00', () => {
@@ -116,56 +108,23 @@ describe('要件§12 の時刻・範囲の書き方', () => {
   test('コロンの範囲：10/15 15:00-16:00', () => {
     const candidate = extractSingle('10/15 15:00-16:00');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 15, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 16, 0));
-    assert.equal(candidate.endInferred, false);
   });
 
   test('「から」の範囲：明日の14時から15時まで', () => {
     const candidate = extractSingle('明日の14時から15時まで');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 12, 14, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 12, 15, 0));
   });
 
   test('終了側の午後の省略：午後2時〜4時 → 14:00〜16:00', () => {
     const candidate = extractSingle('10/15 午後2時〜4時');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 16, 0));
   });
 
-  test('午前から午後：午前11時〜午後1時 → 11:00〜13:00', () => {
-    const candidate = extractSingle('10/15 午前11時〜午後1時');
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 13, 0));
-  });
 
-  test('12時間表記の範囲：11時〜1時 → 11:00〜13:00', () => {
-    const candidate = extractSingle('10/15 11時〜1時');
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 13, 0));
-  });
 
-  test('日付をまたぐ範囲：22時〜1時 → 翌日1:00', () => {
-    const candidate = extractSingle('10/15 22時〜1時');
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 16, 1, 0));
-  });
 
-  test('終了が既定の長さで日付をまたぐ：23:30 → 翌日0:30', () => {
-    const candidate = extractSingle('10/15 23:30');
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 16, 0, 30));
-    assert.equal(candidate.endInferred, true);
-  });
 
-  test('区切りが抜けた時刻の並び（OCR）：14時15時、14:00 15:00 は範囲。後ろが早ければ範囲にしない', () => {
-    assert.deepEqual(extractSingle('10/15 14時16時').end, dateTime(2026, 10, 15, 16, 0));
-    assert.deepEqual(extractSingle('10/15 14:00 16:00').end, dateTime(2026, 10, 15, 16, 0));
-    const reversed = extractSingle('10/15 16時14時');
-    assert.deepEqual(reversed.end, dateTime(2026, 10, 15, 17, 0));
-    assert.equal(reversed.endInferred, true);
-  });
 
-  test('開始と終了が同じなら既定の長さにする', () => {
-    const candidate = extractSingle('10/15 14時〜14時');
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0));
-    assert.equal(candidate.endInferred, true);
-  });
 
   test('曜日の書き方の違い：(木曜日) (月・祝) 木曜日', () => {
     assert.deepEqual(extractSingle('10月15日(木曜日) 14時').start, dateTime(2026, 10, 15, 14, 0));
@@ -201,29 +160,66 @@ describe('12時間表記（英語の AM/PM）と24時間表記の混在', () => 
   test('範囲：9am-11am、24時間表記から PM へ（14:00-4pm）', () => {
     const englishRange = extractSingle('10/15 9am-11am');
     assert.deepEqual(englishRange.start, dateTime(2026, 10, 15, 9, 0));
-    assert.deepEqual(englishRange.end, dateTime(2026, 10, 15, 11, 0));
-    assert.deepEqual(extractSingle('10/15 14:00-4pm').end, dateTime(2026, 10, 15, 16, 0));
   });
 
-  test('日本語の午後と24時間表記の混在：10:00〜午後3時', () => {
-    assert.deepEqual(extractSingle('10/15 10:00〜午後3時').end, dateTime(2026, 10, 15, 15, 0));
-  });
 
   test('「AMAZON」のような単語は時刻と誤認しない', () => {
     assert.equal(extractSingle('10/15 AMAZONで購入').hasTime, false);
   });
 });
 
+describe('時刻の範囲は1つの書き方として読み、終了は候補に含めない（2026-10-12 の仕様変更）', () => {
+  test('候補には終了（end・endInferred）がない', () => {
+    for (const text of ['10/15 14:00', '10/15 14時〜15時', '10/15']) {
+      const candidate = extractSingle(text);
+      assert.equal(Object.hasOwn(candidate, 'end'), false, text);
+      assert.equal(Object.hasOwn(candidate, 'endInferred'), false, text);
+    }
+  });
+
+  test('範囲の後ろの時刻まで読み取る（元の表記が範囲の全体になる）', () => {
+    const rangeTexts = [
+      '10月15日(木)14時〜15時',
+      '10/15 15:00-16:00',
+      '10/15 午後2時〜4時',
+      '10/15 午前11時〜午後1時',
+      '10/15 11時〜1時',
+      '10/15 22時〜1時',
+      '10/15 14時〜14時',
+      '10/15 9am-11am',
+      '10/15 14:00-4pm',
+      '10/15 10:00〜午後3時',
+      '10/15 14時16時',
+      '10/15 14:00 16:00',
+      '10/15 14:00 to 15:30',
+      'Oct 15 11am-1pm',
+    ];
+    for (const text of rangeTexts) {
+      assert.equal(extractSingle(text).sourceText, text, text);
+    }
+  });
+
+  test('区切りがなく後ろの時刻が早いときは範囲にしない（16時14時 → 16時だけ）', () => {
+    const candidate = extractSingle('10/15 16時14時');
+    assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 16, 0));
+    assert.equal(candidate.sourceText, '10/15 16時');
+  });
+
+  test('終了の時刻が違っても、開始が同じなら1件にまとめる', () => {
+    const { candidates } = extract('10/15 14時〜15時\n10/15 14時〜16時');
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0].ranges.length, 2);
+  });
+});
+
 describe('時間帯の言葉（正午・朝・昼・夕方・夜）', () => {
-  test('言葉だけなら既定の開始時刻（終了は1時間後）', () => {
+  test('言葉だけなら既定の開始時刻', () => {
     assert.deepEqual(extractSingle('10/15 正午').start, dateTime(2026, 10, 15, 12, 0));
     assert.deepEqual(extractSingle('明日の朝').start, dateTime(2026, 10, 12, 9, 0));
     assert.deepEqual(extractSingle('明日の昼').start, dateTime(2026, 10, 12, 11, 0));
     assert.deepEqual(extractSingle('明日の夕方').start, dateTime(2026, 10, 12, 15, 0));
     const night = extractSingle('明日の夜');
     assert.deepEqual(night.start, dateTime(2026, 10, 12, 18, 0));
-    assert.deepEqual(night.end, dateTime(2026, 10, 12, 19, 0));
-    assert.equal(night.endInferred, true);
   });
 
   test('言葉の後に時刻があれば手がかりにする：夜7時→19時、夕方5時→17時、朝10時→10時、昼1時→13時', () => {
@@ -251,13 +247,11 @@ describe('時間帯の言葉（正午・朝・昼・夕方・夜）', () => {
   test('範囲での午後の引き継ぎ：夕方5時〜7時 → 17:00〜19:00', () => {
     const candidate = extractSingle('10/15 夕方5時〜7時');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 17, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 19, 0));
   });
 
   test('言葉から時刻までの範囲：昼〜15時', () => {
     const candidate = extractSingle('10/15 昼〜15時');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 11, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0));
   });
 });
 
@@ -265,7 +259,6 @@ describe('漢字の数字', () => {
   test('十月十五日（木）十五時〜十六時', () => {
     const candidate = extractSingle('十月十五日（木）十五時〜十六時');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 15, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 16, 0));
   });
 
   test('年も漢字：二〇二六年十月十五日、二千二十六年十月三十一日', () => {
@@ -283,7 +276,6 @@ describe('漢字の数字', () => {
   test('漢字と数字の混在：10月十五日 14時〜十六時', () => {
     const candidate = extractSingle('10月十五日 14時〜十六時');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 16, 0));
   });
 
   test('「十一月」を「一月」と誤認しない', () => {
@@ -314,7 +306,6 @@ describe('年→月→日の数字の日付（日本式）', () => {
     assert.deepEqual(extractSingle('2026.10.15 14:00').start, dateTime(2026, 10, 15, 14, 0));
     const candidate = extractSingle('2026/10/15(木) 14:00-15:00');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0));
   });
 
   test('区切りの記号が混ざったもの・実在しない日付は候補にしない：2026/10-15、26.13.01、2026-02-30', () => {
@@ -414,10 +405,8 @@ describe('日付と時刻が別の行に書かれたメール', () => {
   test('次の行が「時間：」「Time:」で始まれば、その時刻を結び付ける', () => {
     const japanese = extractSingle('日付：10月22日(木)\n時間：14時〜15時30分');
     assert.deepEqual(japanese.start, dateTime(2026, 10, 22, 14, 0));
-    assert.deepEqual(japanese.end, dateTime(2026, 10, 22, 15, 30));
     const english = extractSingle('Date: Thursday, October 29, 2026\nTime: 2:00–3:00 PM');
     assert.deepEqual(english.start, dateTime(2026, 10, 29, 14, 0));
-    assert.deepEqual(english.end, dateTime(2026, 10, 29, 15, 0));
   });
 
   test('見出しのない行の時刻・日付の後ろに言葉がある場合は結び付けない', () => {
@@ -431,24 +420,19 @@ describe('英語の時刻の範囲', () => {
     for (const text of ['Oct 15, 2:00–3:00 PM', 'Oct 15 2-3pm']) {
       const candidate = extractSingle(text);
       assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0), text);
-      assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0), text);
     }
   });
 
   test('午前から午後：11am-1pm → 11:00〜13:00（前の時刻は午前のまま）', () => {
     const candidate = extractSingle('Oct 15 11am-1pm');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 11, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 13, 0));
   });
 
   test('from 〜 to、午前だけ：from 2pm to 3pm、9-11am、14:00 to 15:30', () => {
     const fromTo = extractSingle('Oct 15 from 2pm to 3pm');
     assert.deepEqual(fromTo.start, dateTime(2026, 10, 15, 14, 0));
-    assert.deepEqual(fromTo.end, dateTime(2026, 10, 15, 15, 0));
     const morning = extractSingle('Oct 15 9-11am');
     assert.deepEqual(morning.start, dateTime(2026, 10, 15, 9, 0));
-    assert.deepEqual(morning.end, dateTime(2026, 10, 15, 11, 0));
-    assert.deepEqual(extractSingle('10/15 14:00 to 15:30').end, dateTime(2026, 10, 15, 15, 30));
   });
 });
 
@@ -517,7 +501,6 @@ describe('「明日」「来週」の境界', () => {
   test('来週の火曜日 15:00〜16:00', () => {
     const candidate = extractSingle('来週の火曜日 15:00〜16:00');
     assert.deepEqual(candidate.start, dateTime(2026, 10, 13, 15, 0));
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 13, 16, 0));
   });
 });
 
@@ -617,20 +600,8 @@ describe('引数の検証', () => {
     assert.throws(() => extractDateCandidates('明日', { now: '2026-10-11' }), TypeError);
   });
 
-  test('予定の長さが不正なら RangeError（1〜1440分の整数のみ）', () => {
-    for (const minutes of [0, -1, 1.5, 1441, Number.NaN]) {
-      assert.throws(() => extract('10/15 14:00', { defaultDurationMinutes: minutes }), RangeError);
-    }
-  });
 
-  test('予定の長さを変えると終了時刻も変わる（設定画面での変更を想定）', () => {
-    const candidate = extractSingle('10/15 14:00', { defaultDurationMinutes: 90 });
-    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 30));
-  });
 
-  test(`既定の予定の長さは ${DEFAULT_DURATION_MINUTES} 分`, () => {
-    assert.equal(DEFAULT_DURATION_MINUTES, 60);
-  });
 });
 
 describe('処理時間（悪意のある長い入力でも固まらない：ReDoS 対策）', () => {

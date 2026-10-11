@@ -1,13 +1,12 @@
 /**
  * CandidateList.jsx
  * 目的：日時の候補を、チェックボックス付きの一覧で表示する（要件§5.3）。
- * 日付だけの候補は、チェックを付けると「終日／時刻を指定」を選べる（要件§5.10）。
+ * チェックを付けた候補は、終了を「開始から30分〜23時間30分後」か「終日」から選べる（2026-10-12 依頼者の仕様変更）。
  */
 
 import { describeWarning, formatCandidateLabel } from '../../core/candidateFormatter.js';
 import { MAX_CANDIDATES } from '../../core/dateExtractor.js';
-import { diffMinutes } from '../../core/dateUtils.js';
-import { DEFAULT_TIME_CHOICE } from '../../core/registration.js';
+import { createDefaultTimeChoice } from '../../core/registration.js';
 import TimeChoiceFields from './TimeChoiceFields.jsx';
 
 /**
@@ -19,9 +18,9 @@ import TimeChoiceFields from './TimeChoiceFields.jsx';
  * @param {boolean} props.truncated 候補が多すぎて省いたか
  * @param {Set<string>} props.selectedIds チェックを付けた候補の ID
  * @param {(candidateId: string) => void} props.onToggle チェックを切り替えたときの処理
- * @param {Record<string, object>} props.timeChoices 日付だけの候補の時刻の扱い（候補の ID → 選択）
- * @param {(candidateId: string, changes: object) => void} props.onTimeChoiceChange 時刻の扱いを変えたときの処理
- * @param {number} props.defaultDurationMinutes 終了時刻がないときの予定の長さ（分）
+ * @param {Record<string, object>} props.timeChoices 候補ごとの終了の選択（候補の ID → 選択。なければ初めの値）
+ * @param {(candidate: object, changes: object) => void} props.onTimeChoiceChange 終了の選択を変えたときの処理
+ * @param {number} props.defaultDurationMinutes 設定の予定の長さ（分。時刻のある候補の初めの選択）
  * @returns {JSX.Element}
  */
 export default function CandidateList({
@@ -68,12 +67,6 @@ export default function CandidateList({
                 </span>
                 <span className="badge-row">
                   {!candidate.hasTime && !candidate.isManual && <span className="badge badge-info">時刻の記載なし</span>}
-                  {candidate.endInferred && (
-                    <span className="badge badge-info">
-                      {/* 抽出したときの長さ（候補の開始〜終了）を出す。抽出後に設定の長さを変えても、登録される長さと食い違わない */}
-                      終了時刻の記載なし（{diffMinutes(candidate.start, candidate.end)}分で設定）
-                    </span>
-                  )}
                   {candidate.warnings.map((warningCode) => (
                     <span key={warningCode} className="badge badge-warning">
                       {describeWarning(warningCode)}
@@ -82,12 +75,11 @@ export default function CandidateList({
                 </span>
               </span>
             </label>
-            {!candidate.hasTime && selectedIds.has(candidate.id) && (
+            {selectedIds.has(candidate.id) && (
               <TimeChoiceFields
-                candidateId={candidate.id}
-                choice={timeChoices[candidate.id] ?? DEFAULT_TIME_CHOICE}
-                onChange={(changes) => onTimeChoiceChange(candidate.id, changes)}
-                defaultDurationMinutes={defaultDurationMinutes}
+                candidate={candidate}
+                choice={timeChoices[candidate.id] ?? createDefaultTimeChoice(candidate, defaultDurationMinutes)}
+                onChange={(changes) => onTimeChoiceChange(candidate, changes)}
               />
             )}
           </li>
