@@ -7,12 +7,16 @@
  *
  * 対応する書き方（要件§5.7・§12）：
  *   日付：10/15、10月15日、2026年10月15日、明日、来週火曜（来週の火曜日）
+ *         年→月→日の数字：26.10.15、27/10/15、2026/10/15、2026-10-15、2026.10.15（年が2桁なら 20XX 年）
+ *         英語：October 15, 2026、Oct 15、Oct. 15th、15 Oct 2026、15th of October、10/15/2026、tomorrow
+ *         （年が最後の数字の日付で、月と日の順番が決まらないもの（05/10/2026）は月/日（米国式）として読み、警告を付ける）
  *   曜日：日付の後の (木)、(木曜日)、(月・祝)、木曜日 は読み飛ばす
  *   漢字の数字：十月十五日、十五時三十分、二〇二六年 など（japaneseNumber.js で数値にする）
  *   時刻：14:00、14時、14時30分、14時半、午前/午後、全角数字、3pm・3:00 PM・PM3:00（英語の AM/PM）
  *   時間帯：正午(12時)、朝(9時)、昼(11時)、夕方(15時)、夜(18時)。「夜7時」→19時のように手がかりにもする
  *   範囲：14時〜15時、15:00-16:00、14時から15時、14時15時（OCR で「〜」が抜けた形。後ろが遅いときだけ）
- * 対象外：複数日にまたがる範囲（10/15〜10/17）
+ *         英語：2:00–3:00 PM、2-3pm、11am-1pm、from 2pm to 3pm、at 3pm（後ろの PM は前の時刻にも当てはめる）
+ * 対象外：複数日にまたがる範囲（10/15〜10/17）、英語の next Tuesday（「今週」と「来週」の両方の意味で使われるため）
  *
  * 判定のルール：
  *   - 年の記載がない日付は「今日以降で最も近い日」にする（要件§12）
@@ -52,6 +56,26 @@ export const MAX_CANDIDATES = 30;
 /** 警告コード：過去の日時（画面での表示文は candidateFormatter.js で決める） */
 export const WARNING_PAST = 'past';
 
+/** 警告コード：月と日の順番が決まらない英語の数字の日付（05/10/2026 など）を、月/日（米国式）として読んだ */
+export const WARNING_AMBIGUOUS_ORDER = 'ambiguousOrder';
+
+/** 2桁の年に足す数（26.10.15 → 2026年） */
+const TWO_DIGIT_YEAR_BASE = 2000;
+
+/** 1年の月の数（月と日の順番の判定に使う） */
+const MONTHS_PER_YEAR = 12;
+
+/** 英語の月名（小文字）と月の数字の対応 */
+const ENGLISH_MONTH_NUMBERS = Object.freeze({
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5, jun: 6, june: 6,
+  jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9, oct: 10, october: 10, nov: 11, november: 11,
+  dec: 12, december: 12,
+});
+
+/** 英語の月名の正規表現の部品（長い名前を先に書く。「Sept」を「Sep」より先に） */
+const ENGLISH_MONTH_PATTERN =
+  'January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec';
+
 /** 年の記載がない日付で、実在する日を探す年数（2月29日は最長で4年後になる） */
 const MAX_YEAR_LOOKAHEAD = 4;
 
@@ -66,33 +90,48 @@ const MERIDIEM_PM = '午後';
 const HALF_HOUR_MINUTES = 30;
 
 /**
- * 日付の書き方に一致する正規表現（文章全体から探すため g フラグ、漢字の判定に u フラグ）。
- * 名前付きグループで、どの書き方に一致したかを区別する。
- *   jpYear / jpMonth / jpDay … 2026年10月15日、10月15日、十月十五日、二〇二六年十月十五日（漢字の数字も可）
- *   slashMonth / slashDay    … 10/15（前後に数字や / が続くもの（2026/10/15、1/2/3 など）は除外）
- *   tomorrow                 … 明日（直前が漢字のものは除外。「説明日程」の「明日」を誤認しないため）
- *   nextWeekWeekday          … 来週火曜、来週の火曜日（「再来週」は除外。1週間ずれるのを防ぐため）
+ * 日付の書き方に一致する正規表現（文章全体から探すため g、漢字の判定に u、英語の月名の大文字・小文字に i フラグ）。
+ * 名前付きグループで、どの書き方に一致したかを区別する。左の書き方ほど優先される。
+ *   jpYear / jpMonth / jpDay        … 2026年10月15日、10月15日、十月十五日、二〇二六年十月十五日（漢字の数字も可）
+ *   ymdYear / ymdMonth / ymdDay     … 2026/10/15、2026-10-15、2026.10.15（区切りは同じ記号だけ）
+ *   mdyFirst / mdySecond / mdyYear  … 10/15/2026（米国式）、15/10/2026（英国式）。年が最後の英語圏の書き方
+ *   yymdYear / yymdMonth / yymdDay  … 26.10.15、27/10/15、26-10-15（年が2桁。日本式の年→月→日）
+ *   slashMonth / slashDay           … 10/15（前後に数字や / が続くものは除外）
+ *   enMonthA / enDayA / enYearA     … October 15, 2026、Oct 15、Oct. 15th
+ *   enDayB / enMonthB / enYearB     … 15 Oct 2026、15th of October
+ *   tomorrow / tomorrowEn           … 明日（直前が漢字のものは除外。「説明日程」を誤認しないため）、tomorrow
+ *   nextWeekWeekday                 … 来週火曜、来週の火曜日（「再来週」は除外。1週間ずれるのを防ぐため）
+ * 数字の日付は、前後に数字や区切りの記号が続くもの（電話番号 03-1234-5678、版番号 12.10.15.3 など）を除外する。
  * 量指定子はすべて上限付きにして、入力が長くても処理時間が急増しないようにしている（ReDoS 対策）。
  */
 const DATE_PATTERN = new RegExp(
   [
     String.raw`(?<![\d〇一二三四五六七八九十百千])(?:(?<jpYear>\d{4}|[〇一二三四五六七八九十百千]{2,7})[ \t]?年[ \t]?)?(?<jpMonth>\d{1,2}|[一二三四五六七八九十]{1,3})[ \t]?月[ \t]?(?<jpDay>\d{1,2}|[一二三四五六七八九十]{1,3})[ \t]?日`,
+    String.raw`(?<![\d./\-])(?<ymdYear>\d{4})(?<ymdSeparator>[/.\-])(?<ymdMonth>\d{1,2})\k<ymdSeparator>(?<ymdDay>\d{1,2})(?![./\-]?\d)`,
+    String.raw`(?<![\d./\-])(?<mdyFirst>\d{1,2})/(?<mdySecond>\d{1,2})/(?<mdyYear>\d{4})(?![/\d])`,
+    String.raw`(?<![\d./\-])(?<yymdYear>\d{2})(?<yymdSeparator>[/.\-])(?<yymdMonth>\d{1,2})\k<yymdSeparator>(?<yymdDay>\d{1,2})(?![./\-]?\d)`,
     String.raw`(?<![\d/])(?<slashMonth>\d{1,2})/(?<slashDay>\d{1,2})(?![\d/])`,
+    String.raw`(?<![A-Za-z])(?<enMonthA>${ENGLISH_MONTH_PATTERN})\.?[ \t]{1,2}(?<enDayA>\d{1,2})(?:st|nd|rd|th)?(?![\dA-Za-z])(?:,?[ \t]{1,2}(?<enYearA>\d{4})(?!\d))?`,
+    String.raw`(?<![\dA-Za-z])(?<enDayB>\d{1,2})(?:st|nd|rd|th)?[ \t]{1,2}(?:of[ \t]{1,2})?(?<enMonthB>${ENGLISH_MONTH_PATTERN})\.?(?![A-Za-z])(?:,?[ \t]{1,2}(?<enYearB>\d{4})(?!\d))?`,
     String.raw`(?<!\p{Script=Han})(?<tomorrow>明日)`,
+    String.raw`(?<![A-Za-z])(?<tomorrowEn>tomorrow)(?![A-Za-z])`,
     String.raw`(?<!再)来週[ \t]?(?:の[ \t]?)?(?<nextWeekWeekday>[月火水木金土日])曜日?`,
   ].join('|'),
-  'gu',
+  'giu',
 );
 
 /**
- * 日付の直後にある曜日の表記（読み飛ばすため）。例：(木) (木曜日) (月・祝) 木曜日
- * y（sticky）フラグ：lastIndex で指定した位置からだけ一致を試す。
+ * 日付の直後にある曜日の表記（読み飛ばすため）。例：(木) (木曜日) (月・祝) 木曜日 (Thu) (Thursday)
+ * y（sticky）フラグ：lastIndex で指定した位置からだけ一致を試す。i フラグ：英語の曜日の大文字・小文字。
  */
 const WEEKDAY_PATTERN =
-  /[ \t]{0,3}(?:\([ \t]{0,2}[月火水木金土日](?:曜日?)?(?:[ \t]{0,2}[・･][ \t]{0,2}祝日?)?[ \t]{0,2}\)|[月火水木金土日]曜日?)/y;
+  /[ \t]{0,3}(?:\([ \t]{0,2}(?:[月火水木金土日](?:曜日?)?(?:[ \t]{0,2}[・･][ \t]{0,2}祝日?)?|(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]{0,6}\.?)[ \t]{0,2}\)|[月火水木金土日]曜日?)/iy;
 
-/** 日付と時刻の間のつなぎ（空白、「の」「は」「、」など）。例：「明日の14時」「10/15、14:00」 */
-const CONNECTOR_PATTERN = /[ \t]{0,3}(?:[のは、,][ \t]{0,3})?/y;
+/**
+ * 日付と時刻の間のつなぎ（空白、「の」「は」「、」、英語の at / from / @ など）。
+ * 例：「明日の14時」「10/15、14:00」「Oct 15 at 3pm」「Oct 15, from 2pm」
+ */
+const CONNECTOR_PATTERN = /[ \t]{0,3}(?:[のは、,][ \t]{0,3})?(?:(?:at|from)[ \t]{1,3}|@[ \t]{0,3})?/iy;
 
 /**
  * 時刻の書き方。i フラグ：英語の AM/PM を大文字・小文字どちらでも受け付ける。
@@ -102,10 +141,11 @@ const CONNECTOR_PATTERN = /[ \t]{0,3}(?:[のは、,][ \t]{0,3})?/y;
  *                               「2時間」「一時的」「一時停止」などの「時」は時刻ではないので除外
  *   half                      … 14時半
  *   bareHour                  … 3pm の「3」（後ろに AM/PM があるときだけ）
+ *   rangeStartHour            … 2-3pm の「2」（後ろに「区切り＋AM/PM 付きの時刻」が続くときだけ）
  *   suffixMeridiem            … 後ろに付く AM / PM（3pm、3:00 PM）
  */
 const TIME_PATTERN =
-  /(?:(?<meridiem>午前|午後|A\.M\.|P\.M\.|AM|PM)[ \t]{0,2})?(?:(?<colonHour>\d{1,2}):(?<colonMinute>\d{2})(?!\d)|(?<kanjiHour>\d{1,2}|[〇一二三四五六七八九十]{1,3})時(?!間|的|点|期|代|限|刻|停|保)(?:[ \t]{0,2}(?<kanjiMinute>\d{1,2}|[〇一二三四五六七八九十]{1,3})分|(?<half>半))?|(?<bareHour>\d{1,2})(?=[ \t]{0,2}(?:A\.M\.|P\.M\.|AM|PM)(?![A-Z])))(?:[ \t]{0,2}(?<suffixMeridiem>A\.M\.|P\.M\.|AM|PM)(?![A-Z]))?/iy;
+  /(?:(?<meridiem>午前|午後|A\.M\.|P\.M\.|AM|PM)[ \t]{0,2})?(?:(?<colonHour>\d{1,2}):(?<colonMinute>\d{2})(?!\d)|(?<kanjiHour>\d{1,2}|[〇一二三四五六七八九十]{1,3})時(?!間|的|点|期|代|限|刻|停|保)(?:[ \t]{0,2}(?<kanjiMinute>\d{1,2}|[〇一二三四五六七八九十]{1,3})分|(?<half>半))?|(?<bareHour>\d{1,2})(?=[ \t]{0,2}(?:A\.M\.|P\.M\.|AM|PM)(?![A-Z]))|(?<rangeStartHour>\d{1,2})(?=[ \t]{0,3}(?:[~〜\-―–—‐−]|to)[ \t]{0,3}\d{1,2}(?::\d{2})?[ \t]{0,2}(?:A\.M\.|P\.M\.|AM|PM)(?![A-Z])))(?:[ \t]{0,2}(?<suffixMeridiem>A\.M\.|P\.M\.|AM|PM)(?![A-Z]))?/iy;
 
 /**
  * 時間帯を表す言葉（要件§12）。時刻が続かなければ、この言葉の既定の時刻を開始にする。
@@ -135,8 +175,8 @@ const AMBIGUOUS_HOUR_MAX = 11;
 /** 「昼1時」を13時とみなす上限の時（昼の後の 1〜6時は午後として扱う） */
 const NOON_WORD_PM_MAX_HOUR = 6;
 
-/** 開始時刻と終了時刻の区切り。例：〜 ~ - ― – — ー ‐ − から */
-const RANGE_SEPARATOR_PATTERN = /[ \t]{0,3}(?:[~〜\-―–—ー‐−]|から)[ \t]{0,3}/y;
+/** 開始時刻と終了時刻の区切り。例：〜 ~ - ― – — ー ‐ − から to until till */
+const RANGE_SEPARATOR_PATTERN = /[ \t]{0,3}(?:[~〜\-―–—ー‐−]|から|to|until|till)[ \t]{0,3}/iy;
 
 /** 区切りなしで続く2つ目の時刻の前に許す空白（OCR で「〜」が抜けた「14:00 15:00」など） */
 const ADJACENT_TIME_GAP_PATTERN = /[ \t]?/y;
@@ -182,21 +222,21 @@ export function extractDateCandidates(text, options = {}) {
   let truncated = false;
 
   for (const match of normalizedText.matchAll(DATE_PATTERN)) {
-    const date = resolveDate(match.groups, current);
-    if (date === null) {
+    const resolved = resolveDate(match.groups, current);
+    if (resolved === null) {
       continue; // 実在しない日付（2月30日など）は候補にしない
     }
 
-    // 数字の日付の後ろに曜日があれば読み飛ばす
+    // 月日の書かれた日付の後ろに曜日があれば読み飛ばす（「明日」「来週火曜」の後ろは読み飛ばさない）
     let cursor = match.index + match[0].length;
-    if (match.groups.jpMonth !== undefined || match.groups.slashMonth !== undefined) {
+    if (match.groups.tomorrow === undefined && match.groups.tomorrowEn === undefined && match.groups.nextWeekWeekday === undefined) {
       cursor = skipPattern(WEEKDAY_PATTERN, normalizedText, cursor);
     }
 
     // 日付の直後（つなぎの言葉の後）に時刻があれば読み取る
     const timeRange = matchTimeRange(normalizedText, skipPattern(CONNECTOR_PATTERN, normalizedText, cursor));
     const range = { start: match.index, end: timeRange === null ? cursor : timeRange.endIndex };
-    const candidate = buildCandidate(date, timeRange, current, defaultDurationMinutes);
+    const candidate = buildCandidate(resolved.date, timeRange, current, defaultDurationMinutes, resolved.warnings);
 
     // 同じ日時がすでにあれば、新しい候補は作らず、色付けする位置だけ追加する
     const key = getCandidateKey(candidate);
@@ -281,22 +321,76 @@ function skipPattern(pattern, text, index) {
  *
  * @param {object} groups DATE_PATTERN の名前付きグループ
  * @param {{year: number, month: number, day: number}} today 今日（東京）
- * @returns {{year: number, month: number, day: number} | null} 実在しない日付なら null
+ * @returns {{date: {year: number, month: number, day: number}, warnings: string[]} | null}
+ *   実在しない日付なら null。warnings は日付の読み方に関する警告（月と日の順番が決まらないときなど）
  */
 function resolveDate(groups, today) {
+  const withoutWarning = (date) => (date === null ? null : { date, warnings: [] });
+
   if (groups.jpMonth !== undefined) {
-    return resolveCalendarDate(groups.jpYear, groups.jpMonth, groups.jpDay, today);
+    return withoutWarning(resolveCalendarDate(groups.jpYear, groups.jpMonth, groups.jpDay, today));
+  }
+  if (groups.ymdYear !== undefined) {
+    return withoutWarning(resolveCalendarDate(groups.ymdYear, groups.ymdMonth, groups.ymdDay, today));
+  }
+  if (groups.mdyYear !== undefined) {
+    return resolveYearLastDate(groups.mdyFirst, groups.mdySecond, groups.mdyYear);
+  }
+  if (groups.yymdYear !== undefined) {
+    const year = String(TWO_DIGIT_YEAR_BASE + Number(groups.yymdYear));
+    return withoutWarning(resolveCalendarDate(year, groups.yymdMonth, groups.yymdDay, today));
   }
   if (groups.slashMonth !== undefined) {
-    return resolveCalendarDate(undefined, groups.slashMonth, groups.slashDay, today);
+    return withoutWarning(resolveCalendarDate(undefined, groups.slashMonth, groups.slashDay, today));
   }
-  if (groups.tomorrow !== undefined) {
-    return addDays(today, 1);
+  if (groups.enMonthA !== undefined) {
+    return withoutWarning(resolveCalendarDate(groups.enYearA, toEnglishMonthNumber(groups.enMonthA), groups.enDayA, today));
+  }
+  if (groups.enMonthB !== undefined) {
+    return withoutWarning(resolveCalendarDate(groups.enYearB, toEnglishMonthNumber(groups.enMonthB), groups.enDayB, today));
+  }
+  if (groups.tomorrow !== undefined || groups.tomorrowEn !== undefined) {
+    return withoutWarning(addDays(today, 1));
   }
   if (groups.nextWeekWeekday !== undefined) {
-    return resolveNextWeekWeekday(groups.nextWeekWeekday, today);
+    return withoutWarning(resolveNextWeekWeekday(groups.nextWeekWeekday, today));
   }
   return null;
+}
+
+/**
+ * 英語の月名を、月の数字（文字列）にする。
+ *
+ * @param {string} monthName 例：Oct、October、SEPT
+ * @returns {string} 例："10"
+ */
+function toEnglishMonthNumber(monthName) {
+  return String(ENGLISH_MONTH_NUMBERS[monthName.toLowerCase()]);
+}
+
+/**
+ * 年が最後の英語圏の数字の日付（10/15/2026、15/10/2026）から年月日を決める。
+ *   - 1つ目が12より大きい → 日/月（英国式）
+ *   - 2つ目が12より大きい → 月/日（米国式）
+ *   - どちらも12以下で違う数 → 月/日（米国式）として読み、「月と日の順番を確認」の警告を付ける（依頼者の決定）
+ *
+ * @param {string} firstText 1つ目の数字
+ * @param {string} secondText 2つ目の数字
+ * @param {string} yearText 年（4桁）
+ * @returns {{date: object, warnings: string[]} | null} 実在しない日付なら null
+ */
+function resolveYearLastDate(firstText, secondText, yearText) {
+  const first = Number(firstText);
+  const second = Number(secondText);
+  const year = Number(yearText);
+  const isDayFirst = first > MONTHS_PER_YEAR && second <= MONTHS_PER_YEAR;
+  const month = isDayFirst ? second : first;
+  const day = isDayFirst ? first : second;
+  if (!isValidDate(year, month, day)) {
+    return null;
+  }
+  const isOrderAmbiguous = first <= MONTHS_PER_YEAR && second <= MONTHS_PER_YEAR && first !== second;
+  return { date: { year, month, day }, warnings: isOrderAmbiguous ? [WARNING_AMBIGUOUS_ORDER] : [] };
 }
 
 /**
@@ -356,7 +450,7 @@ function matchTimeRange(text, index) {
   if (start === null) {
     return null; // 時刻がない、または 25時 など時刻として成り立たない場合は「時刻なし」として扱う
   }
-  const startTime = start.time;
+  let startTime = start.time;
   let endIndex = start.endIndex;
   let endTime = null;
 
@@ -370,6 +464,18 @@ function matchTimeRange(text, index) {
     if (end !== null) {
       endTime = end.time;
       endIndex = end.endIndex;
+    }
+    // 英語の「2:00–3:00 PM」「2-3pm」のように、後ろにだけ PM が書かれていれば、前の時刻にも当てはめる
+    // （ただし「11am-1pm」のように午前と読める場合は変えない：前の時刻＋12時間が後ろの時刻より遅くなるため）
+    if (
+      endTime !== null &&
+      endTime.isExplicitMeridiem &&
+      endTime.meridiem === MERIDIEM_PM &&
+      startTime.meridiem === null &&
+      startTime.hour < 12 &&
+      startTime.hour + 12 <= endTime.hour
+    ) {
+      startTime = { ...startTime, hour: startTime.hour + 12, meridiem: MERIDIEM_PM };
     }
   } else {
     // 区切りがなく時刻が2つ続く場合（OCR で「〜」が抜けた「14時15時」など）は、後ろの方が遅ければ範囲とみなす
@@ -466,11 +572,12 @@ function meridiemFromTimeWord(word, rawHour) {
  * @param {object} groups TIME_PATTERN の名前付きグループ
  * @param {string | null} inheritedMeridiem 記載がないときに使う午前/午後（終了時刻用）
  * @param {string | null} timeWord 直前にあった時間帯の言葉（朝・夜など）。なければ null
- * @returns {{hour: number, minute: number, meridiem: string | null} | null}
- *   meridiem は実際に使った午前/午後（なければ null）。時刻として成り立たなければ null
+ * @returns {{hour: number, minute: number, meridiem: string | null, isExplicitMeridiem: boolean} | null}
+ *   meridiem は実際に使った午前/午後（なければ null）。isExplicitMeridiem は午前/午後が文章に書かれていたか。
+ *   時刻として成り立たなければ null
  */
 function parseTime(groups, inheritedMeridiem, timeWord) {
-  const rawHour = parseJapaneseNumber(groups.colonHour ?? groups.kanjiHour ?? groups.bareHour);
+  const rawHour = parseJapaneseNumber(groups.colonHour ?? groups.kanjiHour ?? groups.bareHour ?? groups.rangeStartHour);
 
   let minute = 0;
   if (groups.colonMinute !== undefined) {
@@ -481,15 +588,13 @@ function parseTime(groups, inheritedMeridiem, timeWord) {
     minute = HALF_HOUR_MINUTES;
   }
 
-  const meridiem =
-    normalizeMeridiem(groups.meridiem ?? groups.suffixMeridiem) ??
-    meridiemFromTimeWord(timeWord, rawHour) ??
-    inheritedMeridiem;
+  const explicitMeridiem = normalizeMeridiem(groups.meridiem ?? groups.suffixMeridiem);
+  const meridiem = explicitMeridiem ?? meridiemFromTimeWord(timeWord, rawHour) ?? inheritedMeridiem;
   const hour = applyMeridiem(rawHour, meridiem);
   if (!Number.isInteger(rawHour) || !Number.isInteger(minute) || hour === null || minute > 59) {
     return null;
   }
-  return { hour, minute, meridiem };
+  return { hour, minute, meridiem, isExplicitMeridiem: explicitMeridiem !== null };
 }
 
 /**
@@ -522,6 +627,7 @@ function applyMeridiem(hour, meridiem) {
  * @param {{startTime: object, endTime: object | null} | null} timeRange 時刻（なければ null）
  * @param {{year: number, month: number, day: number, hour: number, minute: number}} current 現在の東京の日時
  * @param {number} defaultDurationMinutes 終了時刻がないときの予定の長さ（分）
+ * @param {string[]} [dateWarnings] 日付の読み方に関する警告（WARNING_AMBIGUOUS_ORDER など）
  * @returns {{
  *   hasTime: boolean,        時刻の記載があるか（false なら日付だけ。画面で終日か時刻指定かを尋ねる）
  *   start: object,           開始日時 {year, month, day, hour, minute}。hasTime が false なら hour/minute は null
@@ -530,8 +636,8 @@ function applyMeridiem(hour, meridiem) {
  *   warnings: string[]       警告コード（WARNING_PAST など）
  * }}
  */
-function buildCandidate(date, timeRange, current, defaultDurationMinutes) {
-  const warnings = [];
+function buildCandidate(date, timeRange, current, defaultDurationMinutes, dateWarnings = []) {
+  const warnings = [...dateWarnings];
 
   if (timeRange === null) {
     if (compareDates(date, current) < 0) {

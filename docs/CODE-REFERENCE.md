@@ -159,37 +159,43 @@
 | `MAX_INPUT_LENGTH` | 定数（公開） | 20000 | 長すぎる入力で処理が重くならないようにする |
 | `MAX_CANDIDATES` | 定数（公開） | 30 | 候補で画面やブラウザのタブがあふれないようにする |
 | `WARNING_PAST` | 定数（公開） | `'past'` | 「過去の日時」の警告コード |
+| `WARNING_AMBIGUOUS_ORDER` | 定数（公開） | `'ambiguousOrder'` | 月と日の順番が決まらない英語の数字の日付を月/日として読んだ警告 |
+| `TWO_DIGIT_YEAR_BASE` | 定数（内部） | 2000 | 2桁の年（26.10.15）を 2026 年にする |
+| `MONTHS_PER_YEAR` | 定数（内部） | 12 | 月と日の順番の判定 |
+| `ENGLISH_MONTH_NUMBERS` / `ENGLISH_MONTH_PATTERN` | 定数（内部） | 英語の月名と数字の対応／月名の正規表現の部品 | 英語の日付を読む |
 | `MAX_YEAR_LOOKAHEAD` | 定数（内部） | 4 | 年なしの 2/29 で次のうるう年まで探す |
 | `HALF_DAY_MINUTES` | 定数（内部） | 720 | 「11時〜1時」を 13時と解釈する補正 |
 | `MERIDIEM_AM` / `MERIDIEM_PM` | 定数（内部） | `'午前'` / `'午後'` | 午前・午後の判定 |
 | `HALF_HOUR_MINUTES` | 定数（内部） | 30 | 「14時半」の「半」 |
-| `DATE_PATTERN` | 定数（内部） | 日付の書き方の正規表現（10/15、10月15日、2026年10月15日、十月十五日、明日、来週火曜） | 文章から日付を探す。「再来週」「説明日程」は除外 |
-| `WEEKDAY_PATTERN` | 定数（内部） | 曜日の表記（(木)、(月・祝)、木曜日） | 日付の後の曜日を読み飛ばす |
-| `CONNECTOR_PATTERN` | 定数（内部） | 日付と時刻のつなぎ（空白、の、は、、） | 「明日の14時」を1つの日時として読む |
-| `TIME_PATTERN` | 定数（内部） | 時刻の書き方（14:00、14時30分、14時半、午前/午後、3pm・3:00 PM・PM3:00） | 時刻を読む（十五時三十分など漢字の数字も可）。「2時間」「一時的」「一時停止」「AMAZON」は除外 |
+| `DATE_PATTERN` | 定数（内部） | 日付の書き方の正規表現（10/15、10月15日、2026年10月15日、十月十五日、2026/10/15、26.10.15、10/15/2026、October 15, 2026、15 Oct、明日、tomorrow、来週火曜） | 文章から日付を探す。「再来週」「説明日程」は除外 |
+| `WEEKDAY_PATTERN` | 定数（内部） | 曜日の表記（(木)、(月・祝)、木曜日、(Thu)） | 日付の後の曜日を読み飛ばす |
+| `CONNECTOR_PATTERN` | 定数（内部） | 日付と時刻のつなぎ（空白、の、は、、、at、from、@） | 「明日の14時」「Oct 15 at 3pm」を1つの日時として読む |
+| `TIME_PATTERN` | 定数（内部） | 時刻の書き方（14:00、14時30分、14時半、午前/午後、3pm・3:00 PM・PM3:00、2-3pm の「2」） | 時刻を読む（十五時三十分など漢字の数字も可）。「2時間」「一時的」「一時停止」「AMAZON」は除外 |
 | `TIME_WORD_PATTERN` | 定数（内部） | 時間帯の言葉（正午・朝・昼・夕方・夜） | 時間帯の言葉を読む（要件§12） |
 | `TIME_WORD_GAP_PATTERN` | 定数（内部） | 言葉と時刻の間のつなぎ（空白、の） | 「夜の7時」を1つの時刻として読む |
 | `TIME_WORD_DEFAULTS` | 定数（内部） | 正午12時・朝9時・昼11時・夕方15時・夜18時 | 時刻が続かないときの開始時刻 |
 | `AMBIGUOUS_HOUR_MAX` | 定数（内部） | 11 | 言葉から午前/午後を推定する上限（12時以降は書かれた時刻を優先） |
 | `NOON_WORD_PM_MAX_HOUR` | 定数（内部） | 6 | 「昼1時」を13時とみなす上限 |
-| `RANGE_SEPARATOR_PATTERN` | 定数（内部） | 範囲の区切り（〜、-、から など） | 開始〜終了の時刻を読む |
+| `RANGE_SEPARATOR_PATTERN` | 定数（内部） | 範囲の区切り（〜、-、から、to、until など） | 開始〜終了の時刻を読む |
 | `ADJACENT_TIME_GAP_PATTERN` | 定数（内部） | 区切りなしで続く2つ目の時刻の前の空白（0〜1個） | OCR で「〜」が抜けた「14時15時」を範囲として読む |
 | `InputTooLongError` | クラス（公開） | 長すぎる文章のエラー（利用者向けの文付き） | 画面でそのまま表示できるエラーにする |
 | `extractDateCandidates(text, options)` | 関数（公開） | 文章から日時の候補を抽出し `{candidates, truncated}` を返す | このアプリの中心機能（要件§5.2〜§5.7、§12） |
 | `validateArguments(text, now, minutes)` | 関数（内部） | 引数を検証し、問題があれば例外を投げる | 不正な入力で誤動作しないようにする |
 | `matchAt(pattern, text, index)` | 関数（内部） | 正規表現を指定した位置から一致させる | 日付の直後の曜日・時刻を読む |
 | `skipPattern(pattern, text, index)` | 関数（内部） | 一致した分だけ読み取り位置を進める | 曜日・つなぎの言葉を読み飛ばす |
-| `resolveDate(groups, today)` | 関数（内部） | 一致した書き方に応じて年月日を決める | 書き方ごとの処理の振り分け |
+| `resolveDate(groups, today)` | 関数（内部） | 一致した書き方に応じて年月日と警告を決める | 書き方ごとの処理の振り分け |
+| `toEnglishMonthNumber(monthName)` | 関数（内部） | 英語の月名を月の数字にする | 英語の日付を読む |
+| `resolveYearLastDate(firstText, secondText, yearText)` | 関数（内部） | 年が最後の数字の日付の月と日を決める（日が13以上なら英国式、それ以外は米国式。決まらなければ警告） | 依頼者の決定（曖昧なら米国式） |
 | `resolveCalendarDate(yearText, monthText, dayText, today)` | 関数（内部） | 年月日を決める。年がなければ今日以降で最も近い日 | 要件§12：年なしの日付の扱い |
 | `resolveNextWeekWeekday(weekdayCharacter, today)` | 関数（内部） | 「来週◯曜」の年月日を決める | 要件§12：月曜始まりの週 |
-| `matchTimeRange(text, index)` | 関数（内部） | 時刻または時刻の範囲を読む | 開始・終了の時刻を得る |
+| `matchTimeRange(text, index)` | 関数（内部） | 時刻または時刻の範囲を読む（後ろにだけ PM があれば前の時刻にも当てはめる） | 開始・終了の時刻を得る（2-3pm → 14〜15時） |
 | `matchTimeAt(text, index, inheritedMeridiem)` | 関数（内部） | 時刻を1つ読む（時間帯の言葉にも対応） | 「夜7時→19時」「夜→18時」の解釈 |
 | `toMinutesOfDay(time)` | 関数（内部） | 時刻をその日の 0:00 からの分数にする | 区切りのない2つの時刻の前後を比べる |
 | `normalizeMeridiem(text)` | 関数（内部） | 午前/午後/AM/PM/a.m./p.m. を「午前」「午後」にそろえる | 12時間表記の混在に対応 |
 | `meridiemFromTimeWord(word, rawHour)` | 関数（内部） | 時間帯の言葉から午前/午後を推定する | 朝→午前、夕方・夜→午後、昼1〜6時→午後。「朝17時」など食い違う書き方は書かれた時刻を優先 |
 | `parseTime(groups, inheritedMeridiem, timeWord)` | 関数（内部） | 時刻を24時間制の時・分にする | 午前/午後・半・分の解釈 |
 | `applyMeridiem(hour, meridiem)` | 関数（内部） | 午前/午後を反映した「時」を返す | 午前12時→0時、午後3時→15時 |
-| `buildCandidate(date, timeRange, current, minutes)` | 関数（内部） | 候補の本体（開始・終了・警告）を作る | 候補の形をそろえる |
+| `buildCandidate(date, timeRange, current, minutes, dateWarnings)` | 関数（内部） | 候補の本体（開始・終了・警告）を作る | 候補の形をそろえる |
 | `resolveEnd(start, timeRange, minutes)` | 関数（内部） | 終了日時を決める（省略時は既定の長さ、日またぎも対応） | 要件§5.4 |
 | `getCandidateKey(candidate)` | 関数（内部） | 同じ日時を見分けるキーを作る | 重複する候補を1件にまとめる |
 

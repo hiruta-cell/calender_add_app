@@ -11,6 +11,7 @@ import {
   InputTooLongError,
   MAX_CANDIDATES,
   MAX_INPUT_LENGTH,
+  WARNING_AMBIGUOUS_ORDER,
   WARNING_PAST,
   extractDateCandidates,
 } from '../src/core/dateExtractor.js';
@@ -298,6 +299,122 @@ describe('漢字の数字', () => {
   });
 });
 
+describe('年→月→日の数字の日付（日本式）', () => {
+  test('年が2桁：26.10.15 → 2026年、27/10/15 → 2027年、26-10-15', () => {
+    assert.deepEqual(extractSingle('26.10.15').start, dateTime(2026, 10, 15, null, null));
+    assert.deepEqual(extractSingle('27/10/15').start, dateTime(2027, 10, 15, null, null));
+    assert.deepEqual(extractSingle('26-10-15').start, dateTime(2026, 10, 15, null, null));
+  });
+
+  test('年が4桁：2026-10-15、2026.10.15 14:00、2026/10/15(木) 14:00-15:00', () => {
+    assert.deepEqual(extractSingle('2026-10-15').start, dateTime(2026, 10, 15, null, null));
+    assert.deepEqual(extractSingle('2026.10.15 14:00').start, dateTime(2026, 10, 15, 14, 0));
+    const candidate = extractSingle('2026/10/15(木) 14:00-15:00');
+    assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0));
+    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0));
+  });
+
+  test('区切りの記号が混ざったもの・実在しない日付は候補にしない：2026/10-15、26.13.01、2026-02-30', () => {
+    assert.equal(extract('2026/10-15').candidates.length, 0);
+    assert.equal(extract('26.13.01').candidates.length, 0);
+    assert.equal(extract('2026-02-30').candidates.length, 0);
+  });
+
+  test('電話番号・版番号・IP アドレス・小数を日付と誤認しない', () => {
+    for (const text of ['03-1234-5678', '090-1234-5678', 'v1.2.3', '12.10.15.3', '192.168.10.15', '円周率は3.14です', '2-1で勝利']) {
+      assert.equal(extract(text).candidates.length, 0, text);
+    }
+  });
+});
+
+describe('英語圏の日付', () => {
+  test('月名が先：Oct 15、October 15, 2026、Oct. 15th、OCTOBER 15（大文字）', () => {
+    assert.deepEqual(extractSingle('Oct 15').start, dateTime(2026, 10, 15, null, null));
+    assert.deepEqual(extractSingle('October 15, 2026').start, dateTime(2026, 10, 15, null, null));
+    assert.deepEqual(extractSingle('Oct. 15th').start, dateTime(2026, 10, 15, null, null));
+    assert.deepEqual(extractSingle('OCTOBER 15').start, dateTime(2026, 10, 15, null, null));
+  });
+
+  test('日が先：15 Oct 2026、15th of October', () => {
+    assert.deepEqual(extractSingle('15 Oct 2026').start, dateTime(2026, 10, 15, null, null));
+    assert.deepEqual(extractSingle('15th of October').start, dateTime(2026, 10, 15, null, null));
+  });
+
+  test('年がない月名の日付も、今日以降で最も近い日：Sept 30 → 2027年', () => {
+    assert.deepEqual(extractSingle('Sept 30').start, dateTime(2027, 9, 30, null, null));
+  });
+
+  test('曜日と時刻：Thursday, October 15 at 3pm、October 15, 2026 2:00 PM、Oct 15 (Thu) 10:00', () => {
+    assert.deepEqual(extractSingle('Thursday, October 15 at 3pm').start, dateTime(2026, 10, 15, 15, 0));
+    assert.deepEqual(extractSingle('October 15, 2026 2:00 PM').start, dateTime(2026, 10, 15, 14, 0));
+    assert.deepEqual(extractSingle('Oct 15 (Thu) 10:00').start, dateTime(2026, 10, 15, 10, 0));
+  });
+
+  test('年が最後の数字：10/15/2026 は米国式（月/日）、15/10/2026 は英国式（日/月）と判定できる', () => {
+    const us = extractSingle('10/15/2026');
+    assert.deepEqual(us.start, dateTime(2026, 10, 15, null, null));
+    assert.deepEqual(us.warnings, []);
+    const uk = extractSingle('15/10/2026');
+    assert.deepEqual(uk.start, dateTime(2026, 10, 15, null, null));
+    assert.deepEqual(uk.warnings, []);
+  });
+
+  test('月と日の順番が決まらない日付は月/日として読み、警告を付ける：12/11/2026 → 12月11日。月と日が同じ数なら警告なし', () => {
+    const ambiguous = extractSingle('12/11/2026');
+    assert.deepEqual(ambiguous.start, dateTime(2026, 12, 11, null, null));
+    assert.deepEqual(ambiguous.warnings, [WARNING_AMBIGUOUS_ORDER]);
+    assert.deepEqual(extractSingle('11/11/2026').warnings, []);
+  });
+
+  test('過去の日付なら、順番の警告と過去の警告の両方が付く：05/10/2026 → 5月10日', () => {
+    const pastAmbiguous = extractSingle('05/10/2026');
+    assert.deepEqual(pastAmbiguous.start, dateTime(2026, 5, 10, null, null));
+    assert.deepEqual(pastAmbiguous.warnings, [WARNING_AMBIGUOUS_ORDER, WARNING_PAST]);
+  });
+
+  test('実在しない・誤認しやすいもの：13/13/2026、Feb 30、Mayor 15、may（助動詞）', () => {
+    assert.equal(extract('13/13/2026').candidates.length, 0);
+    assert.equal(extract('Feb 30').candidates.length, 0);
+    assert.equal(extract('Mayor 15 says hello').candidates.length, 0);
+    assert.equal(extract('We may join later').candidates.length, 0);
+  });
+
+  test('tomorrow（大文字・小文字を問わない）と at の時刻', () => {
+    assert.deepEqual(extractSingle('tomorrow at 3pm').start, dateTime(2026, 10, 12, 15, 0));
+    assert.deepEqual(extractSingle('Tomorrow').start, dateTime(2026, 10, 12, null, null));
+  });
+
+  test('next Tuesday は対象外（「今週」「来週」の両方の意味で使われるため）', () => {
+    assert.equal(extract('next Tuesday').candidates.length, 0);
+  });
+});
+
+describe('英語の時刻の範囲', () => {
+  test('後ろにだけ PM：2:00–3:00 PM、2-3pm → 14:00〜15:00', () => {
+    for (const text of ['Oct 15, 2:00–3:00 PM', 'Oct 15 2-3pm']) {
+      const candidate = extractSingle(text);
+      assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0), text);
+      assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0), text);
+    }
+  });
+
+  test('午前から午後：11am-1pm → 11:00〜13:00（前の時刻は午前のまま）', () => {
+    const candidate = extractSingle('Oct 15 11am-1pm');
+    assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 11, 0));
+    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 13, 0));
+  });
+
+  test('from 〜 to、午前だけ：from 2pm to 3pm、9-11am、14:00 to 15:30', () => {
+    const fromTo = extractSingle('Oct 15 from 2pm to 3pm');
+    assert.deepEqual(fromTo.start, dateTime(2026, 10, 15, 14, 0));
+    assert.deepEqual(fromTo.end, dateTime(2026, 10, 15, 15, 0));
+    const morning = extractSingle('Oct 15 9-11am');
+    assert.deepEqual(morning.start, dateTime(2026, 10, 15, 9, 0));
+    assert.deepEqual(morning.end, dateTime(2026, 10, 15, 11, 0));
+    assert.deepEqual(extractSingle('10/15 14:00 to 15:30').end, dateTime(2026, 10, 15, 15, 30));
+  });
+});
+
 describe('年の記載がない日付（今日以降で最も近い日）と過去の警告', () => {
   test('今年すでに過ぎた日付は来年：10/5 → 2027/10/5（警告なし）', () => {
     const candidate = extractSingle('10/5');
@@ -381,8 +498,10 @@ describe('誤認しないこと', () => {
     assert.equal(candidate.hasTime, false);
   });
 
-  test('2026/10/15 のような年付きの / 区切りは 10/15 と誤認しない（未対応の書き方）', () => {
-    assert.equal(extract('2026/10/15').candidates.length, 0);
+  test('2026/10/15 は 2026年10月15日として読む（10/15 と 2026 に分けて読まない）', () => {
+    const candidate = extractSingle('2026/10/15');
+    assert.deepEqual(candidate.start, dateTime(2026, 10, 15, null, null));
+    assert.equal(candidate.sourceText, '2026/10/15');
   });
 
   test('月日として成り立たない分数は候補にしない：50/50', () => {
@@ -486,6 +605,10 @@ describe('処理時間（悪意のある長い入力でも固まらない：ReDo
     '来週の繰り返し': '来週の'.repeat(MAX_INPUT_LENGTH / 3),
     '数字だけ': '9'.repeat(MAX_INPUT_LENGTH),
     '漢字の数字の繰り返し': '十二'.repeat(MAX_INPUT_LENGTH / 2),
+    '英語の月名の繰り返し': 'Oct '.repeat(MAX_INPUT_LENGTH / 4),
+    '数字と点の繰り返し': '1.'.repeat(MAX_INPUT_LENGTH / 2),
+    '年とハイフンの繰り返し': '2026-'.repeat(MAX_INPUT_LENGTH / 5),
+    '英語の時刻の範囲の繰り返し': 'Oct 15 2-'.repeat(MAX_INPUT_LENGTH / 9),
     '漢字の月の繰り返し': '十月'.repeat(MAX_INPUT_LENGTH / 2),
   };
 

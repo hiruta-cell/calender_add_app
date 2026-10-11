@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { parseDateInput, parseTimeInput } from '../../core/registration.js';
 
 /** 対応している書き方の例（利用者が書き方を確かめられるように表示する） */
-const SUPPORTED_FORMAT_EXAMPLES = ['10/15 14:00', '10月15日(木)14時〜15時', '2026年10月15日', '明日', '来週火曜'];
+const SUPPORTED_FORMAT_EXAMPLES = ['10/15 14:00', '10月15日(木)14時〜15時', '2026/10/15', '明日', '来週火曜', 'Oct 15 at 3pm'];
 
 /**
  * 「日時の情報がありません」のポップアップ（手入力の欄付き）。

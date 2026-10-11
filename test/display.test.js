@@ -12,7 +12,7 @@ import {
   formatEventLabel,
   formatTimeLabel,
 } from '../src/core/candidateFormatter.js';
-import { WARNING_PAST, extractDateCandidates } from '../src/core/dateExtractor.js';
+import { WARNING_AMBIGUOUS_ORDER, WARNING_PAST, extractDateCandidates } from '../src/core/dateExtractor.js';
 import { splitTextByRanges } from '../src/core/highlight.js';
 
 /** テストの基準日時：2026-10-11(日) 10:00 JST */
@@ -53,6 +53,7 @@ describe('candidateFormatter：候補の表示文字列', () => {
 
   test('警告コードを文に変換する（未知のコードも表示できる）', () => {
     assert.equal(describeWarning(WARNING_PAST), '過去の日時です');
+    assert.equal(describeWarning(WARNING_AMBIGUOUS_ORDER), '月と日の順番を確認してください（月/日として読みました）');
     assert.equal(describeWarning('unknown-code'), '内容を確認してください');
     assert.equal(describeWarning('__proto__'), '内容を確認してください');
   });
