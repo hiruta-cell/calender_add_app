@@ -115,6 +115,33 @@ describe('場所：見出しのない住所（催しの一覧のページ・OCR�
     assert.equal(extractEventDetails(mail).location, '');
   });
 
+  test('施設名だけの行（会館・センター・美術館・舞台など。部屋・階が続いてもよい）', () => {
+    assert.equal(extractEventDetails('架空市民会館').location, '架空市民会館');
+    assert.equal(extractEventDetails('架空国際センター 会議棟2F').location, '架空国際センター 会議棟2F');
+    assert.equal(extractEventDetails('■架空美術館').location, '架空美術館');
+    assert.equal(extractEventDetails('架空の森舞台').location, '架空の森舞台');
+    const notice = ['定例会のお知らせ', '10月20日(火) 14時', '架空公民館 第1会議室'].join('\n');
+    assert.equal(extractEventDetails(notice).location, '架空公民館 第1会議室');
+  });
+
+  test('施設名の近くに住所があれば並べる（番地のある住所・地域だけの住所）', () => {
+    assert.equal(extractEventDetails('架空市民会館\n架空市中央1-1').location, '架空市民会館 架空市中央1-1');
+    assert.equal(extractEventDetails('架空ホール\n登米市 / 芸術鑑賞').location, '架空ホール 登米市');
+    const far = ['架空ホール', 'a', 'b', 'c', 'd', '架空市中央1-1'].join('\n');
+    assert.equal(extractEventDetails(far).location, '架空市中央1-1');
+  });
+
+  test('施設名と取り違えやすい行は使わない（文・題名・日付・問い合わせの窓口）', () => {
+    for (const text of ['架空センターで開催します', '新しい図書館ができました。', '10月20日 架空ホール', '「森の美術館」へ行こう', 'お客様センター', 'サポートセンターからのお知らせ', '定例会のご案内']) {
+      assert.equal(extractEventDetails(text).location, '', text);
+    }
+  });
+
+  test('署名のまとまりの施設名（会社名と TEL）も使わない', () => {
+    const mail = ['10月20日(火) 14時にお伺いします。', '', '架空商事株式会社 架空センター', 'TEL：000-0000-0000'].join('\n');
+    assert.equal(extractEventDetails(mail).location, '');
+  });
+
   test('「場所：」「会場は〜です」があればそちらを優先する', () => {
     assert.equal(extractEventDetails('場所：架空ホール\n宮城県架空市中央1-1').location, '架空ホール');
     assert.equal(extractEventDetails('会場は架空公民館です。\n宮城県架空市中央1-1').location, '架空公民館');

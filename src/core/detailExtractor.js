@@ -10,6 +10,7 @@
  *           それもなければ「住所：」「所在地：」の行、さらになければ「宮城県塩竈市本町8-1」のように
  *           都道府県＋市区町村で始まる行や、「塩竈市本町8-1」「登米市 / 芸術鑑賞」のように
  *           市区町村で始まり番地が続く（または行末・分類で終わる）行（催しの一覧のページなど。依頼者の指示 2026-10-11）。
+ *           施設名だけの行（「架空市民会館」「架空国際センター 会議棟2F」など）も使い、近くに住所があれば並べる。
  *           署名らしいまとまり（メールアドレス、または会社名と TEL・FAX を含む）と「--」より後の住所は使わない
  * - URL は https:// の部分から取り出す。Zoom・Google Meet・Teams・Webex を優先する。
  * - 取り出した内容は下書きであり、利用者が確認・修正してから登録する。
@@ -68,6 +69,40 @@ const MUNICIPALITY_LINE_PATTERN =
  */
 const MUNICIPALITY_REST_PATTERN =
   /^(?:[\p{Script=Han}\p{Script=Katakana}ヶヵケ々のが]{0,12}?(?:\d{1,5}(?:[-‐−ー－の]\d|丁目|番地?|号|(?![\d月日年時:/.]))|丁目|番地)|[ \t]*(?:[/|｜／].*)?$)/u;
+
+/**
+ * 施設名の終わり方（施設名だけの行を見つけるため）。長い言葉を先に並べる（「市民会館」を「館」より先に試す）。
+ */
+const FACILITY_SUFFIXES = [
+  '文化会館', '市民会館', '公民館', '美術館', '博物館', '体育館', '図書館', '記念館', '資料館', '交流館', '科学館',
+  '水族館', '動物園', '植物園', '幼稚園', '保育園', '会館', 'ホール', 'センター', 'プラザ', 'ドーム', 'スタジアム',
+  'アリーナ', '競技場', '劇場', '舞台', '公園', '広場', 'ホテル', '旅館', '会議室', '講習室', '研修室', '研修所',
+  '講堂', '大学', '高等学校', '高校', '中学校', '小学校', '学園', '市役所', '役場', '庁舎', '神社', '教会', '駅',
+  'ビル', 'モール', '館', '園', '寺',
+];
+
+/**
+ * 施設名だけの行。
+ *   - 行頭の記号（■●◆・など）は読み飛ばす
+ *   - 施設名（40文字まで）が FACILITY_SUFFIXES のどれかで終わる
+ *   - その後ろに、空白と部屋・階（「会議棟2F」「3階」「第1会議室」「大ホール」など。15文字まで）が続いてもよい
+ *   value：施設名（と部屋・階）
+ */
+const FACILITY_LINE_PATTERN = new RegExp(
+  String.raw`^[ 	]{0,8}(?:[■□●○◆◇▼▽▶・*#\-][ 	]{0,4})?(?<value>[^ 	]{0,40}?(?:${FACILITY_SUFFIXES.join('|')})(?:[ 	]{1,3}[^ 	]{1,15}?(?:室|階|F|棟|ホール|ルーム))?)[ 	]*$`,
+  'u',
+);
+
+/**
+ * 施設名の行にあってはいけないもの（あれば施設名とみなさない）：
+ *   文の終わりや区切り（。、！？）、文のつながり（で・にて・にある・にあり・へ・を・です・ます・から・まで・ください）、
+ *   題名のかっこ（「」『』【】）、問い合わせの窓口（お客様センター・サポートセンターなど）、
+ *   日付・時刻（10/20、10月、20日、14:00、14時）
+ */
+const NOT_FACILITY_PATTERN = /[。、！？!?「」『』【】]|で|にて|にある|にあり|へ|を|です|ます|から|まで|ください|お客様|コール|サポート|サービス|問い?合わせ|窓口|事務局|\d{1,4}[/月年]|\d{1,2}日|\d{1,2}:\d{2}|\d{1,2}時/u;
+
+/** 施設名と住所を並べてよい、行の離れ具合（この行数以内なら同じ催しの情報とみなす） */
+const FACILITY_ADDRESS_MAX_LINE_DISTANCE = 3;
 
 /** 住所の後ろの「 / 芸術鑑賞」のような分類、または2つ以上の空白の後ろ（画面の別の欄）を切り捨てる */
 const ADDRESS_TRAILING_PATTERN = /[ \t]*[/|｜／].*$|[ \t]{2,}.*$/u;
@@ -293,22 +328,62 @@ function matchMunicipalityLine(line) {
 }
 
 /**
- * 都道府県または市区町村で始まる行から住所を取り出す。番地（数字）を含むものを優先し、なければ最初のもの。
- * 例：「宮城県登米市 / 芸術鑑賞・自然観賞」→「宮城県登米市」、「Q宮城県塩竈市本町8-1講習室」（OCR）→「宮城県塩竈市本町8-1講習室」
+ * 施設名だけの行か確かめる。
+ *
+ * @param {string} line 1行の文字列
+ * @returns {string} 施設名（違えば空文字）
+ */
+function matchFacilityLine(line) {
+  if (NOT_FACILITY_PATTERN.test(line)) {
+    return '';
+  }
+  return line.match(FACILITY_LINE_PATTERN)?.groups.value ?? '';
+}
+
+/**
+ * 見出しのない行から場所を取り出す（住所の行と施設名の行）。
+ *   1. 番地のある住所があれば、それを使う。近く（3行以内）に施設名があれば「施設名 住所」にする
+ *   2. なければ施設名を使う。近くに地域だけの住所（「登米市 / 芸術鑑賞」など）があれば「施設名 地域」にする
+ *   3. なければ地域だけの住所を使う
+ * 例：「宮城県登米市 / 芸術鑑賞・自然観賞」→「宮城県登米市」、「Q宮城県塩竈市本町8-1講習室」（OCR）→「宮城県塩竈市本町8-1講習室」、
+ *     「架空市民会館」＋次の行「架空市中央1-1」→「架空市民会館 架空市中央1-1」
  *
  * @param {string[]} lines 文章の各行（署名の行は空にしたもの）
- * @returns {string} 住所（見つからなければ空文字）
+ * @returns {string} 場所（見つからなければ空文字）
  */
 function findAddressLine(lines) {
-  const addresses = [];
-  for (const line of lines) {
+  const addresses = []; // {index, text, hasStreetNumber}
+  const facilities = []; // {index, text}
+  lines.forEach((line, index) => {
     const singleLine = sanitizeSingleLine(line);
     const match = singleLine.match(ADDRESS_LINE_PATTERN) ?? matchMunicipalityLine(singleLine);
     if (match !== null) {
-      addresses.push(match.groups.value.replace(ADDRESS_TRAILING_PATTERN, '').trim());
+      const text = match.groups.value.replace(ADDRESS_TRAILING_PATTERN, '').trim();
+      addresses.push({ index, text, hasStreetNumber: HAS_STREET_NUMBER_PATTERN.test(text) });
+      return;
     }
+    const facility = matchFacilityLine(singleLine);
+    if (facility !== '') {
+      facilities.push({ index, text: facility });
+    }
+  });
+
+  /** 指定した行の近くにある、もう一方の候補を探す */
+  const findNear = (candidates, index) =>
+    candidates.find((candidate) => Math.abs(candidate.index - index) <= FACILITY_ADDRESS_MAX_LINE_DISTANCE);
+
+  const streetAddress = addresses.find((address) => address.hasStreetNumber);
+  if (streetAddress !== undefined) {
+    const facility = findNear(facilities, streetAddress.index);
+    return facility !== undefined && !streetAddress.text.includes(facility.text)
+      ? `${facility.text} ${streetAddress.text}`
+      : streetAddress.text;
   }
-  return addresses.find((address) => HAS_STREET_NUMBER_PATTERN.test(address)) ?? addresses[0] ?? '';
+  if (facilities.length > 0) {
+    const area = findNear(addresses, facilities[0].index);
+    return area !== undefined ? `${facilities[0].text} ${area.text}` : facilities[0].text;
+  }
+  return addresses[0]?.text ?? '';
 }
 
 /**
