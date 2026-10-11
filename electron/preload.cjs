@@ -19,6 +19,8 @@ const OPEN_CALENDAR_DAY_CHANNEL = 'calendar:open-day';
 const CAPTURE_START_CHANNEL = 'capture:start';
 /** 向きを指定して読み直す */
 const CAPTURE_REREAD_CHANNEL = 'capture:reread';
+/** 貼り付け・ドラッグ＆ドロップした画像を読み取る */
+const CAPTURE_IMPORT_CHANNEL = 'capture:import-image';
 /** 取り込んだ画像を消す */
 const CAPTURE_CLEAR_CHANNEL = 'capture:clear';
 /** アプリの状態（ホットキーが使えるか）を尋ねる */
@@ -53,6 +55,14 @@ contextBridge.exposeInMainWorld('calendarApp', {
    * @returns {Promise<{ok: boolean, message?: string}>}
    */
   startCapture: () => ipcRenderer.invoke(CAPTURE_START_CHANNEL),
+
+  /**
+   * 貼り付け・ドラッグ＆ドロップした画像（画面側で PNG にそろえたもの）を読み取ってもらう（結果は onCaptureStatus で届く）。
+   *
+   * @param {Uint8Array} pngBytes 画像（PNG）
+   * @returns {Promise<{ok: boolean, message?: string}>}
+   */
+  importImage: (pngBytes) => ipcRenderer.invoke(CAPTURE_IMPORT_CHANNEL, pngBytes),
 
   /**
    * 取り込んだ画像を、向きを指定して読み直してもらう（結果は onCaptureStatus で届く）。

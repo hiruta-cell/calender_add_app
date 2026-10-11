@@ -10,6 +10,7 @@ import { describe, test } from 'node:test';
 import {
   APP_STATUS_CHANNEL,
   CAPTURE_CLEAR_CHANNEL,
+  CAPTURE_IMPORT_CHANNEL,
   CAPTURE_REREAD_CHANNEL,
   CAPTURE_START_CHANNEL,
   CAPTURE_STATUS_CHANNEL,
@@ -19,7 +20,11 @@ import {
   SCREEN_RECORDING_SETTINGS_URL,
   createCaptureHandlers,
   createOpenScreenSettingsHandler,
+  validateImportedImage,
 } from '../electron/captureIpc.js';
+
+/** PNG の先頭の8バイト（テスト用の画像の印） */
+const PNG_HEADER = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 /**
  * 偽の取り込み処理を使って、受け付けの処理を作る。呼ばれた操作を記録する。
@@ -30,6 +35,7 @@ function createTestHandlers({ trusted = true, busy = false } = {}) {
   const controller = {
     isBusy: () => busy,
     startCapture: () => { calls.push('start'); return Promise.resolve({ ok: true }); },
+    importImage: (png) => { calls.push(`import:${Buffer.isBuffer(png)}:${png.length}`); return Promise.resolve({ ok: true }); },
     rereadSelection: (orientation) => { calls.push(`reread:${orientation}`); return Promise.resolve({ ok: true }); },
     clearCapture: () => { calls.push('clear'); },
   };
@@ -80,6 +86,38 @@ describe('確認ウインドウからの要求', () => {
   });
 });
 
+describe('貼り付け・ドラッグ＆ドロップした画像の受け付け', () => {
+  test('PNG の画像だけを受け付け、取り込みの処理に渡す', async () => {
+    const { handlers, calls } = createTestHandlers();
+    const png = Uint8Array.from([...PNG_HEADER, 1, 2, 3]);
+    assert.deepEqual(await handlers.handleImport({}, png), { ok: true });
+    assert.deepEqual(calls, ['import:true:11']);
+  });
+
+  test('画像でない・空・大きすぎる・PNG でないものは断る（何も読み取らない）', async () => {
+    const { handlers, calls } = createTestHandlers();
+    const tooLarge = new Uint8Array(21 * 1024 * 1024);
+    tooLarge.set(PNG_HEADER);
+    for (const bad of [null, 'text', [1, 2, 3], new Uint8Array(0), tooLarge, Uint8Array.from([0xff, 0xd8, 0xff, 0xe0])]) {
+      assert.equal((await handlers.handleImport({}, bad)).ok, false);
+    }
+    assert.deepEqual(calls, []);
+  });
+
+  test('信頼できない送信元・読み取りの途中なら断る', async () => {
+    const png = Uint8Array.from([...PNG_HEADER, 1]);
+    const untrusted = createTestHandlers({ trusted: false });
+    assert.equal((await untrusted.handlers.handleImport({}, png)).ok, false);
+    const busy = createTestHandlers({ busy: true });
+    assert.equal((await busy.handlers.handleImport({}, png)).ok, false);
+    assert.deepEqual([...untrusted.calls, ...busy.calls], []);
+  });
+
+  test('validateImportedImage は Buffer を返す', () => {
+    assert.ok(Buffer.isBuffer(validateImportedImage(Uint8Array.from([...PNG_HEADER, 9]))));
+  });
+});
+
 describe('「システム設定を開く」の要求', () => {
   /** テスト用の処理を作る。開いた URL を記録する */
   function createSettingsHandler({ trusted = true, platform = 'darwin' } = {}) {
@@ -112,7 +150,7 @@ describe('「システム設定を開く」の要求', () => {
 describe('preload との整合', () => {
   test('確認ウインドウの preload：チャンネル名が captureIpc.js と同じ', async () => {
     const preload = await readFile(new URL('../electron/preload.cjs', import.meta.url), 'utf8');
-    for (const channel of [CAPTURE_START_CHANNEL, CAPTURE_REREAD_CHANNEL, CAPTURE_CLEAR_CHANNEL, APP_STATUS_CHANNEL, CAPTURE_STATUS_CHANNEL, OPEN_SCREEN_SETTINGS_CHANNEL]) {
+    for (const channel of [CAPTURE_START_CHANNEL, CAPTURE_IMPORT_CHANNEL, CAPTURE_REREAD_CHANNEL, CAPTURE_CLEAR_CHANNEL, APP_STATUS_CHANNEL, CAPTURE_STATUS_CHANNEL, OPEN_SCREEN_SETTINGS_CHANNEL]) {
       assert.ok(preload.includes(`'${channel}'`), channel);
     }
     // メインプロセスからの受信は、結果を届けるチャンネルだけ。IPC のイベントそのものは画面に渡さない

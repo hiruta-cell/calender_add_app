@@ -25,6 +25,7 @@ import { createCaptureImageStore } from './captureImageStore.js';
 import {
   APP_STATUS_CHANNEL,
   CAPTURE_CLEAR_CHANNEL,
+  CAPTURE_IMPORT_CHANNEL,
   CAPTURE_REREAD_CHANNEL,
   CAPTURE_START_CHANNEL,
   CAPTURE_STATUS_CHANNEL,
@@ -176,6 +177,7 @@ function registerIpcHandlers() {
     getAppStatus: () => ({ hotkeyRegistered: isHotkeyRegistered, hotkeyLabel: CAPTURE_HOTKEY_LABEL }),
   });
   ipcMain.handle(CAPTURE_START_CHANNEL, captureHandlers.handleStart);
+  ipcMain.handle(CAPTURE_IMPORT_CHANNEL, captureHandlers.handleImport);
   ipcMain.handle(CAPTURE_REREAD_CHANNEL, captureHandlers.handleReread);
   ipcMain.handle(CAPTURE_CLEAR_CHANNEL, captureHandlers.handleClear);
   ipcMain.handle(APP_STATUS_CHANNEL, captureHandlers.handleAppStatus);

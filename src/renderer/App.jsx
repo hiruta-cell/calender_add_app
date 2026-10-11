@@ -31,6 +31,7 @@ import ManualDateForm from './components/ManualDateForm.jsx';
 import NoDateDialog from './components/NoDateDialog.jsx';
 import RegisterSection from './components/RegisterSection.jsx';
 import TextInputPanel from './components/TextInputPanel.jsx';
+import { convertImageFileToPng, findImageFile } from './imageImport.js';
 
 /** 予期しないエラーのときに表示する文（文章の内容は含めない：CLAUDE.md） */
 const UNEXPECTED_ERROR_MESSAGE = '日時の抽出中にエラーが発生しました。もう一度お試しください。';
@@ -233,6 +234,58 @@ export default function App() {
     }
   }
   captureStatusHandlerRef.current = handleCaptureStatus;
+
+  // 画像の貼り付け（Ctrl/Cmd+V）・ドラッグ＆ドロップを受け付ける（文章の貼り付けは、これまでどおり入力欄に入る）
+  useEffect(() => {
+    if (window.calendarApp === undefined) {
+      return undefined;
+    }
+    /** 画像ファイルを PNG にそろえて、メインプロセスに読み取ってもらう */
+    const importImageFile = async (file) => {
+      setErrorMessage('');
+      try {
+        const pngBytes = await convertImageFileToPng(file);
+        const result = await window.calendarApp.importImage(pngBytes);
+        if (!result.ok) {
+          setErrorMessage(result.message);
+        }
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : '画像を読み込めませんでした。');
+      }
+    };
+    const handlePaste = (event) => {
+      const file = findImageFile(event.clipboardData);
+      if (file !== null) {
+        event.preventDefault(); // 画像のときだけ。文章の貼り付けは邪魔しない
+        importImageFile(file);
+      }
+    };
+    const handleDragOver = (event) => {
+      if (event.dataTransfer?.types.includes('Files')) {
+        event.preventDefault(); // ファイルのドロップを受け付ける
+      }
+    };
+    const handleDrop = (event) => {
+      if (!event.dataTransfer?.types.includes('Files')) {
+        return;
+      }
+      event.preventDefault(); // ファイルを開く動き（ページの移動）をさせない
+      const file = findImageFile(event.dataTransfer);
+      if (file === null) {
+        setErrorMessage('読み取れるのは PNG・JPEG の画像だけです。');
+        return;
+      }
+      importImageFile(file);
+    };
+    window.addEventListener('paste', handlePaste);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('paste', handlePaste);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, []);
 
   // 起動時：取り込みの結果の受け取りを登録し、ホットキーが使えるかを確かめる
   useEffect(() => {
@@ -488,7 +541,9 @@ export default function App() {
             >
               画面から読み取る{hotkeyLabel !== '' && `（${hotkeyLabel}）`}
             </button>
-            <span className="field-note">画面の範囲を選んで、文字を読み取ります</span>
+            <span className="field-note">
+              画面の範囲を選んで文字を読み取ります（実験機能）。画像の貼り付け（{hotkeyLabel.startsWith('Cmd') ? 'Cmd' : 'Ctrl'}+V）やドラッグ＆ドロップでも読み取れます
+            </span>
           </div>
           {(capture.imageUrl !== '' || capture.status === 'reading') && (
             <CaptureImagePanel capture={capture} onReread={handleRereadCapture} />

@@ -1,6 +1,6 @@
 /**
  * captureController.js
- * 目的：範囲キャプチャから OCR までの流れを進める（要件§5.1・§6.1）。
+ * 目的：範囲キャプチャから OCR までの流れを進める（要件§5.1・§6.1）。貼り付け・ドラッグ＆ドロップした画像の読み取りも受け持つ。
  *   1. カーソルがある画面を撮影する（確認ウインドウは一時的に隠す）
  *   2. 範囲選択の画面に撮影した画面を暗く表示し、ドラッグで範囲を選んでもらう（Esc で中止）
  *   3. 選んだ範囲を切り出し、文字が小さい画面なら拡大して、OCR にかける
@@ -334,6 +334,29 @@ export function createCaptureController({
         closeOverlay();
         settleSelection(null);
         imageStore.delete(SCREENSHOT_IMAGE_NAME);
+        isBusy = false;
+      }
+    },
+
+    /**
+     * 貼り付け・ドラッグ＆ドロップした画像を読み取る（画面側で PNG にそろえ、検証済みのもの）。
+     * 範囲キャプチャと同じく、画像はメモリにだけ置き、読み直し・表示に使う。
+     *
+     * @param {Buffer} png 画像（PNG）
+     * @returns {Promise<{ok: boolean, message?: string}>}
+     */
+    async importImage(png) {
+      if (isBusy) {
+        return { ok: false, message: '範囲の選択または読み取りの途中です。' };
+      }
+      isBusy = true;
+      try {
+        selectionVersion = imageStore.set(SELECTION_IMAGE_NAME, png);
+        await runOcr(png, ORIENTATION_AUTO);
+        return { ok: true };
+      } catch (error) {
+        return fail(error);
+      } finally {
         isBusy = false;
       }
     },

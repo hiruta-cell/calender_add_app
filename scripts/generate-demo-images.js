@@ -1,6 +1,8 @@
 /**
  * generate-demo-images.js（開発者用・デモ画像を作り直すときだけ実行するスクリプト）
  * 目的：読み取りテストと発表のデモに使う画像（架空の文面）を作り、demo/images/ に保存する。
+ *   画面のきれいな文字（メール・チャット）のほか、OCR の想定である SNS の背景付きの画像や、
+ *   カメラで撮った連絡状のような画像（傾き・影・ぼかし）も作る。
  *
  * 使い方（Mac）：env -u ELECTRON_RUN_AS_NODE npx electron scripts/generate-demo-images.js
  *   - 文面はすべて架空のもの（CLAUDE.md：実際のメール・実在の人名や会社名を使わない）。
@@ -108,6 +110,106 @@ const DEMO_IMAGES = [
         <div><span class="label">Zoom:</span>https://zoom.us/j/1111111111</div>
         <br>
         <div>Looking forward to seeing you there.</div>
+      </div>`,
+  },
+  // ---- SNS の画像・写真のような、背景や飾りのある画像（OCR の想定：依頼者の説明による） ----
+  {
+    fileName: '5-sns-flyer.png',
+    width: 1080,
+    height: 1080,
+    style: `
+      body { padding: 0; }
+      .poster { width: 1080px; height: 1080px; box-sizing: border-box; padding: 110px 90px;
+        background: linear-gradient(135deg, #ff9a8b 0%, #ff6a88 55%, #ff99ac 100%); position: relative; overflow: hidden;
+        font-family: 'Hiragino Maru Gothic ProN', ${FONT_FAMILY}; color: #ffffff; text-shadow: 0 4px 10px rgb(120 0 40 / 45%); }
+      .circle { position: absolute; border-radius: 50%; background: rgb(255 255 255 / 18%); }
+      .title { font-size: 104px; font-weight: 700; line-height: 1.2; margin-bottom: 70px; }
+      .line { font-size: 66px; line-height: 1.5; }
+    `,
+    body: `
+      <div class="poster">
+        <div class="circle" style="width:420px;height:420px;right:-120px;top:-100px"></div>
+        <div class="circle" style="width:260px;height:260px;left:-80px;bottom:-60px"></div>
+        <div class="title">秋のマルシェ<br>開催！</div>
+        <div class="line">10月25日(日)</div>
+        <div class="line">10:00〜16:00</div>
+        <div class="line">架空公園 中央広場</div>
+      </div>`,
+  },
+  {
+    fileName: '6-sns-photo-text.png',
+    width: 1080,
+    height: 1080,
+    style: `
+      body { padding: 0; }
+      .photo { width: 1080px; height: 1080px; position: relative; overflow: hidden; }
+      .photo svg { position: absolute; inset: 0; }
+      .text { position: absolute; left: 80px; right: 80px; top: 300px; color: #ffffff; font-weight: 700;
+        text-shadow: 0 3px 8px rgb(0 0 0 / 70%); font-size: 70px; line-height: 1.55; }
+      .big { font-size: 96px; }
+    `,
+    body: `
+      <div class="photo">
+        <svg width="1080" height="1080" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="4" seed="7"/>
+              <feColorMatrix values="0.35 0.2 0.1 0 0.15  0.25 0.35 0.15 0 0.18  0.15 0.2 0.45 0 0.22  0 0 0 0 1"/></filter>
+          </defs>
+          <rect width="1080" height="1080" filter="url(#noise)"/>
+          <rect width="1080" height="1080" fill="rgb(0 0 0 / 25%)"/>
+        </svg>
+        <div class="text"><div class="big">勉強会 開催決定！</div>11月7日(土) 13:30〜<br>オンライン開催</div>
+      </div>`,
+  },
+  {
+    fileName: '7-photo-notice.png',
+    width: 1300,
+    height: 1000,
+    style: `
+      body { padding: 0; background: radial-gradient(circle at 30% 30%, #8a8378, #4a453e); height: 1000px; overflow: hidden; }
+      .paper { position: absolute; left: 150px; top: 120px; width: 1000px; height: 740px; box-sizing: border-box; padding: 70px 80px;
+        background: linear-gradient(160deg, #fbf8f0 0%, #ece6d6 70%, #d9d1bd 100%); transform: rotate(-4deg);
+        box-shadow: 0 30px 60px rgb(0 0 0 / 45%); filter: blur(0.6px);
+        font-family: 'Hiragino Mincho ProN', 'Yu Mincho', serif; color: #2b2b2b; font-size: 44px; line-height: 1.9; }
+      .title { font-size: 60px; text-align: center; margin-bottom: 40px; letter-spacing: 6px; }
+    `,
+    body: `
+      <div class="paper">
+        <div class="title">保護者会のお知らせ</div>
+        <div>日時：十一月五日（水）午後二時〜三時</div>
+        <div>場所：本校体育館</div>
+        <div>持ち物：上履き</div>
+      </div>`,
+  },
+  {
+    fileName: '8-live-flyer.png',
+    width: 1080,
+    height: 1350,
+    style: `
+      body { padding: 0; }
+      .flyer { width: 1080px; height: 1350px; position: relative; overflow: hidden; background: #0b0b18; }
+      .flyer svg { position: absolute; inset: 0; }
+      .text { position: absolute; left: 90px; right: 90px; top: 380px; color: #ffd84d; font-weight: 800;
+        font-family: ${FONT_FAMILY}; text-shadow: 0 0 18px rgb(255 160 0 / 60%); }
+      .title { font-size: 120px; letter-spacing: 8px; margin-bottom: 60px; }
+      .line { font-size: 72px; line-height: 1.6; color: #ffffff; }
+    `,
+    body: `
+      <div class="flyer">
+        <svg width="1080" height="1350" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="light" cx="50%" cy="20%" r="70%"><stop offset="0%" stop-color="#5a2a8a"/><stop offset="100%" stop-color="#0b0b18"/></radialGradient>
+            <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.08 0"/></filter>
+          </defs>
+          <rect width="1080" height="1350" fill="url(#light)"/>
+          <rect width="1080" height="1350" filter="url(#grain)"/>
+        </svg>
+        <div class="text">
+          <div class="title">LIVE 2026</div>
+          <div class="line">11月14日(土)</div>
+          <div class="line">開場 18:00／開演 18:30</div>
+          <div class="line">架空ホール</div>
+        </div>
       </div>`,
   },
 ];

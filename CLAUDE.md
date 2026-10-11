@@ -12,7 +12,7 @@
 ## 技術構成（決定事項）
 
 - Electron + React + Vite
-- OCR: Tesseract.js（`jpn` と縦書きの `jpn_vert`）。本体と文字データは npm の部品（`@tesseract.js-data/*`）として入れ、実行時に外部取得しない（`langPath` に PC 内のフォルダを必ず指定し、`cacheMethod: 'none'` でファイルに書き出さない）。OCR はメインプロセスの別スレッドで動かす（画面の CSP を緩めないため）
+- OCR: 実験機能として扱い、精度の調整に凝らない（依頼者の指示。読めないなら手入力の方が早い）。Tesseract.js（`jpn` と縦書きの `jpn_vert`）。本体と文字データは npm の部品（`@tesseract.js-data/*`）として入れ、実行時に外部取得しない（`langPath` に PC 内のフォルダを必ず指定し、`cacheMethod: 'none'` でファイルに書き出さない）。OCR はメインプロセスの別スレッドで動かす（画面の CSP を緩めないため）
 - 日時抽出: PC内のルール処理（正規表現など）。外部AI/APIへ文面を送らない
 - 登録: `https://calendar.google.com/calendar/render?action=TEMPLATE...` を既定ブラウザで開く
 - 配布: GitHub 公開 + npm 起動（インストーラーは作らない）
@@ -60,7 +60,7 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 - 正規表現は破滅的バックトラッキング（ReDoS）を避ける。入力長に上限を設け、ネストした量指定子を使わない
 - React では `dangerouslySetInnerHTML` を使わない。ユーザー入力を HTML として描画しない
 - `eval`、`new Function`、動的 `require`、文字列での `setTimeout` を使わない
-- 範囲キャプチャ（`desktopCapturer`）は、利用者が操作した時（ホットキー・トレイ・ボタン）だけ実行する。常時録画・定期取得をしない。画像はファイルに保存せず、画面全体の画像は範囲を選んだらすぐ消す。選んだ範囲の画像は確認ウインドウに表示している間だけメモリに置き（読み直しのため）、新しい取り込み・クリア・確認ウインドウを閉じる・終了で消す（requirements-memo.md §12）
+- 範囲キャプチャ（`desktopCapturer`）と画像の貼り付け・ドラッグ＆ドロップは、利用者が操作した時（ホットキー・トレイ・ボタン・貼り付け・ドロップ）だけ受け付ける。常時録画・定期取得をしない。画像はファイルに保存せず、画面全体の画像は範囲を選んだらすぐ消す。選んだ範囲の画像は確認ウインドウに表示している間だけメモリに置き（読み直しのため）、新しい取り込み・クリア・確認ウインドウを閉じる・終了で消す（requirements-memo.md §12）
 
 ### 秘密情報
 

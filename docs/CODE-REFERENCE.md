@@ -16,7 +16,7 @@
 | `electron/` | Electron のメインプロセス。アプリの起動、ウインドウ、セキュリティ設定など PC 側の処理 |
 | `scripts/` | 開発者用の補助スクリプト（実機の自動確認、テスト用の画像やアイコンの作成） |
 | `assets/icons/` | タスクトレイ（Mac はメニューバー）のアイコン（コードで描いたもの） |
-| `demo/images/` | 読み取りテストと発表のデモに使う架空の文面の画像（日本語のメール・チャット・縦書き・英語のメール） |
+| `demo/images/` | 読み取りテストと発表のデモに使う架空の文面の画像（日本語のメール・チャット・縦書き・英語のメール、SNS 風の告知・写真の上の文字・傾いた紙の連絡状・ライブ告知） |
 | `test/` | 単体テスト（Node.js 標準の `node:test`） |
 | `test/fixtures/` | テスト用の小さなファイル（app:// の配信テスト、OCR のテスト用の架空の画像） |
 | `docs/` | 説明ファイル（このファイル、受け入れ基準） |
@@ -48,6 +48,7 @@
 | `src/renderer/main.jsx` | 画面の起点。App を描画し、エラーを受け止める枠で包む |
 | `src/renderer/App.jsx` | 確認ウインドウ全体。貼り付け→抽出・下書き→候補の選択・追記→登録の流れを管理する |
 | `src/renderer/styles.css` | 画面の見た目（ダークモード対応） |
+| `src/renderer/imageImport.js` | 貼り付け・ドラッグ＆ドロップした画像を PNG にそろえる（写真の向きの補正・大きすぎる写真の縮小） |
 | `src/renderer/components/TextInputPanel.jsx` | 文章の入力欄と「日時を抽出」「クリア」ボタン |
 | `src/renderer/components/HighlightedText.jsx` | 抽出に使った文章を、日時部分を色付けして表示する |
 | `src/renderer/components/CandidateList.jsx` | 日時の候補をチェックボックス付きで一覧表示する |
@@ -346,6 +347,7 @@
 | `extractFromText(text)` | 関数 | 抽出・下書きを行い、候補がなければポップアップ、エラーなら待機状態に戻す | 貼り付け・OCR の両方で使う |
 | `handleCaptureStatus(status)` | 関数 | 読み取り中・結果（文章を入れて抽出）・エラー・中止・画像の消去を画面に反映 | 範囲キャプチャの結果の表示 |
 | `handleOpenScreenSettings()` | 関数 | Mac の画面収録の設定画面を開いてもらう | 「システム設定を開く」 |
+| （画像の貼り付け・ドロップの受け付け） | 処理 | 画像の貼り付け（文章の貼り付けは邪魔しない）・ドロップを受け、PNG にそろえて読み取ってもらう | 画像の取り込み（要件§12） |
 | `handleStartCapture()` / `handleRereadCapture(orientation)` | 関数 | 範囲キャプチャを始めてもらう／向きを指定して読み直してもらう | 「画面から読み取る」「横書き／縦書きで読み直す」 |
 | `resetResults()` | 関数 | 抽出結果・選択・入力欄を初期状態に戻す | エラー時・クリア時の後始末 |
 | `handleClear()` | 関数 | 入力・結果・エラーを消して最初の状態に戻す | 「クリア」ボタン |
@@ -357,6 +359,15 @@
 | `handleRegister()` | 関数 | 内容を確かめ、メインプロセスに予定作成画面を開いてもらい、登録の確認の一覧を作る | 登録ボタン（要件§5.6） |
 | `handleToggleSaved(openedEventId)` | 関数 | 「保存した」を切り替える | 登録の確認 |
 | `handleOpenDay(date)` | 関数 | その日の Googleカレンダーの表示を開いてもらう | 「カレンダーで確認」 |
+
+### imageImport.js（画像の取り込み）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `ACCEPTED_IMAGE_TYPES` | 定数 | PNG・JPEG | 受け付ける画像の種類 |
+| `MAX_IMPORT_FILE_BYTES` / `MAX_IMPORT_LONG_SIDE` | 定数 | 20MB ／ 3000画素 | 大きすぎる画像を断る・縮める |
+| `convertImageFileToPng(file)` | 関数 | 画像ファイルを、向きを直し・縮めて PNG にする | メインプロセスに渡す形にそろえる |
+| `findImageFile(dataTransfer)` | 関数 | 貼り付け・ドロップのデータから最初の画像ファイルを取り出す | 画像だけを扱う |
 
 ### overlay.js（範囲選択の画面）
 
@@ -457,6 +468,7 @@
 | `window.calendarApp.openCalendarDay(date)` | 関数（画面に公開） | 確認する日付をメインプロセスに渡す | 「カレンダーで確認」 |
 | `CAPTURE_START_CHANNEL` などのチャンネル名 | 定数 | captureIpc.js と同じ値 | 範囲キャプチャの通信 |
 | `window.calendarApp.startCapture()` | 関数（画面に公開） | 範囲キャプチャを始めてもらう | 「画面から読み取る」 |
+| `window.calendarApp.importImage(pngBytes)` | 関数（画面に公開） | PNG にそろえた画像を読み取ってもらう | 画像の貼り付け・ドラッグ＆ドロップ |
 | `window.calendarApp.rereadCapture(orientation)` | 関数（画面に公開） | 向きを指定して読み直してもらう | 「横書き／縦書きで読み直す」 |
 | `window.calendarApp.clearCapture()` | 関数（画面に公開） | 取り込んだ画像を消してもらう | 「クリア」 |
 | `window.calendarApp.getAppStatus()` | 関数（画面に公開） | ホットキーが使えるか、その表記を尋ねる | ホットキーが使えないときの案内 |
@@ -539,6 +551,9 @@
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `CAPTURE_START_CHANNEL` / `CAPTURE_REREAD_CHANNEL` / `CAPTURE_CLEAR_CHANNEL` / `APP_STATUS_CHANNEL` | 定数（公開） | 確認ウインドウ → メインプロセスのチャンネル名 | 取り込み開始・読み直し・画像を消す・状態の問い合わせ |
+| `CAPTURE_IMPORT_CHANNEL` | 定数（公開） | 'capture:import-image' | 貼り付け・ドラッグ＆ドロップした画像の読み取り |
+| `PNG_SIGNATURE` | 定数（内部） | PNG の先頭の8バイト | PNG だけを受け付ける |
+| `validateImportedImage(bytes)` | 関数（公開） | 届いた画像が PNG で20MB以下かを確かめる | IPC の引数の検証 |
 | `CAPTURE_STATUS_CHANNEL` | 定数（公開） | メインプロセス → 確認ウインドウのチャンネル名 | 読み取りの進み具合と結果 |
 | `OVERLAY_SELECT_CHANNEL` / `OVERLAY_CANCEL_CHANNEL` | 定数（公開） | 範囲選択の画面 → メインプロセスのチャンネル名 | 選んだ範囲・中止 |
 | `OPEN_SCREEN_SETTINGS_CHANNEL` | 定数（公開） | 'system:open-screen-settings' | 「システム設定を開く」のチャンネル名 |
@@ -567,7 +582,7 @@
 | `cropForOcr(screenshot, selection, display)` | 関数（内部） | 選んだ範囲を切り出し、必要なら2倍に拡大する | OCR の精度を上げる |
 | `runOcr(png, orientation)` | 関数（内部） | OCR にかけ、結果を確認ウインドウに送る | 読み取り |
 | `fail(error, options)` | 関数（内部） | 後始末（画面を閉じる・画像を消す）をしてエラーを送る | 要件§5.9 |
-| `isBusy()` / `startCapture()` / `rereadSelection(orientation)` / `clearCapture()` | 関数（公開） | 途中か／取り込み開始／読み直し／画像を消す | ホットキー・トレイ・画面から呼ぶ |
+| `isBusy()` / `startCapture()` / `importImage(png)` / `rereadSelection(orientation)` / `clearCapture()` | 関数（公開） | 途中か／取り込み開始／貼り付けた画像の読み取り／読み直し／画像を消す | ホットキー・トレイ・画面から呼ぶ |
 | `handleOverlaySelect(event, rawSelection)` / `handleOverlayCancel(event)` | 関数（公開） | 範囲選択の画面から届いた範囲・中止を検証して受け取る | IPC の入口 |
 
 ### screenPermission.js（画面収録の許可の案内）
@@ -594,7 +609,7 @@
 |---|---|---|---|
 | `PROJECT_DIR` | 定数 | プロジェクトのフォルダ | アプリの起動 |
 | `OVERALL_TIMEOUT_MS` / `STEP_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 全体の制限 30秒（正常なら約16秒）／1つの待ちの上限 10秒／確認間隔／画面の更新待ち | 止まったらすぐ知らせる（依頼者の指示） |
-| `CAPTURE_FIXTURE_PATH` | 定数 | 範囲キャプチャで「撮影した画面」として使う架空の画像 | 画面収録の許可なしで確認する |
+| `CAPTURE_FIXTURE_PATH` / `IMPORT_FIXTURE_PATH` | 定数 | 範囲キャプチャで「撮影した画面」とする画像／貼り付けに使う画像（架空） | 画面収録の許可なしで確認する |
 | `APP_EXIT_TIMEOUT_MS` / `launchedApp` | 定数・変数 | アプリの終了を待つ上限 5秒／起動したアプリ | 常駐するアプリを必ず閉じる |
 | `DEMO_TITLE` / `DEMO_LOCATION` / `DEMO_MEETING_URL` | 定数 | デモ文面の件名・場所・会議 URL（架空） | 下書き・登録内容の確認 |
 | `DEMO_TEXT` / `NO_DATE_TEXT` | 定数 | 架空のデモ文面（日時3つ・件名・場所・URL 付き）／日時のない文面 | 画面操作の入力 |
@@ -649,7 +664,7 @@
 |---|---|---|---|
 | `OUTPUT_DIR` | 定数 | demo/images | 保存先 |
 | `FONT_FAMILY` / `BASE_STYLE` | 定数 | 標準の日本語書体／共通の見た目 | 画面の文字に近い画像にする |
-| `DEMO_IMAGES` | 定数 | 作る画像の一覧（日本語のメール・チャット・縦書きのお知らせ・英語のメール。日付は発表日より後） | 読み取りテスト・発表のデモ |
+| `DEMO_IMAGES` | 定数 | 作る画像の一覧（日本語のメール・チャット・縦書きのお知らせ・英語のメール・SNS 風の告知・写真の上の文字・傾いた紙の連絡状・ライブ告知。日付は発表日より後） | 読み取りテスト・発表のデモ |
 | `renderDemoImage(window, demoImage)` | 関数 | 1枚の画像を作って保存する | 画像の作成 |
 
 ## test/（単体テスト）

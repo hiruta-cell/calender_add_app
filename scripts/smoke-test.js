@@ -19,7 +19,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import electronPath from 'electron';
@@ -41,6 +41,9 @@ const STEP_TIMEOUT_MS = 10_000;
 
 /** 画面の更新を待つ時間（ミリ秒） */
 const UI_SETTLE_MS = 300;
+
+/** 画像の貼り付けの確認に使う架空の画像（日本語のメール。10/22 14:00〜15:30） */
+const IMPORT_FIXTURE_PATH = path.join(PROJECT_DIR, 'demo', 'images', '1-mail-ja.png');
 
 /** 範囲キャプチャの確認で「撮影した画面」として使う架空の画像（等倍。拡大の処理も通る） */
 const CAPTURE_FIXTURE_PATH = path.join(PROJECT_DIR, 'test', 'fixtures', 'ocr', 'horizontal-email-1x.png');
@@ -579,6 +582,35 @@ async function checkCapture(connection, mainConnection, port, screenshotDir) {
     });
     await clickButton(connection, '閉じる');
   }
+  // 6. 画像の貼り付け（Ctrl/Cmd+V）→ PNG にそろえて読み取り → 日時の抽出
+  await clickButton(connection, 'クリア');
+  const importBase64 = (await readFile(IMPORT_FIXTURE_PATH)).toString('base64');
+  await connection.evaluate(`(() => {
+    const bytes = Uint8Array.from(atob('${importBase64}'), (character) => character.charCodeAt(0));
+    const data = new DataTransfer();
+    data.items.add(new File([bytes], 'demo.png', { type: 'image/png' }));
+    window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+  })()`);
+  const isImported = await waitForWithTimeout(
+    connection,
+    `document.querySelector('#source-text').value.includes('10月22日') && document.querySelectorAll('.candidate-item').length > 0`,
+    STEP_TIMEOUT_MS,
+  );
+  record('画像を貼り付けると読み取り、日時が抽出される', isImported);
+  const importedCandidate = await connection.evaluate(`document.querySelector('.candidate-date')?.textContent ?? ''`);
+  record('貼り付けた画像の1件目は「10月22日 14:00〜15:30」', importedCandidate.includes('10月22日') && importedCandidate.endsWith('14:00〜15:30'), importedCandidate);
+
+  // 7. 画像でないファイルをドロップ → 案内を表示（読み取らない）
+  await connection.evaluate(`(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(['not an image'], 'memo.txt', { type: 'text/plain' }));
+    window.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+  })()`);
+  record(
+    '画像でないファイルをドロップすると、PNG・JPEG だけ読み取れると案内する',
+    await waitForWithTimeout(connection, `(document.querySelector('.error-banner')?.textContent ?? '').includes('PNG・JPEG')`, STEP_TIMEOUT_MS),
+  );
+  await clickButton(connection, '閉じる');
   return [overlayImage, captureImage];
 }
 
@@ -797,9 +829,9 @@ async function checkSecurity(connection, mainConnection) {
   isExpectingErrors = true; // ここで起きるエラーは意図的に起こしたもの
 
   record(
-    '画面に公開されている機能は、決めた関数だけ（登録・確認・取り込み・設定画面の8つ）',
+    '画面に公開されている機能は、決めた関数だけ（登録・確認・取り込み・画像・設定画面の9つ）',
     JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp).sort()`)) ===
-      JSON.stringify(['clearCapture', 'getAppStatus', 'onCaptureStatus', 'openCalendarDay', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'startCapture']) &&
+      JSON.stringify(['clearCapture', 'getAppStatus', 'importImage', 'onCaptureStatus', 'openCalendarDay', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'startCapture']) &&
       (await connection.evaluate(`typeof window.ipcRenderer === 'undefined' && typeof window.electron === 'undefined'`)),
   );
   const openedBefore = (await getOpenedUrls(mainConnection)).length;
@@ -809,6 +841,15 @@ async function checkSecurity(connection, mainConnection) {
     window.calendarApp.openCalendarEvents([{ title: 'x'.repeat(100000), location: '', details: '', allDay: true, start: { year: 2026, month: 10, day: 15 }, end: null }]),
     window.calendarApp.openCalendarEvents(Array.from({ length: 31 }, () => ({ title: '', location: '', details: '', allDay: true, start: { year: 2026, month: 10, day: 15 }, end: null }))),
   ]).then((results) => results.map((result) => result.ok))`);
+  const invalidImportResults = await connection.evaluate(`Promise.all([
+    window.calendarApp.importImage('not bytes'),
+    window.calendarApp.importImage(new Uint8Array([1, 2, 3])),
+    window.calendarApp.importImage(new Uint8Array(0)),
+  ]).then((results) => results.map((result) => result.ok))`);
+  record(
+    '不正な画像の取り込み要求（形式違い・PNG でない・空）は断られる',
+    JSON.stringify(invalidImportResults) === JSON.stringify([false, false, false]),
+  );
   const invalidDayResults = await connection.evaluate(`Promise.all([
     window.calendarApp.openCalendarDay('https://evil.example/'),
     window.calendarApp.openCalendarDay({ year: 2026, month: 2, day: 30 }),
