@@ -149,6 +149,14 @@ describe('要件§12 の時刻・範囲の書き方', () => {
     assert.equal(candidate.endInferred, true);
   });
 
+  test('区切りが抜けた時刻の並び（OCR）：14時15時、14:00 15:00 は範囲。後ろが早ければ範囲にしない', () => {
+    assert.deepEqual(extractSingle('10/15 14時16時').end, dateTime(2026, 10, 15, 16, 0));
+    assert.deepEqual(extractSingle('10/15 14:00 16:00').end, dateTime(2026, 10, 15, 16, 0));
+    const reversed = extractSingle('10/15 16時14時');
+    assert.deepEqual(reversed.end, dateTime(2026, 10, 15, 17, 0));
+    assert.equal(reversed.endInferred, true);
+  });
+
   test('開始と終了が同じなら既定の長さにする', () => {
     const candidate = extractSingle('10/15 14時〜14時');
     assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 15, 0));

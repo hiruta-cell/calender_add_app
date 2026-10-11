@@ -34,6 +34,9 @@ const REPLY_PREFIX_PATTERN = /^(?:(?:re|fw|fwd|返信|転送)[ \t]*:[ \t]*)+/i;
  */
 const HTTPS_URL_PATTERN = /https:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]{1,2000}/g;
 
+/** 値の先頭の区切り記号（OCR で「：」が「・」に読まれた「場所:・オンライン」など） */
+const LEADING_SEPARATOR_PATTERN = /^[・･:：\s]+/;
+
 /** URL の末尾にあっても URL の一部ではないことが多い記号 */
 const TRAILING_PUNCTUATION = '.,;:!?\'"';
 
@@ -100,7 +103,7 @@ function findLabeledValue(lines, pattern) {
     if (match === null) {
       continue;
     }
-    const value = sanitizeSingleLine(match.groups.value);
+    const value = sanitizeSingleLine(match.groups.value).replace(LEADING_SEPARATOR_PATTERN, '');
     if (value !== '') {
       return value;
     }

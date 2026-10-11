@@ -34,6 +34,10 @@ describe('場所', () => {
     assert.equal(extractEventDetails('Location: Room 101').location, 'Room 101');
   });
 
+  test('値の先頭の「・」「：」を除く（OCR で「：」が「・」に読まれた場合など）', () => {
+    assert.equal(extractEventDetails('場所:・オンライン(Zoom)').location, 'オンライン(Zoom)');
+  });
+
   test('ラベルだけの行なら次の行を使う（■会場 の次の行）', () => {
     assert.equal(extractEventDetails('■会場\n\n架空市中央1-2-3 架空ビル\n■持ち物').location, '架空市中央1-2-3 架空ビル');
   });

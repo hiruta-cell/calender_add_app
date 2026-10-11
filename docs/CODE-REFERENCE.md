@@ -2,7 +2,7 @@
 
 コードを追加・改名・削除したら、同じ変更の中でこの一覧も更新する（[CLAUDE.md](../CLAUDE.md) 参照）。
 
-- 最終更新：2026-10-11（2日目：件名・場所・URL の下書きとカレンダー登録）
+- 最終更新：2026-10-11（3日目：OCR の読み取り部分）
 - 「公開」は他のファイルから使えるもの（export）、「内部」はそのファイルの中だけで使うもの
 
 ## フォルダの意味
@@ -16,7 +16,7 @@
 | `electron/` | Electron のメインプロセス。アプリの起動、ウインドウ、セキュリティ設定など PC 側の処理 |
 | `scripts/` | 開発者用の補助スクリプト（実機の自動確認） |
 | `test/` | 単体テスト（Node.js 標準の `node:test`） |
-| `test/fixtures/` | テスト用の小さなファイル（app:// の配信テストに使う） |
+| `test/fixtures/` | テスト用の小さなファイル（app:// の配信テスト、OCR のテスト用の架空の画像） |
 | `docs/` | 説明ファイル（このファイル、受け入れ基準） |
 | `dist/` | ビルド結果（`npm run build` で作られる。Git には含めない） |
 | `node_modules/` | インストールした部品（`npm ci` で作られる。Git には含めない） |
@@ -28,7 +28,7 @@
 |---|---|
 | `package.json` | アプリの名前、起動・テストのコマンド、使う部品とバージョン |
 | `package-lock.json` | 部品のバージョンを完全に固定した記録（`npm ci` はこれに従う） |
-| `.npmrc` | npm の設定（バージョンの固定、Node.js のバージョン確認） |
+| `.npmrc` | npm の設定（バージョンの固定、Node.js のバージョン確認、インストール時スクリプトの禁止） |
 | `.gitignore` | Git に含めないファイルの指定（秘密情報・ビルド結果など） |
 | `vite.config.js` | 画面のビルド設定（開発用サーバーは使わない） |
 | `src/core/textNormalizer.js` | 全角の数字・記号を半角にそろえる（文字数は変えない） |
@@ -40,6 +40,7 @@
 | `src/core/detailExtractor.js` | 文章から件名・場所・オンライン会議の URL を取り出して下書きにする |
 | `src/core/calendarUrl.js` | Googleカレンダーの予定作成画面の URL を組み立て、内容と URL を検証する |
 | `src/core/registration.js` | 選んだ候補と入力欄の内容から、登録する予定の一覧を作る（終日／時刻指定、手入力の候補も） |
+| `src/core/ocrText.js` | OCR の結果の文章を整える（日本語の文字の間の余分な空白を除く） |
 | `src/renderer/index.html` | 画面の土台となる HTML |
 | `src/renderer/main.jsx` | 画面の起点。App を描画し、エラーを受け止める枠で包む |
 | `src/renderer/App.jsx` | 確認ウインドウ全体。貼り付け→抽出・下書き→候補の選択・追記→登録の流れを管理する |
@@ -57,9 +58,11 @@
 | `electron/main.js` | アプリの起動、ウインドウの作成、多重起動の防止、登録要求の受け付けの登録 |
 | `electron/preload.cjs` | 画面に「予定作成画面を開く」関数を1つだけ公開する |
 | `electron/calendarIpc.js` | 画面からの登録要求を検証し、予定作成画面を既定のブラウザで順に開く |
+| `electron/ocrEngine.js` | 画像から文字を読み取る（Tesseract.js。横書き・縦書き、PC 内の文字データだけを使う） |
 | `electron/appProtocol.js` | 画面ファイルを app:// で配信し、CSP を付ける（配信フォルダの外は読ませない） |
 | `electron/security.js` | セキュリティ設定（隔離、外部通信の遮断、権限要求の拒否、外部への移動の禁止） |
 | `scripts/smoke-test.js` | アプリを実際に起動し、画面を自動操作して機能とセキュリティを確認する |
+| `scripts/generate-ocr-fixtures.js` | OCR のテスト用の画像（架空の文章）を作る（開発者が一度だけ実行） |
 | `test/*.test.js` | 各ファイルの単体テスト（詳しくは末尾の「test/」の表） |
 | `README.md` | 利用者向けの説明（起動手順、使い方、対応する書き方） |
 | `CLAUDE.md` | 開発のルール（セキュリティ方針、コーディング規約など） |
@@ -159,6 +162,7 @@
 | `AMBIGUOUS_HOUR_MAX` | 定数（内部） | 11 | 言葉から午前/午後を推定する上限（12時以降は書かれた時刻を優先） |
 | `NOON_WORD_PM_MAX_HOUR` | 定数（内部） | 6 | 「昼1時」を13時とみなす上限 |
 | `RANGE_SEPARATOR_PATTERN` | 定数（内部） | 範囲の区切り（〜、-、から など） | 開始〜終了の時刻を読む |
+| `ADJACENT_TIME_GAP_PATTERN` | 定数（内部） | 区切りなしで続く2つ目の時刻の前の空白（0〜1個） | OCR で「〜」が抜けた「14時15時」を範囲として読む |
 | `InputTooLongError` | クラス（公開） | 長すぎる文章のエラー（利用者向けの文付き） | 画面でそのまま表示できるエラーにする |
 | `extractDateCandidates(text, options)` | 関数（公開） | 文章から日時の候補を抽出し `{candidates, truncated}` を返す | このアプリの中心機能（要件§5.2〜§5.7、§12） |
 | `validateArguments(text, now, minutes)` | 関数（内部） | 引数を検証し、問題があれば例外を投げる | 不正な入力で誤動作しないようにする |
@@ -169,6 +173,7 @@
 | `resolveNextWeekWeekday(weekdayCharacter, today)` | 関数（内部） | 「来週◯曜」の年月日を決める | 要件§12：月曜始まりの週 |
 | `matchTimeRange(text, index)` | 関数（内部） | 時刻または時刻の範囲を読む | 開始・終了の時刻を得る |
 | `matchTimeAt(text, index, inheritedMeridiem)` | 関数（内部） | 時刻を1つ読む（時間帯の言葉にも対応） | 「夜7時→19時」「夜→18時」の解釈 |
+| `toMinutesOfDay(time)` | 関数（内部） | 時刻をその日の 0:00 からの分数にする | 区切りのない2つの時刻の前後を比べる |
 | `normalizeMeridiem(text)` | 関数（内部） | 午前/午後/AM/PM/a.m./p.m. を「午前」「午後」にそろえる | 12時間表記の混在に対応 |
 | `meridiemFromTimeWord(word, rawHour)` | 関数（内部） | 時間帯の言葉から午前/午後を推定する | 朝→午前、夕方・夜→午後、昼1〜6時→午後。「朝17時」など食い違う書き方は書かれた時刻を優先 |
 | `parseTime(groups, inheritedMeridiem, timeWord)` | 関数（内部） | 時刻を24時間制の時・分にする | 午前/午後・半・分の解釈 |
@@ -207,6 +212,7 @@
 | `NEXT_LINE_LOOKAHEAD` | 定数（内部） | 2 | 「■会場」の次の行の値を探す行数 |
 | `REPLY_PREFIX_PATTERN` | 定数（内部） | Re: Fw: Fwd: 返信: 転送: | 件名から返信・転送の印を除く |
 | `HTTPS_URL_PATTERN` | 定数（内部） | https の URL（半角の URL 文字だけ） | 日本語の手前で URL を止める |
+| `LEADING_SEPARATOR_PATTERN` | 定数（内部） | 値の先頭の「・」「：」と空白 | OCR で「場所:・オンライン」となった場合の「・」を除く |
 | `TRAILING_PUNCTUATION` | 定数（内部） | URL の末尾から除く記号 | 「…/1.」の「.」などを除く |
 | `TITLE_LINE_PATTERN` / `LOCATION_LINE_PATTERN` | 定数（内部） | ラベルの行に一致する正規表現 | 件名・場所の行を見つける |
 | `buildLabelPattern(labels)` | 関数（内部） | ラベルの一覧から行の正規表現を作る | 「件名：」「【件名】」「■件名」などに対応 |
@@ -262,6 +268,16 @@
 | `buildCalendarEvents(input)` | 関数（公開） | 選んだ候補から予定の一覧とエラーを作る | 登録ボタンの処理 |
 | `resolveSpecifiedTime(date, choice, minutes)` | 関数（内部） | 日付だけの候補に指定の時刻を当てはめる | 時刻指定（終了が空なら既定の長さ） |
 | `excerpt(text, maxLength)` | 関数（内部） | 最大文字数までにし、省略の印を付ける | メモが長くなりすぎないようにする |
+
+## src/core/ocrText.js（OCR の結果の整形）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `JAPANESE_CHARACTER` | 定数（内部） | 日本語の文字（漢字・かな・全角記号など）の正規表現の部品 | 余分な空白の判定 |
+| `SPACE_AFTER_JAPANESE_PATTERN` / `SPACE_BEFORE_JAPANESE_PATTERN` | 定数（内部） | 日本語の文字の後ろ／前の空白 | 「10 月 15 日」の空白を除く |
+| `SPACED_NUMBER_SEPARATOR_PATTERN` | 定数（内部） | 数字の間の「:」「/」の前後の空白 | 「14 : 00」を「14:00」にする |
+| `EXCESS_BLANK_LINES_PATTERN` | 定数（内部） | 3行以上続く空行 | 空行を詰める |
+| `cleanOcrText(text)` | 関数（公開） | OCR の結果を整える | 日時の抽出で読める形にする |
 
 ## src/renderer/（画面）
 
@@ -378,6 +394,25 @@
 | `OPEN_CALENDAR_EVENTS_CHANNEL` | 定数 | 'calendar:open-events' | 登録要求のチャンネル名 |
 | `window.calendarApp.openCalendarEvents(events)` | 関数（画面に公開） | 予定の一覧をメインプロセスに渡す | 画面から使える唯一の機能。ipcRenderer そのものは公開しない |
 
+### ocrEngine.js（文字の読み取り）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `ORIENTATION_AUTO` / `ORIENTATION_HORIZONTAL` / `ORIENTATION_VERTICAL` | 定数（公開） | 'auto' ／ 'horizontal' ／ 'vertical' | 読み取りの向き（要件§12：縦書き対応） |
+| `ORIENTATIONS` | 定数（公開） | 向きの一覧 | 画面から届く値の検証 |
+| `OCR_TIMEOUT_MS` | 定数（公開） | 60000 | 1回の読み取りの制限時間（固まらないようにする） |
+| `MAX_IMAGE_BYTES` | 定数（公開） | 20MB | 大きすぎる画像を受け付けない |
+| `LANGUAGE_DATA_VARIANT` | 定数（内部） | '4.0.0_best_int' | 精度を保ったまま軽くした文字データ（各 約2MB） |
+| `LANGUAGE_SETTINGS` | 定数（内部） | 向きごとの文字データ名・PC 内のフォルダ・文章の並びの解析方法 | 外部から文字データを取得しない |
+| `OcrError` | クラス（公開） | 読み取りのエラー（利用者向けの文付き） | 画面でそのまま表示できるエラー |
+| `resolveLanguageDataDir(packageName)` | 関数（内部） | node_modules の中の文字データのフォルダを探す | PC 内の文字データを使う |
+| `getLanguageSettings()` | 関数（公開） | 向きごとの設定を返す | テストで設定を確かめる |
+| `ignoreWorkerError()` | 関数（内部） | 作業スレッドのエラーを受け流す | Tesseract.js の例外でアプリが止まらないようにする |
+| `buildWorkerOptions(setting)` | 関数（公開） | 作業スレッドの設定（PC 内のフォルダ・書き出しなし・エラー処理）を作る | 外部取得・ファイル書き出しの防止 |
+| `recognizeText(image, options)` | 関数（公開） | 画像から文字を読み取る（自動なら横・縦の両方で読み、確信度の高い方） | このファイルの中心 |
+| `chooseBetterResult(horizontal, vertical)` | 関数（公開） | 確信度の高い方を選ぶ（同じなら横書き） | 縦書きの自動判定 |
+| `recognizeWithOrientation(image, orientation, timeoutMs)` | 関数（内部） | 1つの向きで読み取り、必ず作業スレッドを終了する（時間切れでも） | CPU を使い続けない（要件§5.9） |
+
 ### main.js（起動とウインドウ）
 
 | 名前 | 種別 | 機能 | 目的 |
@@ -421,6 +456,17 @@
 | `main()` | 関数 | 確認全体を実行し、終了コードを返す | 確認の実行 |
 | `timeout` | 変数 | 制限時間のタイマー | 時間切れで失敗終了する |
 
+## scripts/generate-ocr-fixtures.js（OCR のテスト用の画像を作る）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `OUTPUT_DIR` | 定数 | test/fixtures/ocr | 画像の保存先 |
+| `FONT_FAMILY` | 定数 | Mac・Windows の標準の日本語書体 | 画面の文字に近い画像にする |
+| `EMAIL_LINES` / `CHAT_LINES` / `VERTICAL_LINES` | 定数 | 架空のメール・チャット・縦書きのお知らせ | 画像に描く文章 |
+| `FIXTURES` | 定数 | 作る画像の一覧（等倍・2倍、横書き・縦書き） | 画面の拡大率の違いを再現する |
+| `buildHtml(fixture)` | 関数 | 画像に描く HTML を作る | 文章の描画 |
+| `renderFixture(window, fixture)` | 関数 | 1枚の画像を作って保存する（同じ画面を書き換えて撮影） | 画像の作成 |
+
 ## test/（単体テスト）
 
 | ファイル | 主な名前 | 機能 | 目的 |
@@ -434,4 +480,7 @@
 | registration.test.js | `NOW`、`emptyDetails()`、`candidatesOf()` | 登録内容の組み立ての確認 | 終日／時刻指定、手入力、会議 URL の振り分け、元の文章の抜粋 |
 | calendarIpc.test.js | `sampleEvent()`、`createTestHandler()` | 登録要求の処理の確認（偽のブラウザを開く関数を使う） | 送信元・引数の検証、順に開く、二度押し、preload との整合 |
 | electronSecurity.test.js | `FIXTURE_ROOT`、`isInsideRoot()`、`createFakeSession()`、`createFakeContents()`、`createFakeEvent()` | セキュリティ設定と app:// の配信を偽物のオブジェクトで確認 | 設定を誤って緩めたら失敗させる |
+| ocrText.test.js | — | OCR の結果の整形の確認 | 空白の除去、整形後に日時を抽出できること |
+| ocrEngine.test.js | `FIXTURE_DIR`、`NOW`、`readFixture()` | 架空の画像で実際に読み取る | 横書き・縦書きの自動判定、PC 内の文字データの使用、ファイルを書き出さない、時間切れ |
 | fixtures/ | — | app:// のテスト用ファイル（`outside-secret.txt` は配信フォルダの外） | パストラバーサル対策の確認 |
+| fixtures/ocr/ | — | OCR のテスト用の架空の画像（横書きのメール 等倍・2倍、チャット、縦書きのお知らせ） | 文字の読み取りの確認 |

@@ -12,7 +12,7 @@
 ## 技術構成（決定事項）
 
 - Electron + React + Vite
-- OCR: Tesseract.js（`jpn`）。本体と言語データはアプリに同梱し、実行時に外部取得しない
+- OCR: Tesseract.js（`jpn` と縦書きの `jpn_vert`）。本体と文字データは npm の部品（`@tesseract.js-data/*`）として入れ、実行時に外部取得しない（`langPath` に PC 内のフォルダを必ず指定し、`cacheMethod: 'none'` でファイルに書き出さない）。OCR はメインプロセスの別スレッドで動かす（画面の CSP を緩めないため）
 - 日時抽出: PC内のルール処理（正規表現など）。外部AI/APIへ文面を送らない
 - 登録: `https://calendar.google.com/calendar/render?action=TEMPLATE...` を既定ブラウザで開く
 - 配布: GitHub 公開 + npm 起動（インストーラーは作らない）
@@ -74,7 +74,7 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 - 依存は最小限にする。追加前に「標準機能で代替できないか」「メンテされているか」を確認し、追加理由を依頼者に示す
 - バージョンは固定する（`^` `~` を使わない）。`package-lock.json` は必ずコミットし、CI・手順書では `npm ci` を使う
 - 追加・更新するときは、**公開から7日以上たった版**を使う（`npm install --before=<7日前の日付>` で依存の依存まで同じ基準にする）。公開直後の版は乗っ取り被害が見つかる前の可能性があるため。セキュリティ修正で急ぐ場合は理由を示して依頼者の承認を得る
-- `npm install` 時の lifecycle script を必要としない依存を選ぶ。必要な場合は理由を明記する（現在の依存にはない。Electron 本体は初回起動時に GitHub からダウンロードされ、パッケージ同梱のチェックサムで検証される）
+- `npm install` 時の lifecycle script を必要としない依存を選ぶ。`.npmrc` の `ignore-scripts=true` で、すべての部品のインストール時スクリプトを実行しない（tesseract.js の postinstall は寄付の案内を出すだけで不要。Electron 本体は初回起動時に GitHub からダウンロードされ、パッケージ同梱のチェックサムで検証される）。インストール時スクリプトが必要な部品を追加する場合は、理由を示して依頼者の承認を得る
 - 追加・更新のたびに `npm audit` を実行し、結果を報告する。high 以上は放置しない
 - 名前の似た偽パッケージ（typosquatting）に注意し、公式名・配布元を確認する
 

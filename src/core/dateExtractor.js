@@ -11,7 +11,7 @@
  *   漢字の数字：十月十五日、十五時三十分、二〇二六年 など（japaneseNumber.js で数値にする）
  *   時刻：14:00、14時、14時30分、14時半、午前/午後、全角数字、3pm・3:00 PM・PM3:00（英語の AM/PM）
  *   時間帯：正午(12時)、朝(9時)、昼(11時)、夕方(15時)、夜(18時)。「夜7時」→19時のように手がかりにもする
- *   範囲：14時〜15時、15:00-16:00、14時から15時
+ *   範囲：14時〜15時、15:00-16:00、14時から15時、14時15時（OCR で「〜」が抜けた形。後ろが遅いときだけ）
  * 対象外：複数日にまたがる範囲（10/15〜10/17）
  *
  * 判定のルール：
@@ -137,6 +137,9 @@ const NOON_WORD_PM_MAX_HOUR = 6;
 
 /** 開始時刻と終了時刻の区切り。例：〜 ~ - ― – — ー ‐ − から */
 const RANGE_SEPARATOR_PATTERN = /[ \t]{0,3}(?:[~〜\-―–—ー‐−]|から)[ \t]{0,3}/y;
+
+/** 区切りなしで続く2つ目の時刻の前に許す空白（OCR で「〜」が抜けた「14:00 15:00」など） */
+const ADJACENT_TIME_GAP_PATTERN = /[ \t]?/y;
 
 /**
  * 文章が長すぎるときのエラー。message はそのまま利用者に表示できる文にしている。
@@ -357,13 +360,22 @@ function matchTimeRange(text, index) {
   let endIndex = start.endIndex;
   let endTime = null;
 
+  // 「午後2時〜4時」のように終了側に午前/午後がなければ、開始側の「午後」を引き継ぐ
+  const inheritedMeridiem = startTime.meridiem === MERIDIEM_PM ? MERIDIEM_PM : null;
+
   // 区切り（〜 など）の後に時刻があれば終了時刻とする
   const separatorMatch = matchAt(RANGE_SEPARATOR_PATTERN, text, endIndex);
   if (separatorMatch !== null) {
-    // 「午後2時〜4時」のように終了側に午前/午後がなければ、開始側の「午後」を引き継ぐ
-    const inheritedMeridiem = startTime.meridiem === MERIDIEM_PM ? MERIDIEM_PM : null;
     const end = matchTimeAt(text, endIndex + separatorMatch[0].length, inheritedMeridiem);
     if (end !== null) {
+      endTime = end.time;
+      endIndex = end.endIndex;
+    }
+  } else {
+    // 区切りがなく時刻が2つ続く場合（OCR で「〜」が抜けた「14時15時」など）は、後ろの方が遅ければ範囲とみなす
+    const followingIndex = skipPattern(ADJACENT_TIME_GAP_PATTERN, text, endIndex);
+    const end = matchTimeAt(text, followingIndex, inheritedMeridiem);
+    if (end !== null && toMinutesOfDay(end.time) > toMinutesOfDay(startTime)) {
       endTime = end.time;
       endIndex = end.endIndex;
     }
@@ -401,6 +413,16 @@ function matchTimeAt(text, index, inheritedMeridiem) {
   const timeMatch = matchAt(TIME_PATTERN, text, index);
   const time = timeMatch === null ? null : parseTime(timeMatch.groups, inheritedMeridiem, null);
   return time === null ? null : { time, endIndex: index + timeMatch[0].length };
+}
+
+/**
+ * 時刻を、その日の 0:00 からの分数にする（2つの時刻の前後を比べるため）。
+ *
+ * @param {{hour: number, minute: number}} time
+ * @returns {number}
+ */
+function toMinutesOfDay(time) {
+  return time.hour * MINUTES_PER_HOUR + time.minute;
 }
 
 /**
