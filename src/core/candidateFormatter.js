@@ -77,3 +77,17 @@ export function describeWarning(warningCode) {
     ? WARNING_MESSAGES[warningCode]
     : UNKNOWN_WARNING_MESSAGE;
 }
+
+/**
+ * 登録した予定（calendarUrl.js の予定の形）の日時を1行の文字列にする。
+ *   時刻あり：2026年10月15日(木) 14:00〜15:00　終日：2026年10月15日(木) 終日
+ *
+ * @param {{allDay: boolean, start: object, end: object | null}} event
+ * @returns {string}
+ */
+export function formatEventLabel(event) {
+  if (event.allDay) {
+    return `${formatDateLabel(event.start)} 終日`;
+  }
+  return formatCandidateLabel({ hasTime: true, start: event.start, end: event.end });
+}

@@ -429,10 +429,29 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
     allDayQuery?.get('dates'),
   );
   record(
-    '登録の結果を知らせる',
-    (await connection.evaluate(`document.querySelector('.success-message')?.textContent ?? ''`)).includes('2 件の予定作成画面'),
+    '登録の確認：開いた2件が一覧に出て、未保存の件数を知らせる',
+    await connection.evaluate(`document.querySelectorAll('.checklist-item').length === 2 &&
+      document.querySelector('.checklist-guide')?.textContent.includes('保存した：0 / 2 件')`),
   );
   const registeredImage = await saveScreenshot(connection, screenshotDir, '02-registered.png');
+
+  // 「カレンダーで確認」で、1件目の日の表示を開く
+  await connection.evaluate(`document.querySelector('.checklist-item button').click()`);
+  await sleep(UI_SETTLE_MS);
+  const dayViewUrl = (await getOpenedUrls(mainConnection)).at(-1);
+  record(
+    '「カレンダーで確認」でその日の Googleカレンダーの表示を開く',
+    dayViewUrl === `https://calendar.google.com/calendar/r/day/${expected[0].start.year}/${expected[0].start.month}/${expected[0].start.day}`,
+    dayViewUrl,
+  );
+
+  // 「保存した」に2件ともチェックを付ける
+  await connection.evaluate(`document.querySelectorAll('.checklist-saved input').forEach((checkbox) => checkbox.click())`);
+  await sleep(UI_SETTLE_MS);
+  record(
+    '2件とも「保存した」にすると、すべて保存したと知らせる',
+    (await connection.evaluate(`document.querySelector('.registration-checklist .success-message')?.textContent ?? ''`)).includes('すべての予定（2 件）を保存しました'),
+  );
 
   // 5. 日付だけの候補で「時刻を指定」に切り替える（1件目のチェックは外す）
   await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[0].click()`);
@@ -494,8 +513,8 @@ async function checkSecurity(connection, mainConnection) {
   isExpectingErrors = true; // ここで起きるエラーは意図的に起こしたもの
 
   record(
-    '画面に公開されている機能は openCalendarEvents だけ',
-    JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp)`)) === JSON.stringify(['openCalendarEvents']) &&
+    '画面に公開されている機能は、決めた関数だけ（openCalendarEvents・openCalendarDay）',
+    JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp).sort()`)) === JSON.stringify(['openCalendarDay', 'openCalendarEvents']) &&
       (await connection.evaluate(`typeof window.ipcRenderer === 'undefined' && typeof window.electron === 'undefined'`)),
   );
   const openedBefore = (await getOpenedUrls(mainConnection)).length;
@@ -505,6 +524,15 @@ async function checkSecurity(connection, mainConnection) {
     window.calendarApp.openCalendarEvents([{ title: 'x'.repeat(100000), location: '', details: '', allDay: true, start: { year: 2026, month: 10, day: 15 }, end: null }]),
     window.calendarApp.openCalendarEvents(Array.from({ length: 31 }, () => ({ title: '', location: '', details: '', allDay: true, start: { year: 2026, month: 10, day: 15 }, end: null }))),
   ]).then((results) => results.map((result) => result.ok))`);
+  const invalidDayResults = await connection.evaluate(`Promise.all([
+    window.calendarApp.openCalendarDay('https://evil.example/'),
+    window.calendarApp.openCalendarDay({ year: 2026, month: 2, day: 30 }),
+    window.calendarApp.openCalendarDay(null),
+  ]).then((results) => results.map((result) => result.ok))`);
+  record(
+    '不正な「カレンダーで確認」の要求（URL・実在しない日付・空）は断られる',
+    JSON.stringify(invalidDayResults) === JSON.stringify([false, false, false]),
+  );
   record(
     '不正な登録要求（形式違い・空・長すぎる件名・31件）はメインプロセスで断られ、何も開かない',
     JSON.stringify(invalidResults) === JSON.stringify([false, false, false, false]) &&

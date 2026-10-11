@@ -2,9 +2,11 @@
  * App.jsx
  * 目的：確認ウインドウの画面全体。次の流れを管理する。
  *   文章の貼り付け → 日時の抽出（件名・場所・URL の下書きも）→ 候補の選択・追記 → Googleカレンダーの予定作成画面を開く
+ *   → 登録の確認（「保存した」のチェック、「カレンダーで確認」）
  */
 
 import { useMemo, useRef, useState } from 'react';
+import { formatEventLabel } from '../core/candidateFormatter.js';
 import { CalendarEventError, buildCalendarUrl } from '../core/calendarUrl.js';
 import {
   DEFAULT_DURATION_MINUTES,
@@ -64,8 +66,8 @@ export default function App() {
   const [isNoDateDialogOpen, setIsNoDateDialogOpen] = useState(false);
   /** ブラウザで開く処理の途中かどうか（二度押しを防ぐ） */
   const [isRegistering, setIsRegistering] = useState(false);
-  /** 登録の結果のお知らせ（なければ空文字） */
-  const [registerNotice, setRegisterNotice] = useState('');
+  /** 予定作成画面を開いた予定（登録の確認の一覧）。{id, label, title, date, saved} */
+  const [openedEvents, setOpenedEvents] = useState([]);
   /** 手入力の日付欄（「手入力する」を押したときに選択状態にする） */
   const manualDateInputRef = useRef(null);
   /** ダイアログが閉じたら手入力の日付欄に移るか */
@@ -92,7 +94,7 @@ export default function App() {
    */
   function handleExtract() {
     setErrorMessage('');
-    setRegisterNotice('');
+    setOpenedEvents([]);
     try {
       const result = extractDateCandidates(inputText, {
         now: new Date(),
@@ -129,7 +131,7 @@ export default function App() {
     setSelectedIds(new Set());
     setTimeChoices({});
     setEventDetails(EMPTY_EVENT_DETAILS);
-    setRegisterNotice('');
+    setOpenedEvents([]);
   }
 
   /**
@@ -218,7 +220,7 @@ export default function App() {
    */
   async function handleRegister() {
     setErrorMessage('');
-    setRegisterNotice('');
+    setOpenedEvents([]);
 
     const { events, errors } = buildCalendarEvents({
       candidates: allCandidates,
@@ -251,8 +253,16 @@ export default function App() {
     try {
       const result = await window.calendarApp.openCalendarEvents(events);
       if (result.ok) {
-        setRegisterNotice(
-          `${result.openedCount} 件の予定作成画面をブラウザで開きました。内容を確認して「保存」を押すと登録されます。`,
+        // 開いた予定を、登録の確認の一覧にする（すべて「未保存」から始める）
+        const openedAt = Date.now();
+        setOpenedEvents(
+          events.map((event, index) => ({
+            id: `opened-${openedAt}-${index}`,
+            label: formatEventLabel(event),
+            title: event.title,
+            date: { year: event.start.year, month: event.start.month, day: event.start.day },
+            saved: false,
+          })),
         );
       } else {
         setErrorMessage(result.message);
@@ -262,6 +272,37 @@ export default function App() {
       console.error('登録処理に失敗しました:', error?.name);
     } finally {
       setIsRegistering(false);
+    }
+  }
+
+  /**
+   * 登録の確認の一覧で「保存した」を切り替える。
+   *
+   * @param {string} openedEventId 開いた予定の ID
+   */
+  function handleToggleSaved(openedEventId) {
+    setOpenedEvents((previous) =>
+      previous.map((openedEvent) =>
+        openedEvent.id === openedEventId ? { ...openedEvent, saved: !openedEvent.saved } : openedEvent,
+      ),
+    );
+  }
+
+  /**
+   * 「カレンダーで確認」：その日の Googleカレンダーの表示を、既定のブラウザで開いてもらう。
+   *
+   * @param {{year: number, month: number, day: number}} date 確認する日付
+   */
+  async function handleOpenDay(date) {
+    setErrorMessage('');
+    try {
+      const result = await window.calendarApp.openCalendarDay(date);
+      if (!result.ok) {
+        setErrorMessage(result.message);
+      }
+    } catch (error) {
+      setErrorMessage(REGISTER_ERROR_MESSAGE);
+      console.error('カレンダーの表示を開けませんでした:', error?.name);
     }
   }
 
@@ -326,8 +367,10 @@ export default function App() {
           <RegisterSection
             selectedCount={selectedIds.size}
             isRegistering={isRegistering}
-            notice={registerNotice}
+            openedEvents={openedEvents}
             onRegister={handleRegister}
+            onToggleSaved={handleToggleSaved}
+            onOpenDay={handleOpenDay}
           />
         </section>
       </main>

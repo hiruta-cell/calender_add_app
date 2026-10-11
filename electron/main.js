@@ -11,7 +11,12 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP_ENTRY_URL, APP_SCHEME, APP_SCHEME_PRIVILEGES, handleAppRequest, isAppUrl } from './appProtocol.js';
-import { OPEN_CALENDAR_EVENTS_CHANNEL, createOpenCalendarEventsHandler } from './calendarIpc.js';
+import {
+  OPEN_CALENDAR_DAY_CHANNEL,
+  OPEN_CALENDAR_EVENTS_CHANNEL,
+  createOpenCalendarDayHandler,
+  createOpenCalendarEventsHandler,
+} from './calendarIpc.js';
 import { SECURE_WEB_PREFERENCES, applySessionSecurity, hardenWebContents } from './security.js';
 
 /** このファイルがあるフォルダ（electron/） */
@@ -108,6 +113,10 @@ function startApp() {
       openExternal: (url) => shell.openExternal(url),
       isTrustedSender,
     }),
+  );
+  ipcMain.handle(
+    OPEN_CALENDAR_DAY_CHANNEL,
+    createOpenCalendarDayHandler({ openExternal: (url) => shell.openExternal(url), isTrustedSender }),
   );
   createMainWindow();
 }

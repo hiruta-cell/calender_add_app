@@ -1,6 +1,7 @@
 /**
  * calendarIpc.js
  * 目的：画面から届いた「予定の一覧」を検証し、Googleカレンダーの予定作成画面を既定のブラウザで順に開く。
+ *       また、登録の確認のために、その日の Googleカレンダーの表示を開く（「カレンダーで確認」）。
  *
  * セキュリティ（CLAUDE.md）：
  *   (1) 送信元が確認ウインドウの画面（app://bundle の最上位のフレーム）かを確かめる
@@ -11,11 +12,20 @@
  * このファイルは electron を import しない。ブラウザを開く関数などは main.js から受け取るため、単体テストできる。
  */
 
-import { CalendarEventError, buildCalendarUrl, isAllowedCalendarUrl } from '../src/core/calendarUrl.js';
+import {
+  CalendarEventError,
+  buildCalendarUrl,
+  buildDayViewUrl,
+  isAllowedCalendarUrl,
+  isAllowedDayViewUrl,
+} from '../src/core/calendarUrl.js';
 import { MAX_CANDIDATES } from '../src/core/dateExtractor.js';
 
 /** 画面からの登録要求のチャンネル名（electron/preload.cjs と同じ値にする） */
 export const OPEN_CALENDAR_EVENTS_CHANNEL = 'calendar:open-events';
+
+/** 画面からの「カレンダーで確認」の要求のチャンネル名（electron/preload.cjs と同じ値にする） */
+export const OPEN_CALENDAR_DAY_CHANNEL = 'calendar:open-day';
 
 /** 複数の予定を開くときの間隔（ミリ秒）。続けて開くとブラウザが取りこぼすことがあるため */
 export const OPEN_INTERVAL_MS = 800;
@@ -118,6 +128,38 @@ export function createOpenCalendarEventsHandler({ openExternal, isTrustedSender,
       };
     } finally {
       isOpening = false;
+    }
+  };
+}
+
+/**
+ * 「カレンダーで確認」の要求を処理する関数を作る（ipcMain.handle に渡す）。
+ * 画面から受け取るのは日付（年月日）だけで、URL はここで組み立て、許可リストで確かめてから開く。
+ *
+ * @param {object} dependencies
+ * @param {(url: string) => Promise<void>} dependencies.openExternal 既定のブラウザで URL を開く関数（shell.openExternal）
+ * @param {(event: object) => boolean} dependencies.isTrustedSender 送信元が確認ウインドウの画面かを調べる関数
+ * @returns {(event: object, rawDate: unknown) => Promise<{ok: boolean, message?: string}>}
+ */
+export function createOpenCalendarDayHandler({ openExternal, isTrustedSender }) {
+  return async function handleOpenCalendarDay(event, rawDate) {
+    if (!isTrustedSender(event)) {
+      return { ok: false, message: UNTRUSTED_SENDER_MESSAGE };
+    }
+    let url;
+    try {
+      url = buildDayViewUrl(rawDate);
+    } catch (error) {
+      return { ok: false, message: error instanceof CalendarEventError ? error.message : UNEXPECTED_ERROR_MESSAGE };
+    }
+    if (!isAllowedDayViewUrl(url)) {
+      return { ok: false, message: '確認する画面の URL を確かめられませんでした。' };
+    }
+    try {
+      await openExternal(url);
+      return { ok: true };
+    } catch {
+      return { ok: false, message: 'ブラウザを開けませんでした。' };
     }
   };
 }

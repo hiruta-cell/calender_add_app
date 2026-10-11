@@ -9,6 +9,7 @@ import {
   describeWarning,
   formatCandidateLabel,
   formatDateLabel,
+  formatEventLabel,
   formatTimeLabel,
 } from '../src/core/candidateFormatter.js';
 import { WARNING_PAST, extractDateCandidates } from '../src/core/dateExtractor.js';
@@ -41,6 +42,13 @@ describe('candidateFormatter：候補の表示文字列', () => {
 
   test('時刻なしの候補は日付だけ', () => {
     assert.equal(formatCandidateLabel(firstCandidate('明日')), '2026年10月12日(月)');
+  });
+
+  test('登録した予定の表示：時刻あり・終日', () => {
+    const timed = { allDay: false, start: { year: 2026, month: 10, day: 15, hour: 14, minute: 0 }, end: { year: 2026, month: 10, day: 15, hour: 15, minute: 0 } };
+    assert.equal(formatEventLabel(timed), '2026年10月15日(木) 14:00〜15:00');
+    const allDay = { allDay: true, start: { year: 2026, month: 10, day: 16, hour: null, minute: null }, end: null };
+    assert.equal(formatEventLabel(allDay), '2026年10月16日(金) 終日');
   });
 
   test('警告コードを文に変換する（未知のコードも表示できる）', () => {

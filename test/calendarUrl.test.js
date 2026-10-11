@@ -10,7 +10,9 @@ import {
   MAX_CALENDAR_URL_LENGTH,
   MAX_TITLE_LENGTH,
   buildCalendarUrl,
+  buildDayViewUrl,
   isAllowedCalendarUrl,
+  isAllowedDayViewUrl,
   validateCalendarEvent,
 } from '../src/core/calendarUrl.js';
 
@@ -149,5 +151,38 @@ describe('isAllowedCalendarUrl：開いてよい URL（許可リスト）', () =
     ]) {
       assert.equal(isAllowedCalendarUrl(url), false, url);
     }
+  });
+});
+
+describe('buildDayViewUrl / isAllowedDayViewUrl：登録の確認用の「その日の表示」', () => {
+  test('年月日から https://calendar.google.com/calendar/r/day/年/月/日 を作り、許可リストを通る', () => {
+    const url = buildDayViewUrl({ year: 2026, month: 10, day: 15 });
+    assert.equal(url, 'https://calendar.google.com/calendar/r/day/2026/10/15');
+    assert.equal(isAllowedDayViewUrl(url), true);
+  });
+
+  test('実在しない日付・形式の違う値は CalendarEventError', () => {
+    for (const bad of [null, '2026-10-15', { year: 2026, month: 2, day: 30 }, { year: '2026', month: 10, day: 15 }, { year: 1900, month: 1, day: 1 }]) {
+      assert.throws(() => buildDayViewUrl(bad), CalendarEventError);
+    }
+  });
+
+  test('日の表示の形以外は拒否する（予定作成画面の URL も、こちらでは許可しない）', () => {
+    for (const url of [
+      'https://calendar.google.com/calendar/r/day/2026/10/15?x=1',
+      'https://calendar.google.com/calendar/r/day/2026/10/15#x',
+      'https://calendar.google.com/calendar/r/week/2026/10/15',
+      'https://calendar.google.com/calendar/r/day/2026/10/15/extra',
+      'https://calendar.google.com/calendar/r/settings',
+      'http://calendar.google.com/calendar/r/day/2026/10/15',
+      'https://evil.example/calendar/r/day/2026/10/15',
+      'https://calendar.google.com/calendar/render?action=TEMPLATE',
+    ]) {
+      assert.equal(isAllowedDayViewUrl(url), false, url);
+    }
+  });
+
+  test('日の表示の URL は、予定作成画面の許可リストでは拒否される（用途ごとに分けて確認する）', () => {
+    assert.equal(isAllowedCalendarUrl('https://calendar.google.com/calendar/r/day/2026/10/15'), false);
   });
 });

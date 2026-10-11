@@ -494,3 +494,61 @@ body {
 .error-banner-message {
   white-space: pre-line; /* 複数のエラーを改行して表示する */
 }
+
+/* ---- 登録の確認（開いた予定の一覧） ---- */
+.registration-checklist {
+  margin-top: 10px;
+}
+
+.checklist-guide {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--color-notice-background);
+  color: var(--color-notice-text);
+}
+
+.registration-checklist .success-message {
+  margin: 0;
+}
+
+/* 件数が多くても登録ボタンの欄が大きくなりすぎないよう、一覧の高さに上限を付ける */
+.checklist {
+  max-height: 140px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.checklist-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.checklist-saved {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.checklist-label {
+  overflow-wrap: anywhere;
+}
+
+.checklist-title {
+  margin-left: 8px;
+  color: var(--color-text-muted);
+}
+
+.button-small {
+  padding: 3px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
