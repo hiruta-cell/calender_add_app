@@ -5,14 +5,17 @@
  *
  * 常駐（要件§6.1）：確認ウインドウを閉じてもアプリは終了せず、トレイ（Mac はメニューバー）に残る。
  *   終了はトレイのメニューの「終了」（Mac は Cmd+Q も可）。
- * ホットキー（要件§12）：Ctrl+Shift+Y（Mac は Cmd+Shift+Y）で範囲キャプチャを始める。終了時に解除する。
- * 設定画面・デスクトップのアイコン・自動起動は、4日目に追加する。
+ * ホットキー（要件§12）：既定は Ctrl+Shift+Y（Mac は Cmd+Shift+Y）で範囲キャプチャを始める。設定画面で変えられる。終了時に解除する。
+ * 設定（要件§6.1）：予定の既定の長さ・ホットキーを settings.json に保存する（文章・画像は保存しない）。
+ * デスクトップのアイコン・ログイン時の自動起動（要件§12）：設定画面から作る・切り替える（desktopIntegration.js）。
+ *   自動起動では --hidden 付きで起動し、ウインドウを出さずに常駐する。
  */
 
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, protocol, session, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_SETTINGS, buildAccelerator, formatHotkeyLabel } from '../src/core/settings.js';
 import { APP_ENTRY_URL, APP_SCHEME, APP_SCHEME_PRIVILEGES, handleAppRequest, isAppUrl } from './appProtocol.js';
 import { OPEN_CALENDAR_EVENTS_CHANNEL, createOpenCalendarEventsHandler } from './calendarIpc.js';
 import { createCaptureController } from './captureController.js';
@@ -30,14 +33,36 @@ import {
   createCaptureHandlers,
   createOpenScreenSettingsHandler,
 } from './captureIpc.js';
+import {
+  DesktopIntegrationError,
+  HIDDEN_START_ARGUMENT,
+  WINDOWS_SHORTCUT_FILE_NAME,
+  buildWindowsLoginItemSettings,
+  buildWindowsShortcutOptions,
+  createMacDesktopAlias,
+  disableMacAutoStart,
+  enableMacAutoStart,
+  isMacAutoStartEnabled,
+  writeMacLauncher,
+} from './desktopIntegration.js';
 import { SECURE_WEB_PREFERENCES, applySessionSecurity, hardenWebContents } from './security.js';
+import {
+  DESKTOP_ICON_CHANNEL,
+  SETTINGS_GET_CHANNEL,
+  SETTINGS_SAVE_CHANNEL,
+  createSettingsHandlers,
+} from './settingsIpc.js';
+import { createSettingsStore } from './settingsStore.js';
 import { createAppTray } from './tray.js';
 
 /** このファイルがあるフォルダ（electron/） */
 const ELECTRON_DIR = path.dirname(fileURLToPath(import.meta.url));
 
+/** このアプリのフォルダ（package.json があるプロジェクトのフォルダ） */
+const APP_DIR = path.join(ELECTRON_DIR, '..');
+
 /** Vite がビルドした画面ファイルの置き場所。app:// ではこのフォルダの中だけを配信する */
-const RENDERER_DIST_DIR = path.join(ELECTRON_DIR, '..', 'dist', 'renderer');
+const RENDERER_DIST_DIR = path.join(APP_DIR, 'dist', 'renderer');
 
 /** 確認ウインドウに関数を公開する preload スクリプト（サンドボックスで動くため CommonJS） */
 const PRELOAD_PATH = path.join(ELECTRON_DIR, 'preload.cjs');
@@ -48,14 +73,25 @@ const OVERLAY_PRELOAD_PATH = path.join(ELECTRON_DIR, 'overlayPreload.cjs');
 /** Mac か（トレイのアイコンやホットキーの表記が違う） */
 const IS_MAC = process.platform === 'darwin';
 
+/** Windows か（デスクトップのアイコン・自動起動の作り方が違う） */
+const IS_WINDOWS = process.platform === 'win32';
+
+/** アイコンの置き場所 */
+const ICONS_DIR = path.join(APP_DIR, 'assets', 'icons');
+
 /** トレイのアイコン（Mac はメニューバー用の白黒の画像） */
-const TRAY_ICON_PATH = path.join(ELECTRON_DIR, '..', 'assets', 'icons', IS_MAC ? 'trayTemplate.png' : 'tray.png');
+const TRAY_ICON_PATH = path.join(ICONS_DIR, IS_MAC ? 'trayTemplate.png' : 'tray.png');
 
-/** 範囲キャプチャのホットキー（要件§12） */
-const CAPTURE_HOTKEY = 'CommandOrControl+Shift+Y';
+/** アプリのアイコン（Mac の Dock 用 PNG・Mac の起動用アプリ用 .icns・Windows のショートカット用 .ico） */
+const APP_ICON_PNG_PATH = path.join(ICONS_DIR, 'app.png');
+const APP_ICON_ICNS_PATH = path.join(ICONS_DIR, 'app.icns');
+const APP_ICON_ICO_PATH = path.join(ICONS_DIR, 'app.ico');
 
-/** ホットキーの、利用者に見せる表記 */
-const CAPTURE_HOTKEY_LABEL = IS_MAC ? 'Cmd+Shift+Y' : 'Ctrl+Shift+Y';
+/** Mac の起動用のアプリを置くフォルダ（Git には含めない） */
+const MAC_LAUNCHER_DIR = path.join(APP_DIR, 'launcher');
+
+/** ウインドウを出さずに起動したか（ログイン時の自動起動。要件§12） */
+const START_HIDDEN = process.argv.includes(HIDDEN_START_ARGUMENT);
 
 /** 確認ウインドウの大きさ（px） */
 const MAIN_WINDOW_SIZE = Object.freeze({ width: 1120, height: 760, minWidth: 820, minHeight: 560 });
@@ -63,14 +99,23 @@ const MAIN_WINDOW_SIZE = Object.freeze({ width: 1120, height: 760, minWidth: 820
 /** 確認ウインドウ。作成前と破棄した後は null */
 let mainWindow = null;
 
-/** トレイのアイコン（ガベージコレクションで消えないよう保持する） */
-let tray = null;
-
 /** アプリを終了しようとしているか（true なら確認ウインドウを閉じたとき隠さずに閉じる） */
 let isQuitting = false;
 
-/** ホットキーを登録できたか（ほかのアプリが使っていると登録できない） */
-let isHotkeyRegistered = false;
+/** 実際に登録できているホットキー（Electron の表記）。登録できていなければ null（ほかのアプリが使っている） */
+let registeredAccelerator = null;
+
+/** 今の設定（起動時に settings.json から読み込む。読めなければ既定値） */
+let currentSettings = DEFAULT_SETTINGS;
+
+/** 設定の保存先（app の準備ができてから作る） */
+let settingsStore = null;
+
+/** トレイ（メニューのホットキーの表記を変える関数付き） */
+let trayController = null;
+
+/** 最初の確認ウインドウを、ウインドウを出さずに作るか（自動起動のとき。2つ目以降は通常どおり表示する） */
+let shouldStartHidden = START_HIDDEN;
 
 /** 取り込んだ画像の置き場所（メモリの中だけ） */
 const captureImageStore = createCaptureImageStore();
@@ -105,7 +150,14 @@ function createMainWindow() {
     show: false, // 読み込みが終わってから表示する（白い画面のちらつきを防ぐ）
     webPreferences: { ...SECURE_WEB_PREFERENCES, preload: PRELOAD_PATH },
   });
-  window.once('ready-to-show', () => window.show());
+  // 自動起動のときは、最初のウインドウを出さずに常駐する（トレイ・ホットキーから使う）
+  const isHiddenStart = shouldStartHidden;
+  shouldStartHidden = false;
+  window.once('ready-to-show', () => {
+    if (!isHiddenStart) {
+      window.show();
+    }
+  });
   // 閉じるボタンでは終了せず隠す（常駐）。取り込んだ画像はこのときに消す
   window.on('close', (event) => {
     if (!isQuitting) {
@@ -151,6 +203,133 @@ function minimizeMainWindow() {
 }
 
 /**
+ * ホットキーを登録する。
+ *
+ * @param {string} accelerator Electron の表記（例：CommandOrControl+Shift+Y）
+ * @returns {boolean} 登録できたら true（ほかのアプリが使っていると false）
+ */
+function registerCaptureHotkey(accelerator) {
+  if (globalShortcut.register(accelerator, () => captureController.startCapture())) {
+    registeredAccelerator = accelerator;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * ホットキーを、設定の組み合わせに登録し直す（設定画面で変えたとき）。
+ * 新しい組み合わせを登録できなければ、元の組み合わせに戻して false を返す。
+ *
+ * @param {{hotkeyModifiers: string, hotkeyKey: string}} nextSettings 新しい設定（検証済み）
+ * @returns {boolean} 登録できたら true
+ */
+function changeCaptureHotkey(nextSettings) {
+  const previousAccelerator = registeredAccelerator;
+  if (previousAccelerator !== null) {
+    globalShortcut.unregister(previousAccelerator);
+    registeredAccelerator = null;
+  }
+  if (registerCaptureHotkey(buildAccelerator(nextSettings))) {
+    trayController?.setHotkeyLabel(formatHotkeyLabel(nextSettings, IS_MAC));
+    return true;
+  }
+  if (previousAccelerator !== null) {
+    registerCaptureHotkey(previousAccelerator); // 元に戻す
+  }
+  return false;
+}
+
+/**
+ * ホットキーの状態（登録できているか、利用者に見せる表記）を返す。
+ *
+ * @returns {{hotkeyRegistered: boolean, hotkeyLabel: string}}
+ */
+function getHotkeyStatus() {
+  return { hotkeyRegistered: registeredAccelerator !== null, hotkeyLabel: formatHotkeyLabel(currentSettings, IS_MAC) };
+}
+
+/**
+ * デスクトップにアイコンを作る（要件§12：G7）。
+ *   Mac：プロジェクトの launcher/ に起動用のアプリを作り、デスクトップにその分身を置く
+ *   Windows：デスクトップにショートカットを作る
+ *
+ * @returns {Promise<void>}
+ * @throws {DesktopIntegrationError} 作れなかった場合
+ */
+async function createDesktopIcon() {
+  if (IS_MAC) {
+    const launcherPath = await writeMacLauncher({
+      launcherDir: MAC_LAUNCHER_DIR,
+      electronPath: process.execPath,
+      appPath: APP_DIR,
+      iconPath: APP_ICON_ICNS_PATH,
+    });
+    await createMacDesktopAlias({ desktopDir: app.getPath('desktop'), launcherPath });
+    return;
+  }
+  if (IS_WINDOWS) {
+    const shortcutPath = path.join(app.getPath('desktop'), WINDOWS_SHORTCUT_FILE_NAME);
+    const options = buildWindowsShortcutOptions({ electronPath: process.execPath, appPath: APP_DIR, iconPath: APP_ICON_ICO_PATH });
+    if (!shell.writeShortcutLink(shortcutPath, 'create', options)) {
+      throw new DesktopIntegrationError('デスクトップにアイコンを作れませんでした。');
+    }
+    return;
+  }
+  throw new DesktopIntegrationError('この OS では、デスクトップのアイコンを作れません。');
+}
+
+/** ログイン時の自動起動（OS の登録の状態を正とする。要件§12：G8） */
+const autoStart = {
+  isSupported: IS_MAC || IS_WINDOWS,
+
+  /**
+   * 自動起動がオンか。
+   *
+   * @returns {Promise<boolean>}
+   */
+  async isEnabled() {
+    if (IS_MAC) {
+      return isMacAutoStartEnabled({ launchAgentsDir: path.join(app.getPath('home'), 'Library', 'LaunchAgents') });
+    }
+    if (IS_WINDOWS) {
+      return app.getLoginItemSettings(buildWindowsLoginItemSettings({ electronPath: process.execPath, appPath: APP_DIR })).openAtLogin;
+    }
+    return false;
+  },
+
+  /**
+   * 自動起動をオン／オフにする。Mac は起動用のアプリを最新のパスで作り直してから LaunchAgent を置く。
+   *
+   * @param {boolean} enabled オンにするなら true
+   * @returns {Promise<void>}
+   */
+  async setEnabled(enabled) {
+    if (IS_MAC) {
+      const launchAgentsDir = path.join(app.getPath('home'), 'Library', 'LaunchAgents');
+      if (!enabled) {
+        await disableMacAutoStart({ launchAgentsDir });
+        return;
+      }
+      const launcherPath = await writeMacLauncher({
+        launcherDir: MAC_LAUNCHER_DIR,
+        electronPath: process.execPath,
+        appPath: APP_DIR,
+        iconPath: APP_ICON_ICNS_PATH,
+      });
+      await enableMacAutoStart({ launchAgentsDir, launcherPath });
+      return;
+    }
+    if (IS_WINDOWS) {
+      app.setLoginItemSettings(
+        buildWindowsLoginItemSettings({ electronPath: process.execPath, appPath: APP_DIR, openAtLogin: enabled }),
+      );
+      return;
+    }
+    throw new DesktopIntegrationError('この OS では、ログイン時の自動起動を設定できません。');
+  },
+};
+
+/**
  * IPC の送信元が、確認ウインドウの画面（app://bundle の最上位のフレーム）かを調べる。
  * iframe や、万一読み込まれた外部ページからの要求は受け付けない（CLAUDE.md）。
  *
@@ -182,7 +361,7 @@ function registerIpcHandlers() {
   const captureHandlers = createCaptureHandlers({
     isTrustedSender,
     controller: captureController,
-    getAppStatus: () => ({ hotkeyRegistered: isHotkeyRegistered, hotkeyLabel: CAPTURE_HOTKEY_LABEL }),
+    getAppStatus: getHotkeyStatus,
   });
   ipcMain.handle(CAPTURE_START_CHANNEL, captureHandlers.handleStart);
   ipcMain.handle(CAPTURE_IMPORT_CHANNEL, captureHandlers.handleImport);
@@ -195,12 +374,29 @@ function registerIpcHandlers() {
     OPEN_SCREEN_SETTINGS_CHANNEL,
     createOpenScreenSettingsHandler({ isTrustedSender, openExternal, platform: process.platform }),
   );
+
+  const settingsHandlers = createSettingsHandlers({
+    isTrustedSender,
+    store: settingsStore,
+    getCurrentSettings: () => currentSettings,
+    setCurrentSettings: (settings) => {
+      currentSettings = settings;
+    },
+    changeHotkey: changeCaptureHotkey,
+    getHotkeyStatus,
+    autoStart,
+    createDesktopIcon,
+    platform: IS_MAC ? 'mac' : IS_WINDOWS ? 'windows' : 'other',
+  });
+  ipcMain.handle(SETTINGS_GET_CHANNEL, settingsHandlers.handleGet);
+  ipcMain.handle(SETTINGS_SAVE_CHANNEL, settingsHandlers.handleSave);
+  ipcMain.handle(DESKTOP_ICON_CHANNEL, settingsHandlers.handleCreateDesktopIcon);
 }
 
 /**
- * app の準備ができたら、セキュリティ設定を適用し、常駐・ホットキー・ウインドウを用意する。
+ * app の準備ができたら、セキュリティ設定を適用し、設定を読み込んで、常駐・ホットキー・ウインドウを用意する。
  */
-function startApp() {
+async function startApp() {
   if (!existsSync(path.join(RENDERER_DIST_DIR, 'index.html'))) {
     dialog.showErrorBox(
       '起動できません',
@@ -213,19 +409,26 @@ function startApp() {
   protocol.handle(APP_SCHEME, (request) =>
     handleAppRequest(request, RENDERER_DIST_DIR, (name) => captureImageStore.get(name)),
   );
+  // 設定を読み込む（読めない・壊れているときは既定値。アプリは止めない）
+  settingsStore = createSettingsStore(app.getPath('userData'));
+  currentSettings = await settingsStore.load();
   registerIpcHandlers();
 
-  tray = createAppTray({
+  trayController = createAppTray({
     iconPath: TRAY_ICON_PATH,
     isTemplateImage: IS_MAC,
-    hotkeyLabel: CAPTURE_HOTKEY_LABEL,
+    hotkeyLabel: formatHotkeyLabel(currentSettings, IS_MAC),
     onCapture: () => captureController.startCapture(),
     onShowWindow: showMainWindow,
     onQuit: () => app.quit(),
   });
+  // Mac の Dock に、このアプリのアイコンを表示する（起動用のアプリから起動したときも同じ見た目にする）
+  if (IS_MAC && existsSync(APP_ICON_PNG_PATH)) {
+    app.dock?.setIcon(APP_ICON_PNG_PATH);
+  }
 
   // 登録できなかった場合（ほかのアプリが使っている）は、確認ウインドウで知らせる（要件§12）
-  isHotkeyRegistered = globalShortcut.register(CAPTURE_HOTKEY, () => captureController.startCapture());
+  registerCaptureHotkey(buildAccelerator(currentSettings));
 
   createMainWindow();
 }

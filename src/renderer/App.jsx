@@ -9,12 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AUTO_RESET_DELAY_SECONDS, scheduleAutoReset } from '../core/autoReset.js';
 import { CalendarEventError, buildCalendarUrl } from '../core/calendarUrl.js';
-import {
-  DEFAULT_DURATION_MINUTES,
-  InputTooLongError,
-  MAX_CANDIDATES,
-  extractDateCandidates,
-} from '../core/dateExtractor.js';
+import { InputTooLongError, MAX_CANDIDATES, extractDateCandidates } from '../core/dateExtractor.js';
 import { extractEventDetails } from '../core/detailExtractor.js';
 import {
   DEFAULT_TIME_CHOICE,
@@ -22,6 +17,7 @@ import {
   buildCalendarEvents,
   createManualCandidate,
 } from '../core/registration.js';
+import { DEFAULT_SETTINGS } from '../core/settings.js';
 import CandidateList from './components/CandidateList.jsx';
 import CaptureImagePanel from './components/CaptureImagePanel.jsx';
 import ErrorBanner from './components/ErrorBanner.jsx';
@@ -30,6 +26,7 @@ import HighlightedText from './components/HighlightedText.jsx';
 import ManualDateForm from './components/ManualDateForm.jsx';
 import NoDateDialog from './components/NoDateDialog.jsx';
 import RegisterSection from './components/RegisterSection.jsx';
+import SettingsDialog from './components/SettingsDialog.jsx';
 import TextInputPanel from './components/TextInputPanel.jsx';
 import { convertImageFileToPng, findImageFile } from './imageImport.js';
 
@@ -106,6 +103,10 @@ export default function App() {
   const [capture, setCapture] = useState(EMPTY_CAPTURE);
   /** ホットキーの表記（例：Ctrl+Shift+Y）。メインプロセスから受け取る */
   const [hotkeyLabel, setHotkeyLabel] = useState('');
+  /** 予定の既定の長さ（分）。終了時刻が書かれていないときに使う。設定から受け取る（要件§5.4・§6.1） */
+  const [durationMinutes, setDurationMinutes] = useState(DEFAULT_SETTINGS.durationMinutes);
+  /** 設定画面の表示中かどうか */
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   /** 取り込み・読み取りの結果を受け取る処理（常に最新の処理を呼ぶための参照） */
   const captureStatusHandlerRef = useRef(null);
   /** 表示を初期状態に戻す処理（自動のクリアから、常に最新の処理を呼ぶための参照） */
@@ -146,7 +147,7 @@ export default function App() {
     try {
       const result = extractDateCandidates(text, {
         now: new Date(),
-        defaultDurationMinutes: DEFAULT_DURATION_MINUTES,
+        defaultDurationMinutes: durationMinutes,
       });
       const drafts = extractEventDetails(text);
       setExtraction({ text, candidates: result.candidates, truncated: result.truncated });
@@ -331,8 +332,29 @@ export default function App() {
         }
       })
       .catch(() => {});
+    // 予定の既定の長さを設定から受け取る（受け取れなければ既定の60分のまま）
+    window.calendarApp
+      .getSettings()
+      .then((result) => {
+        if (result.ok) setDurationMinutes(result.settings.durationMinutes);
+      })
+      .catch(() => {});
     return unsubscribe;
   }, []);
+
+  /**
+   * 設定画面で保存できたとき：予定の長さとホットキーの表記を新しい設定にする。
+   * ホットキーを登録できるようになったら、「登録できませんでした」の表示を消す。
+   *
+   * @param {{settings: {durationMinutes: number}, hotkeyRegistered: boolean, hotkeyLabel: string}} result 保存の結果
+   */
+  function handleSettingsSaved(result) {
+    setDurationMinutes(result.settings.durationMinutes);
+    setHotkeyLabel(result.hotkeyLabel);
+    if (result.hotkeyRegistered && errorMessage === HOTKEY_UNAVAILABLE_MESSAGE) {
+      setErrorMessage('');
+    }
+  }
 
   /**
    * 「画面から読み取る」：範囲キャプチャを始めてもらう（結果は handleCaptureStatus に届く）。
@@ -464,7 +486,7 @@ export default function App() {
       timeChoices,
       details: eventDetails,
       sourceText: extraction?.text ?? '',
-      defaultDurationMinutes: DEFAULT_DURATION_MINUTES,
+      defaultDurationMinutes: durationMinutes,
     });
     if (errors.length > 0) {
       setErrorMessage(errors.join('\n'));
@@ -508,6 +530,9 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>カレンダー登録ツール</h1>
+        <button type="button" className="button button-secondary" onClick={() => setIsSettingsOpen(true)}>
+          設定
+        </button>
       </header>
 
       {errorMessage !== '' && (
@@ -570,7 +595,7 @@ export default function App() {
                 onToggle={handleToggleCandidate}
                 timeChoices={timeChoices}
                 onTimeChoiceChange={handleTimeChoiceChange}
-                defaultDurationMinutes={DEFAULT_DURATION_MINUTES}
+                defaultDurationMinutes={durationMinutes}
               />
               <ManualDateForm
                 onAdd={(date) => handleAddManualDate(date)}
@@ -599,8 +624,10 @@ export default function App() {
         open={isNoDateDialogOpen}
         onClose={() => setIsNoDateDialogOpen(false)}
         onAddManual={handleAddFromDialog}
-        defaultDurationMinutes={DEFAULT_DURATION_MINUTES}
+        defaultDurationMinutes={durationMinutes}
       />
+
+      <SettingsDialog open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onSaved={handleSettingsSaved} />
     </div>
   );
 }

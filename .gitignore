@@ -35,3 +35,6 @@ test-results/
 # 取り込み画像・実メール（個人情報の混入防止）
 captures/
 *.png.tmp
+
+# Mac の起動用アプリ（PC 内のパスを含むため。electron/main.js の MAC_LAUNCHER_DIR）
+launcher/

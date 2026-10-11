@@ -1,6 +1,6 @@
 /**
  * preload.cjs
- * 目的：確認ウインドウの画面（React）に、カレンダー登録と範囲キャプチャに必要な最小限の関数だけを公開する。
+ * 目的：確認ウインドウの画面（React）に、カレンダー登録・範囲キャプチャ・設定に必要な最小限の関数だけを公開する。
  *
  * - contextBridge で公開した関数だけが画面から使える。ipcRenderer そのものや汎用の送信関数は公開しない（CLAUDE.md）。
  * - サンドボックスの中で動くため、CommonJS（require）で書く。ES モジュールの import は使えない。
@@ -26,6 +26,14 @@ const APP_STATUS_CHANNEL = 'app:get-status';
 const CAPTURE_STATUS_CHANNEL = 'capture:status';
 /** Mac の画面収録の設定画面を開く */
 const OPEN_SCREEN_SETTINGS_CHANNEL = 'system:open-screen-settings';
+
+/** 以下は electron/settingsIpc.js の同名の定数と同じ値 */
+/** 設定を取得する */
+const SETTINGS_GET_CHANNEL = 'settings:get';
+/** 設定を保存する */
+const SETTINGS_SAVE_CHANNEL = 'settings:save';
+/** デスクトップにアイコンを作る */
+const DESKTOP_ICON_CHANNEL = 'settings:create-desktop-icon';
 
 contextBridge.exposeInMainWorld('calendarApp', {
   /**
@@ -80,6 +88,28 @@ contextBridge.exposeInMainWorld('calendarApp', {
    * @returns {Promise<{ok: boolean, message?: string}>}
    */
   openScreenRecordingSettings: () => ipcRenderer.invoke(OPEN_SCREEN_SETTINGS_CHANNEL),
+
+  /**
+   * 今の設定（予定の既定の長さ・ホットキー）と、自動起動・ホットキーの状態を受け取る。
+   *
+   * @returns {Promise<{ok: boolean, settings?: object, autoStart?: boolean, autoStartSupported?: boolean, platform?: string, hotkeyRegistered?: boolean, hotkeyLabel?: string, message?: string}>}
+   */
+  getSettings: () => ipcRenderer.invoke(SETTINGS_GET_CHANNEL),
+
+  /**
+   * 設定を保存してもらう（検証・ホットキーの登録し直し・自動起動の切り替えは、メインプロセス側で行う）。
+   *
+   * @param {{durationMinutes: number, hotkeyModifiers: string, hotkeyKey: string, autoStart: boolean}} settings 設定
+   * @returns {Promise<{ok: boolean, settings?: object, autoStart?: boolean, hotkeyRegistered?: boolean, hotkeyLabel?: string, message?: string}>}
+   */
+  saveSettings: (settings) => ipcRenderer.invoke(SETTINGS_SAVE_CHANNEL, settings),
+
+  /**
+   * デスクトップにアイコンを作ってもらう（場所・名前・中身はメインプロセスで決まっている）。
+   *
+   * @returns {Promise<{ok: boolean, message: string}>}
+   */
+  createDesktopIcon: () => ipcRenderer.invoke(DESKTOP_ICON_CHANNEL),
 
   /**
    * 取り込み・読み取りの進み具合と結果を受け取る関数を登録する。

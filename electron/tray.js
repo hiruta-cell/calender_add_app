@@ -16,23 +16,29 @@ import { Menu, Tray, nativeImage } from 'electron';
  * @param {() => void} options.onCapture 「範囲を選んで読み取る」を選んだときの処理
  * @param {() => void} options.onShowWindow 「確認ウインドウを開く」を選んだときの処理
  * @param {() => void} options.onQuit 「終了」を選んだときの処理
- * @returns {Electron.Tray}
+ * @returns {{tray: Electron.Tray, setHotkeyLabel: (label: string) => void}}
+ *   トレイ（ガベージコレクションで消えないよう保持すること）と、メニューのホットキーの表記を変える関数（設定の変更時）
  */
 export function createAppTray({ iconPath, isTemplateImage, hotkeyLabel, onCapture, onShowWindow, onQuit }) {
   const icon = nativeImage.createFromPath(iconPath);
   icon.setTemplateImage(isTemplateImage);
   const tray = new Tray(icon);
   tray.setToolTip('カレンダー登録ツール');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: `範囲を選んで読み取る（${hotkeyLabel}）`, click: onCapture },
-      { label: '確認ウインドウを開く', click: onShowWindow },
-      { type: 'separator' },
-      { label: '終了', click: onQuit },
-    ]),
-  );
+
+  /** メニューを作り直す（ホットキーの表記を入れる） */
+  const setHotkeyLabel = (label) => {
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: `範囲を選んで読み取る（${label}）`, click: onCapture },
+        { label: '確認ウインドウを開く', click: onShowWindow },
+        { type: 'separator' },
+        { label: '終了', click: onQuit },
+      ]),
+    );
+  };
+  setHotkeyLabel(hotkeyLabel);
   if (!isTemplateImage) {
     tray.on('click', onShowWindow); // Windows：左クリックで確認ウインドウを開く（右クリックでメニュー）
   }
-  return tray;
+  return { tray, setHotkeyLabel };
 }
