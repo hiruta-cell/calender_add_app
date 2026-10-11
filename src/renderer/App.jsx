@@ -72,6 +72,8 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   /** 抽出結果 { text: 抽出したときの文章, candidates: 候補, truncated: 候補を省いたか }。未抽出なら null */
   const [extraction, setExtraction] = useState(null);
+  /** 右の欄（候補と予定の内容）のスクロールする部分。抽出し直したら一番上に戻す */
+  const resultPaneRef = useRef(null);
   /** 手入力で追加した候補 */
   const [manualCandidates, setManualCandidates] = useState([]);
   /** 手入力の候補の通し番号（ID が重ならないようにする） */
@@ -315,6 +317,14 @@ export default function App() {
       onCancel: () => setAutoResetId(0),
     });
   }, [autoResetId]);
+
+  // 抽出し直したら（抽出結果が変わったら）、右の欄を一番上に戻す。
+  // 下までスクロールしたまま別の文章を抽出すると、新しい候補が見えない位置に出てしまうため（実機の確認で見つけた使いにくさ）
+  useEffect(() => {
+    if (extraction !== null && resultPaneRef.current !== null) {
+      resultPaneRef.current.scrollTop = 0;
+    }
+  }, [extraction]);
 
   // 起動時：取り込みの結果の受け取りを登録し、設定（予定の既定の長さ）とホットキーが使えるかを1回で受け取る
   // （受け取れなければ、既定の60分・既定のキーの表記のまま）
@@ -579,7 +589,7 @@ export default function App() {
 
         {/* 右の欄：候補と入力欄はスクロールし、登録ボタンの欄は下端に固定して常に見えるようにする */}
         <section className="pane pane-with-footer" aria-label="日時の候補と予定の内容">
-          <div className="pane-body">
+          <div className="pane-body" ref={resultPaneRef}>
             <div>
               <h2 className="section-title">日時の候補</h2>
               <CandidateList

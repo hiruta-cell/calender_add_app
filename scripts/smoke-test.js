@@ -929,6 +929,17 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   await sleep(UI_SETTLE_MS);
   const detailsImage = await saveScreenshot(connection, screenshotDir, '07-event-details.png');
 
+  // 3-3. 右の欄を下までスクロールしたまま抽出し直すと、一番上に戻る（新しい候補が見える位置に出る）
+  const scrolledTop = await connection.evaluate(`(() => {
+    const pane = document.querySelector('.pane-with-footer .pane-body');
+    pane.scrollTop = pane.scrollHeight;
+    return pane.scrollTop;
+  })()`);
+  await clickButton(connection, '日時を抽出');
+  await sleep(UI_SETTLE_MS);
+  const scrollTopAfter = await connection.evaluate(`document.querySelector('.pane-with-footer .pane-body').scrollTop`);
+  record('抽出し直すと、右の欄が一番上に戻る', scrolledTop > 0 && scrollTopAfter === 0, `${scrolledTop} → ${scrollTopAfter}`);
+
   // 4. 1件目（時刻あり）と3件目（明日・日付だけ）にチェックを付けて登録する
   await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[0].click()`);
   await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[2].click()`);

@@ -93,7 +93,7 @@
 | `LICENSE` | ライセンス（MIT） |
 | `docs/CODE-REFERENCE.md` | このファイル。フォルダ・ファイル・変数・関数の説明 |
 | `docs/ACCEPTANCE.md` | ゴール（受け入れ基準）と確認の記録 |
-| `docs/WINDOWS-CHECK.md` | Windows での起動確認の手順（依頼者が実施） |
+| `docs/WINDOWS-CHECK.md` | Windows での最終版の確認の手順（依頼者が実施。clone からの起動・文章からの登録・画像の読み取り・キー操作・設定・デスクトップのアイコン・自動起動。番号ごとに OK／NG を記録） |
 
 ## データの形：日時の候補（`extractDateCandidates` が返すもの）
 
@@ -378,6 +378,7 @@
 | `isSettingsOpen` | 状態 | 設定画面を表示中か | ヘッダーの「設定」ボタン |
 | `captureStatusHandlerRef` | 参照 | 読み取り結果を受け取る最新の処理 | 起動時に1回だけ登録しても最新の処理を呼ぶ |
 | `resetToInitialStateRef` | 参照 | 表示を初期状態に戻す最新の処理 | 自動のクリアから呼ぶ |
+| `resultPaneRef` / （抽出し直したら上に戻す処理） | 参照・処理 | 右の欄のスクロールする部分／抽出結果が変わったら一番上に戻す | 下までスクロールしたまま抽出し直しても、新しい候補が見える位置に出る |
 | `allCandidates` | 計算値 | 抽出した候補と手入力の候補 | 候補の一覧・登録に使う |
 | `highlightRanges` | 計算値 | すべての候補の位置をまとめたもの | 色付けに渡す |
 | `isInputChangedAfterExtraction` | 計算値 | 抽出後に文章が書き換えられたか | 再抽出を促すお知らせの表示 |
@@ -730,7 +731,7 @@
 | `restoreMinimizedMainWindow(mainConnection)` | 関数 | 確認ウインドウが最小化されるのを待って元に戻す | 最初の登録で最小化を確かめる。戻さないと続く確認・画面の画像が取れないため |
 | `replaceMinimize(mainConnection)` / `getMinimizeCount(mainConnection)` | 関数 | 確認ウインドウの最小化を、回数を数えるだけの関数に差し替える／その回数を受け取る | 2回目以降の登録で最小化の動きを待たない。不正な登録要求で最小化しないことの確認 |
 | `saveScreenshot(connection, directory, fileName)` | 関数 | 画面の画像を保存 | 見た目の確認 |
-| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 件名の上限と残りの文字数・URL のフィッシングの注意（会議サービス・それ以外。画面の画像 07-event-details.png）・抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・エラー表示を確認 | 機能の確認 |
+| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出し直すと右の欄が一番上に戻ること・件名の上限と残りの文字数・URL のフィッシングの注意（会議サービス・それ以外。画面の画像 07-event-details.png）・抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・エラー表示を確認 | 機能の確認 |
 | `checkAutoReset(connection, mainConnection)` | 関数 | 登録のあと、操作するとクリアせず、操作しないと初期状態に戻ることを確認（画面の setTimeout の60秒だけを短くする） | 自動のクリアの確認（依頼者の指示） |
 | `replaceScreenCapture(mainConnection)` | 関数 | 画面の撮影を、架空の画像を返す関数に差し替える | 利用者の画面を撮影しない |
 | `connectToOverlay(port, connection)` / `waitForOverlayClosed(port)` | 関数 | 範囲選択の画面に接続する／閉じるまで待つ（上限付き） | 範囲選択の確認 |
