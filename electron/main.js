@@ -1,12 +1,15 @@
 /**
  * main.js（Electron のメインプロセス）
- * 目的：アプリの起動、確認ウインドウの作成、セキュリティ設定の適用を行う。
+ * 目的：アプリの起動、確認ウインドウの作成、常駐（トレイ）とホットキー、セキュリティ設定、
+ *       画面とメインプロセスの通信（IPC）の受け付けを行う。
  *
- * 2日目の範囲：確認ウインドウを開き、画面からの登録要求を受けて予定作成画面をブラウザで開く。
- * タスクトレイ常駐・ホットキー・範囲キャプチャ・設定は、3日目以降に追加する。
+ * 常駐（要件§6.1）：確認ウインドウを閉じてもアプリは終了せず、トレイ（Mac はメニューバー）に残る。
+ *   終了はトレイのメニューの「終了」（Mac は Cmd+Q も可）。
+ * ホットキー（要件§12）：Ctrl+Shift+Y（Mac は Cmd+Shift+Y）で範囲キャプチャを始める。終了時に解除する。
+ * 設定画面・デスクトップのアイコン・自動起動は、4日目に追加する。
  */
 
-import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, protocol, session, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +20,20 @@ import {
   createOpenCalendarDayHandler,
   createOpenCalendarEventsHandler,
 } from './calendarIpc.js';
+import { createCaptureController } from './captureController.js';
+import { createCaptureImageStore } from './captureImageStore.js';
+import {
+  APP_STATUS_CHANNEL,
+  CAPTURE_CLEAR_CHANNEL,
+  CAPTURE_REREAD_CHANNEL,
+  CAPTURE_START_CHANNEL,
+  CAPTURE_STATUS_CHANNEL,
+  OVERLAY_CANCEL_CHANNEL,
+  OVERLAY_SELECT_CHANNEL,
+  createCaptureHandlers,
+} from './captureIpc.js';
 import { SECURE_WEB_PREFERENCES, applySessionSecurity, hardenWebContents } from './security.js';
+import { createAppTray } from './tray.js';
 
 /** このファイルがあるフォルダ（electron/） */
 const ELECTRON_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -25,14 +41,55 @@ const ELECTRON_DIR = path.dirname(fileURLToPath(import.meta.url));
 /** Vite がビルドした画面ファイルの置き場所。app:// ではこのフォルダの中だけを配信する */
 const RENDERER_DIST_DIR = path.join(ELECTRON_DIR, '..', 'dist', 'renderer');
 
-/** 画面に関数を公開する preload スクリプト（サンドボックスで動くため CommonJS） */
+/** 確認ウインドウに関数を公開する preload スクリプト（サンドボックスで動くため CommonJS） */
 const PRELOAD_PATH = path.join(ELECTRON_DIR, 'preload.cjs');
+
+/** 範囲選択の画面に関数を公開する preload スクリプト */
+const OVERLAY_PRELOAD_PATH = path.join(ELECTRON_DIR, 'overlayPreload.cjs');
+
+/** Mac か（トレイのアイコンやホットキーの表記が違う） */
+const IS_MAC = process.platform === 'darwin';
+
+/** トレイのアイコン（Mac はメニューバー用の白黒の画像） */
+const TRAY_ICON_PATH = path.join(ELECTRON_DIR, '..', 'assets', 'icons', IS_MAC ? 'trayTemplate.png' : 'tray.png');
+
+/** 範囲キャプチャのホットキー（要件§12） */
+const CAPTURE_HOTKEY = 'CommandOrControl+Shift+Y';
+
+/** ホットキーの、利用者に見せる表記 */
+const CAPTURE_HOTKEY_LABEL = IS_MAC ? 'Cmd+Shift+Y' : 'Ctrl+Shift+Y';
 
 /** 確認ウインドウの大きさ（px） */
 const MAIN_WINDOW_SIZE = Object.freeze({ width: 1120, height: 760, minWidth: 820, minHeight: 560 });
 
-/** 確認ウインドウ。作成前と閉じた後は null */
+/** 確認ウインドウ。作成前と破棄した後は null */
 let mainWindow = null;
+
+/** トレイのアイコン（ガベージコレクションで消えないよう保持する） */
+let tray = null;
+
+/** アプリを終了しようとしているか（true なら確認ウインドウを閉じたとき隠さずに閉じる） */
+let isQuitting = false;
+
+/** ホットキーを登録できたか（ほかのアプリが使っていると登録できない） */
+let isHotkeyRegistered = false;
+
+/** 取り込んだ画像の置き場所（メモリの中だけ） */
+const captureImageStore = createCaptureImageStore();
+
+/** 範囲キャプチャから OCR までの処理 */
+const captureController = createCaptureController({
+  imageStore: captureImageStore,
+  getMainWindow: () => mainWindow,
+  showMainWindow,
+  sendStatus: (status) => {
+    if (mainWindow !== null && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(CAPTURE_STATUS_CHANNEL, status);
+    }
+  },
+  overlayPreloadPath: OVERLAY_PRELOAD_PATH,
+  webPreferences: SECURE_WEB_PREFERENCES,
+});
 
 // ---- app の準備完了（ready）より前に行う必要がある設定 ----
 
@@ -51,6 +108,15 @@ function createMainWindow() {
     webPreferences: { ...SECURE_WEB_PREFERENCES, preload: PRELOAD_PATH },
   });
   window.once('ready-to-show', () => window.show());
+  // 閉じるボタンでは終了せず隠す（常駐）。取り込んだ画像はこのときに消す
+  window.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      window.hide();
+      captureController.clearCapture();
+      window.webContents.send(CAPTURE_STATUS_CHANNEL, { state: 'cleared' });
+    }
+  });
   window.on('closed', () => {
     mainWindow = null;
   });
@@ -61,16 +127,17 @@ function createMainWindow() {
 }
 
 /**
- * 2つ目の起動が行われたとき、すでに開いている確認ウインドウを前面に出す。
+ * 確認ウインドウを表示して前面に出す（なければ作る）。
  */
-function focusMainWindow() {
-  if (mainWindow === null) {
+function showMainWindow() {
+  if (mainWindow === null || mainWindow.isDestroyed()) {
     createMainWindow();
     return;
   }
   if (mainWindow.isMinimized()) {
     mainWindow.restore();
   }
+  mainWindow.show();
   mainWindow.focus();
 }
 
@@ -93,7 +160,29 @@ function isTrustedSender(event) {
 }
 
 /**
- * app の準備ができたら、セキュリティ設定を適用してウインドウを開く。
+ * 画面からの要求（IPC）の受け付けを登録する。
+ */
+function registerIpcHandlers() {
+  // 呼ぶたびに shell.openExternal を参照する（実機の自動確認で差し替えられるようにするため）
+  const openExternal = (url) => shell.openExternal(url);
+  ipcMain.handle(OPEN_CALENDAR_EVENTS_CHANNEL, createOpenCalendarEventsHandler({ openExternal, isTrustedSender }));
+  ipcMain.handle(OPEN_CALENDAR_DAY_CHANNEL, createOpenCalendarDayHandler({ openExternal, isTrustedSender }));
+
+  const captureHandlers = createCaptureHandlers({
+    isTrustedSender,
+    controller: captureController,
+    getAppStatus: () => ({ hotkeyRegistered: isHotkeyRegistered, hotkeyLabel: CAPTURE_HOTKEY_LABEL }),
+  });
+  ipcMain.handle(CAPTURE_START_CHANNEL, captureHandlers.handleStart);
+  ipcMain.handle(CAPTURE_REREAD_CHANNEL, captureHandlers.handleReread);
+  ipcMain.handle(CAPTURE_CLEAR_CHANNEL, captureHandlers.handleClear);
+  ipcMain.handle(APP_STATUS_CHANNEL, captureHandlers.handleAppStatus);
+  ipcMain.handle(OVERLAY_SELECT_CHANNEL, (event, rect) => captureController.handleOverlaySelect(event, rect));
+  ipcMain.handle(OVERLAY_CANCEL_CHANNEL, (event) => captureController.handleOverlayCancel(event));
+}
+
+/**
+ * app の準備ができたら、セキュリティ設定を適用し、常駐・ホットキー・ウインドウを用意する。
  */
 function startApp() {
   if (!existsSync(path.join(RENDERER_DIST_DIR, 'index.html'))) {
@@ -105,19 +194,23 @@ function startApp() {
     return;
   }
   applySessionSecurity(session.defaultSession);
-  protocol.handle(APP_SCHEME, (request) => handleAppRequest(request, RENDERER_DIST_DIR));
-  ipcMain.handle(
-    OPEN_CALENDAR_EVENTS_CHANNEL,
-    createOpenCalendarEventsHandler({
-      // 呼ぶたびに shell.openExternal を参照する（実機の自動確認で差し替えられるようにするため）
-      openExternal: (url) => shell.openExternal(url),
-      isTrustedSender,
-    }),
+  protocol.handle(APP_SCHEME, (request) =>
+    handleAppRequest(request, RENDERER_DIST_DIR, (name) => captureImageStore.get(name)),
   );
-  ipcMain.handle(
-    OPEN_CALENDAR_DAY_CHANNEL,
-    createOpenCalendarDayHandler({ openExternal: (url) => shell.openExternal(url), isTrustedSender }),
-  );
+  registerIpcHandlers();
+
+  tray = createAppTray({
+    iconPath: TRAY_ICON_PATH,
+    isTemplateImage: IS_MAC,
+    hotkeyLabel: CAPTURE_HOTKEY_LABEL,
+    onCapture: () => captureController.startCapture(),
+    onShowWindow: showMainWindow,
+    onQuit: () => app.quit(),
+  });
+
+  // 登録できなかった場合（ほかのアプリが使っている）は、確認ウインドウで知らせる（要件§12）
+  isHotkeyRegistered = globalShortcut.register(CAPTURE_HOTKEY, () => captureController.startCapture());
+
   createMainWindow();
 }
 
@@ -126,20 +219,25 @@ function startApp() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', focusMainWindow);
+  app.on('second-instance', showMainWindow);
   // 画面が作られるたびに、ページ移動・新しいウインドウの制限をかける
   app.on('web-contents-created', (_event, contents) => hardenWebContents(contents));
-  // Mac 以外は、ウインドウをすべて閉じたら終了する（Mac はメニューバーのアプリ名 → 終了 で閉じる）
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      app.quit();
+  // ウインドウがすべて閉じても終了しない（常駐する）。何もしない処理を登録すると自動で終了しなくなる
+  app.on('window-all-closed', () => {});
+  // Mac で Dock のアイコンを押したら、確認ウインドウを表示する
+  app.on('activate', () => {
+    if (app.isReady()) {
+      showMainWindow();
     }
   });
-  // Mac で Dock のアイコンを押したとき、ウインドウがなければ作り直す
-  app.on('activate', () => {
-    if (mainWindow === null && app.isReady()) {
-      createMainWindow();
-    }
+  // 終了するときは、確認ウインドウを隠さずに閉じる
+  app.on('before-quit', () => {
+    isQuitting = true;
+  });
+  // 終了するときに、ホットキーを解除し（ほかのアプリが使えるように）、取り込んだ画像を消す（要件§5.9）
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+    captureController.clearCapture();
   });
   app
     .whenReady()
