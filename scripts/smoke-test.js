@@ -410,6 +410,7 @@ function setSelectValue(connection, selector, value) {
 /**
  * メインプロセスのクリップボードの読み取り（clipboard.readText）を、決めた文章を返す関数に差し替える。
  * 利用者のクリップボードの中身を読んだり書き換えたりしないため。元の関数は restoreClipboardText で戻す。
+ * 本物（Electron 44）と同じく Promise で返す（すぐ文字列を返す偽物では、待ち忘れの不具合を見逃したため）。
  *
  * @param {DevToolsConnection} mainConnection メインプロセスへの接続
  * @param {string} text 読み取ったことにする文章（架空のもの）
@@ -419,7 +420,7 @@ async function replaceClipboardText(mainConnection, text) {
     `(() => {
       const { clipboard } = require('electron');
       globalThis.__smokeTestOriginalReadText ??= clipboard.readText;
-      clipboard.readText = () => ${JSON.stringify(text)};
+      clipboard.readText = async () => ${JSON.stringify(text)};
     })()`,
     { commandLineApi: true },
   );

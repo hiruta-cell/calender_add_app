@@ -593,7 +593,7 @@
 | `changeCaptureHotkey(nextSettings)` | 関数 | 今のホットキーを外して新しいものを登録する（範囲キャプチャのキーを登録できなければ元に戻す）。トレイの表記も変える | 設定画面でのホットキーの変更 |
 | `getHotkeyStatus()` | 関数 | 2つのホットキーが使えるか・その表記を返す | 画面の案内 |
 | `sendCaptureStatus(status)` | 関数 | 取り込み・読み取りの結果を確認ウインドウに送る（読み込み中なら読み込み後に送る） | 範囲キャプチャとコピーした文章の読み取りで共通に使う |
-| `importClipboardText()` | 関数 | 確認ウインドウを出し、コピーした文章を読んで送る（範囲の選択・読み取りの途中なら断る。前に取り込んだ画像は消す） | ホットキー・トレイ・ボタンからのコピーした文章の読み取り |
+| `importClipboardText()` | 関数（非同期） | 確認ウインドウを出し、コピーした文章を読んで送る（範囲の選択・読み取りの途中なら断る。前に取り込んだ画像は消す） | ホットキー・トレイ・ボタンからのコピーした文章の読み取り |
 | `createDesktopIcon()` | 関数 | Mac は起動用の .app を作ってデスクトップに別名を置く。Windows はデスクトップにショートカットを作る（同じ名前の利用者のショートカットは上書きしない） |
 | `writeCurrentMacLauncher()` / `getMacLaunchAgentsDir()` | 関数 | 今の場所で起動用の .app を書き出す／~/Library/LaunchAgents | アイコンと自動起動で同じ内容を使う（重複をなくす） |
 | `readWindowsShortcut(shortcutPath)` | 関数 | 既存のショートカットを読む（読めなければ null） | このアプリが作ったものかの見分け | 「デスクトップにアイコンを作る」（ゴール G7） |
@@ -678,7 +678,7 @@
 | `CLIPBOARD_READ_CHANNEL` | 定数（公開） | 'clipboard:read' | 画面のボタンからの要求のチャンネル名 |
 | `CLIPBOARD_EMPTY_MESSAGE` | 定数（公開） | コピーした文章がないときの案内 | コピーし直すよう案内する |
 | `UNTRUSTED_SENDER_MESSAGE` / `CLIPBOARD_READ_FAILED_MESSAGE` | 定数（内部） | 送信元を確認できない／クリップボードを読めないときの文 | エラーの表示（中身を含めない） |
-| `readClipboardForExtraction(readText)` | 関数（公開） | クリップボードの文章を読み、空・長すぎる（20000文字超）・読めないときは断る | 抽出に回す前の確認 |
+| `readClipboardForExtraction(readText)` | 関数（公開・非同期） | クリップボードの文章を読み（Electron 44 の readText は Promise を返すため待つ）、空・長すぎる（20000文字超）・読めないときは断る | 抽出に回す前の確認 |
 | `createClipboardHandlers({isTrustedSender, importClipboardText})` | 関数（公開） | 送信元を確かめてから読み取りを始める `handleRead` を作る | 「コピーした文章を読み取る」ボタン |
 
 ### captureIpc.js（範囲キャプチャの通信の受け付け）

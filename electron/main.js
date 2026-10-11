@@ -309,15 +309,17 @@ function getHotkeyStatus() {
  * コピーした文章（クリップボード）を読み、確認ウインドウを出して抽出してもらう。
  * ホットキー・トレイ・画面のボタンを利用者が操作したときだけ呼ばれる。文章は保存もログ出力もしない。
  * 範囲の選択・読み取りの途中なら、その結果と取り違えないよう断る。
+ *
+ * @returns {Promise<void>} 確認ウインドウに送り終わったら解決する（失敗しても例外は投げない）
  */
-function importClipboardText() {
+async function importClipboardText() {
   showMainWindow();
   if (captureController.isBusy()) {
     sendCaptureStatus({ state: 'error', message: '範囲の選択または読み取りの途中です。終わるまでお待ちください。' });
     return;
   }
   // 呼ぶたびに clipboard.readText を参照する（実機の自動確認で差し替えられるようにするため）
-  const result = readClipboardForExtraction(() => clipboard.readText());
+  const result = await readClipboardForExtraction(() => clipboard.readText());
   if (!result.ok) {
     sendCaptureStatus({ state: 'error', message: result.message });
     return;

@@ -28,15 +28,17 @@ const CLIPBOARD_READ_FAILED_MESSAGE = 'コピーした文章を読み取れま�
 
 /**
  * クリップボードの文章を読み、抽出に回せるかを確かめる。
+ * 注意：Electron 44 の clipboard.readText() は、文章ではなく Promise を返す（結果が届くのを待つ必要がある）。
+ *   待たずに使うと、文章があっても「ない」と判定してしまう（2026-10-11 に実機で発見した不具合）。
  *
- * @param {() => unknown} readText クリップボードの文章を読む関数（main.js では clipboard.readText）
- * @returns {{ok: true, text: string} | {ok: false, message: string}}
+ * @param {() => unknown} readText クリップボードの文章を読む関数（main.js では clipboard.readText。Promise を返してもよい）
+ * @returns {Promise<{ok: true, text: string} | {ok: false, message: string}>}
  *   ok が false のときの message は利用者に表示できる文（文章の中身は含めない）
  */
-export function readClipboardForExtraction(readText) {
+export async function readClipboardForExtraction(readText) {
   let text;
   try {
-    text = readText();
+    text = await readText();
   } catch {
     return { ok: false, message: CLIPBOARD_READ_FAILED_MESSAGE };
   }
