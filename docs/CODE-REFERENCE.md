@@ -172,7 +172,9 @@
 | `WARNING_PAST` | 定数（公開） | `'past'` | 「過去の日時」の警告コード |
 | `WARNING_AMBIGUOUS_ORDER` | 定数（公開） | `'ambiguousOrder'` | 月と日の順番が決まらない英語の数字の日付を月/日として読んだ警告 |
 | `WARNING_WEEKDAY_MISMATCH` | 定数（公開） | `'weekdayMismatch'` | 日付の後ろに書かれた曜日が本当の曜日と合わない警告（例：2026年10月15日(水)） |
-| `ENGLISH_WEEKDAY_NUMBERS` | 定数（内部） | 英語の曜日（mon〜sun）と月曜始まりの番号（0〜6）の対応 | 英語の曜日と日付が合うかを確かめる |
+| `ENGLISH_WEEKDAY_NAMES` | 定数（内部） | 英語の曜日の正式名（月曜始まり。先頭3文字が略称） | 英語の曜日と日付が合うかを確かめ、下書きの曜日を直す |
+| `ENGLISH_WEEKDAY_ABBREVIATION_LENGTH` | 定数（内部） | 3 | 英語の曜日の略称（Mon など）の文字数 |
+| `correctWrittenWeekdays(text, options)` | 関数（公開） | 文章の「日付＋曜日」で、日付と合わない曜日を本当の曜日に書き換える | 件名・場所の下書きの曜日を日付に合わせる（依頼者の指示） |
 | `TWO_DIGIT_YEAR_BASE` | 定数（内部） | 2000 | 2桁の年（26.10.15）を 2026 年にする |
 | `MONTHS_PER_YEAR` | 定数（内部） | 12 | 月と日の順番の判定 |
 | `ENGLISH_MONTH_NUMBERS` / `ENGLISH_MONTH_PATTERN` | 定数（内部） | 英語の月名と数字の対応／月名の正規表現の部品 | 英語の日付を読む |
@@ -181,7 +183,7 @@
 | `MERIDIEM_AM` / `MERIDIEM_PM` | 定数（内部） | `'午前'` / `'午後'` | 午前・午後の判定 |
 | `HALF_HOUR_MINUTES` | 定数（内部） | 30 | 「14時半」の「半」 |
 | `DATE_PATTERN` | 定数（内部） | 日付の書き方の正規表現（10/15、10月15日、2026年10月15日、十月十五日、2026/10/15、26.10.15、10/15/2026、October 15, 2026、15 Oct、明日、tomorrow、来週火曜） | 文章から日付を探す。「再来週」「説明日程」は除外 |
-| `WEEKDAY_PATTERN` | 定数（内部） | 曜日の表記（(木)、(月・祝)、木曜日、(Thu)）。曜日を名前付きグループで取り出す | 日付の後の曜日を読み飛ばし、日付と合うかを確かめる |
+| `WEEKDAY_PATTERN` | 定数（内部） | 曜日の表記（(木)、(月・祝)、木曜日、(Thu)）。曜日を名前付きグループと位置（d フラグ）で取り出す | 日付の後の曜日を読み飛ばし、日付と合うかを確かめる |
 | `CONNECTOR_PATTERN` | 定数（内部） | 日付と時刻のつなぎ（空白、の、は、、、at、from、@） | 「明日の14時」「Oct 15 at 3pm」を1つの日時として読む |
 | `TIME_PATTERN` | 定数（内部） | 時刻の書き方（14:00、14時30分、14時半、午前/午後、3pm・3:00 PM・PM3:00、2-3pm の「2」） | 時刻を読む（十五時三十分など漢字の数字も可）。「2時間」「一時的」「一時停止」「AMAZON」は除外 |
 | `TIME_WORD_PATTERN` | 定数（内部） | 時間帯の言葉（正午・朝・昼・夕方・夜） | 時間帯の言葉を読む（要件§12） |
@@ -197,7 +199,8 @@
 | `extractDateCandidates(text, options)` | 関数（公開） | 文章から日時の候補を抽出し `{candidates, truncated}` を返す | このアプリの中心機能（要件§5.2〜§5.7、§12） |
 | `validateArguments(text, now, minutes)` | 関数（内部） | 引数を検証し、問題があれば例外を投げる | 不正な入力で誤動作しないようにする |
 | `matchAt(pattern, text, index)` | 関数（内部） | 正規表現を指定した位置から一致させる | 日付の直後の曜日・時刻を読む |
-| `toMondayBasedWeekday(groups)` | 関数（内部） | `WEEKDAY_PATTERN` で読んだ曜日を月曜始まりの番号（月=0〜日=6）にする | 書かれた曜日と日付の曜日を比べる |
+| `readWrittenWeekday(text, dateMatch, date)` | 関数（内部） | 日付の直後の曜日を読み、日付の本当の曜日と合わなければ位置と正しい書き方を返す | 警告と下書きの書き換えで共通に使う |
+| `toEnglishWeekdayLike(writtenText, weekday)` | 関数（内部） | 書かれた英語の曜日と同じ書き方（略称・大文字小文字）で正しい曜日を作る | 下書きの英語の曜日を直す |
 | `skipPattern(pattern, text, index)` | 関数（内部） | 一致した分だけ読み取り位置を進める | 曜日・つなぎの言葉を読み飛ばす |
 | `resolveDate(groups, today)` | 関数（内部） | 一致した書き方に応じて年月日と警告を決める | 書き方ごとの処理の振り分け |
 | `toEnglishMonthNumber(monthName)` | 関数（内部） | 英語の月名を月の数字にする | 英語の日付を読む |
@@ -734,7 +737,7 @@
 | `restoreMinimizedMainWindow(mainConnection)` | 関数 | 確認ウインドウが最小化されるのを待って元に戻す | 最初の登録で最小化を確かめる。戻さないと続く確認・画面の画像が取れないため |
 | `replaceMinimize(mainConnection)` / `getMinimizeCount(mainConnection)` | 関数 | 確認ウインドウの最小化を、回数を数えるだけの関数に差し替える／その回数を受け取る | 2回目以降の登録で最小化の動きを待たない。不正な登録要求で最小化しないことの確認 |
 | `saveScreenshot(connection, directory, fileName)` | 関数 | 画面の画像を保存 | 見た目の確認 |
-| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出し直すと右の欄が一番上に戻ること・件名の上限と残りの文字数・URL のフィッシングの注意（会議サービス・それ以外。画面の画像 07-event-details.png）・抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・曜日が日付と合わないときの警告・エラー表示を確認 | 機能の確認 |
+| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出し直すと右の欄が一番上に戻ること・件名の上限と残りの文字数・URL のフィッシングの注意（会議サービス・それ以外。画面の画像 07-event-details.png）・抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・曜日が日付と合わないときの警告と件名の下書きの直し・エラー表示を確認 | 機能の確認 |
 | `checkAutoReset(connection, mainConnection)` | 関数 | 登録のあと、操作するとクリアせず、操作しないと初期状態に戻ることを確認（画面の setTimeout の60秒だけを短くする） | 自動のクリアの確認（依頼者の指示） |
 | `replaceScreenCapture(mainConnection)` | 関数 | 画面の撮影を、架空の画像を返す関数に差し替える | 利用者の画面を撮影しない |
 | `connectToOverlay(port, connection)` / `waitForOverlayClosed(port)` | 関数 | 範囲選択の画面に接続する／閉じるまで待つ（上限付き） | 範囲選択の確認 |

@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AUTO_RESET_DELAY_SECONDS, scheduleAutoReset } from '../core/autoReset.js';
 import { CalendarEventError, buildCalendarUrl } from '../core/calendarUrl.js';
-import { InputTooLongError, MAX_CANDIDATES, extractDateCandidates } from '../core/dateExtractor.js';
+import { InputTooLongError, MAX_CANDIDATES, correctWrittenWeekdays, extractDateCandidates } from '../core/dateExtractor.js';
 import { extractEventDetails } from '../core/detailExtractor.js';
 import {
   DEFAULT_TIME_CHOICE,
@@ -147,17 +147,21 @@ export default function App() {
     setRegisteredCount(0);
     setAutoResetId(0); // 新しい内容を、自動のクリアで消さない
     try {
-      const result = extractDateCandidates(text, {
-        now: new Date(),
-        defaultDurationMinutes: durationMinutes,
-      });
+      const now = new Date();
+      const result = extractDateCandidates(text, { now, defaultDurationMinutes: durationMinutes });
       const drafts = extractEventDetails(text);
       setExtraction({ text, candidates: result.candidates, truncated: result.truncated });
       // 新しい文章に合わせて、選択・時刻の扱い・手入力・入力欄をすべて置き換える（前の文章の内容を残さない）
       setManualCandidates([]);
       setSelectedIds(new Set()); // 要件§5.3：登録するものは利用者がチェックを付けて選ぶ
       setTimeChoices({});
-      setEventDetails({ ...EMPTY_EVENT_DETAILS, title: drafts.title, location: drafts.location, meetingUrl: drafts.meetingUrl });
+      // 件名・場所の下書きに日付と合わない曜日があれば、日付の本当の曜日に直す（依頼者の指示。候補には警告を出す）
+      setEventDetails({
+        ...EMPTY_EVENT_DETAILS,
+        title: correctWrittenWeekdays(drafts.title, { now }),
+        location: correctWrittenWeekdays(drafts.location, { now }),
+        meetingUrl: drafts.meetingUrl,
+      });
       if (result.candidates.length === 0) {
         setIsNoDateDialogOpen(true);
       }

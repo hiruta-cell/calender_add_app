@@ -63,8 +63,11 @@ export const WARNING_AMBIGUOUS_ORDER = 'ambiguousOrder';
 /** 警告コード：日付の後ろに書かれた曜日が、その日付の本当の曜日と合わない（例：2026年10月15日(水)。本当は木曜） */
 export const WARNING_WEEKDAY_MISMATCH = 'weekdayMismatch';
 
-/** 英語の曜日（先頭3文字・小文字）と、月曜始まりの曜日番号（月=0〜日=6）の対応 */
-const ENGLISH_WEEKDAY_NUMBERS = Object.freeze({ mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 });
+/** 英語の曜日の正式な名前。並びは月曜始まり（月=0〜日=6）で、先頭3文字が略称になる */
+const ENGLISH_WEEKDAY_NAMES = Object.freeze(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']);
+
+/** 英語の略称の曜日の文字数（Mon、Tue など） */
+const ENGLISH_WEEKDAY_ABBREVIATION_LENGTH = 3;
 
 /** 2桁の年に足す数（26.10.15 → 2026年） */
 const TWO_DIGIT_YEAR_BASE = 2000;
@@ -129,11 +132,13 @@ const DATE_PATTERN = new RegExp(
 
 /**
  * 日付の直後にある曜日の表記（読み飛ばし、日付と合っているかを確かめるため）。例：(木) (木曜日) (月・祝) 木曜日 (Thu) (Thursday)
- * 名前付きグループ：jpWeekday … 括弧内の漢字の曜日、enWeekday … 括弧内の英語の曜日（先頭3文字）、bareWeekday … 括弧なしの「木曜日」
+ * 名前付きグループ：jpWeekday … 括弧内の漢字の曜日、enWeekday … 括弧内の英語の曜日（Thu、Thursday など単語全体）、
+ *   bareWeekday … 括弧なしの「木曜日」の「木」
  * y（sticky）フラグ：lastIndex で指定した位置からだけ一致を試す。i フラグ：英語の曜日の大文字・小文字。
+ * d フラグ：グループの位置（indices）を得る（下書きの曜日を書き換える位置に使う）。
  */
 const WEEKDAY_PATTERN =
-  /[ \t]{0,3}(?:\([ \t]{0,2}(?:(?<jpWeekday>[月火水木金土日])(?:曜日?)?(?:[ \t]{0,2}[・･][ \t]{0,2}祝日?)?|(?<enWeekday>Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]{0,6}\.?)[ \t]{0,2}\)|(?<bareWeekday>[月火水木金土日])曜日?)/iy;
+  /[ \t]{0,3}(?:\([ \t]{0,2}(?:(?<jpWeekday>[月火水木金土日])(?:曜日?)?(?:[ \t]{0,2}[・･][ \t]{0,2}祝日?)?|(?<enWeekday>(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]{0,6})\.?)[ \t]{0,2}\)|(?<bareWeekday>[月火水木金土日])曜日?)/diy;
 
 /**
  * 日付と時刻の間のつなぎ（空白、「の」「は」「、」、英語の at / from / @ など）。
@@ -246,19 +251,11 @@ export function extractDateCandidates(text, options = {}) {
       continue; // 実在しない日付（2月30日など）は候補にしない
     }
 
-    // 月日の書かれた日付の後ろに曜日があれば読み飛ばす（「明日」「来週火曜」の後ろは読み飛ばさない）。
-    // 書かれた曜日が日付の本当の曜日と合わなければ警告を付ける（日付は書かれたとおりに使い、利用者に確かめてもらう）
-    let cursor = match.index + match[0].length;
-    const dateWarnings = [...resolved.warnings];
-    if (match.groups.tomorrow === undefined && match.groups.tomorrowEn === undefined && match.groups.nextWeekWeekday === undefined) {
-      const weekdayMatch = matchAt(WEEKDAY_PATTERN, normalizedText, cursor);
-      if (weekdayMatch !== null) {
-        cursor += weekdayMatch[0].length;
-        if (toMondayBasedWeekday(weekdayMatch.groups) !== getMondayBasedWeekday(resolved.date)) {
-          dateWarnings.push(WARNING_WEEKDAY_MISMATCH);
-        }
-      }
-    }
+    // 日付の後ろに曜日があれば読み飛ばす。書かれた曜日が日付の本当の曜日と合わなければ警告を付ける
+    // （日付は書かれたとおりに使い、利用者に確かめてもらう）
+    const writtenWeekday = readWrittenWeekday(normalizedText, match, resolved.date);
+    let cursor = writtenWeekday.endIndex;
+    const dateWarnings = writtenWeekday.mismatch === null ? resolved.warnings : [...resolved.warnings, WARNING_WEEKDAY_MISMATCH];
 
     // 日付の直後（つなぎの言葉の後）に時刻があれば読み取る。なければ、次の行の「時間：」「Time:」の時刻を探す
     const timeRange =
@@ -333,16 +330,91 @@ function matchAt(pattern, text, index) {
 }
 
 /**
- * WEEKDAY_PATTERN で読み取った曜日を、月曜始まりの曜日番号にする。
+ * 文章の中の「日付＋曜日」で、曜日が日付と合わないものを、日付の本当の曜日に書き換える。
+ * 件名・場所の下書きに使う（例：「10月15日(水)のご訪問」→「10月15日(木)のご訪問」。2026年10月15日は木曜）。
+ * 日付の読み方（年がなければ今日以降で最も近い日）は extractDateCandidates() と同じ。
  *
- * @param {object} groups WEEKDAY_PATTERN の名前付きグループ（jpWeekday / enWeekday / bareWeekday のどれか1つが入る）
- * @returns {number} 月=0〜日=6
+ * @param {string} text 下書きの文章（件名など）
+ * @param {object} [options]
+ * @param {Date} [options.now] 年が書かれていない日付の年を決める基準（テストでは固定値を渡す）
+ * @returns {string} 曜日を直した文章（直すものがなければ元の文章のまま）
+ * @throws {InputTooLongError} 文章が MAX_INPUT_LENGTH 文字を超える場合
+ * @throws {TypeError} 引数の形式が正しくない場合
  */
-function toMondayBasedWeekday(groups) {
-  if (groups.enWeekday !== undefined) {
-    return ENGLISH_WEEKDAY_NUMBERS[groups.enWeekday.toLowerCase()];
+export function correctWrittenWeekdays(text, options = {}) {
+  const now = options.now ?? new Date();
+  validateArguments(text, now, DEFAULT_DURATION_MINUTES);
+
+  // 全角を半角にそろえても文字数は変わらないため、半角の文章で見つけた位置で元の文章を書き換えられる
+  const normalizedText = normalizeWidth(text);
+  const current = getTokyoDateTime(now);
+  let corrected = '';
+  let copiedUntil = 0;
+  for (const match of normalizedText.matchAll(DATE_PATTERN)) {
+    const resolved = resolveDate(match.groups, current);
+    const mismatch = resolved === null ? null : readWrittenWeekday(normalizedText, match, resolved.date).mismatch;
+    if (mismatch !== null) {
+      corrected += text.slice(copiedUntil, mismatch.start) + mismatch.correctText;
+      copiedUntil = mismatch.end;
+    }
   }
-  return WEEKDAY_CHARACTERS.indexOf(groups.jpWeekday ?? groups.bareWeekday);
+  return corrected + text.slice(copiedUntil);
+}
+
+/**
+ * 日付の直後に書かれた曜日を読み、日付の本当の曜日と合うかを確かめる。
+ * 「明日」「来週火曜」の後ろの曜日は読まない（日付そのものが曜日や相対表現のため）。
+ *
+ * @param {string} text 半角にそろえた文章
+ * @param {RegExpMatchArray} dateMatch DATE_PATTERN の一致結果
+ * @param {{year: number, month: number, day: number}} date 一致した日付の年月日
+ * @returns {{endIndex: number, mismatch: {start: number, end: number, correctText: string} | null}}
+ *   endIndex：日付（と曜日）の直後の位置。
+ *   mismatch：曜日が合わないとき、曜日の文字の位置（start〜end）と、正しい曜日の書き方。合う・曜日がないなら null
+ */
+function readWrittenWeekday(text, dateMatch, date) {
+  const dateEnd = dateMatch.index + dateMatch[0].length;
+  const { tomorrow, tomorrowEn, nextWeekWeekday } = dateMatch.groups;
+  if (tomorrow !== undefined || tomorrowEn !== undefined || nextWeekWeekday !== undefined) {
+    return { endIndex: dateEnd, mismatch: null };
+  }
+  const weekdayMatch = matchAt(WEEKDAY_PATTERN, text, dateEnd);
+  if (weekdayMatch === null) {
+    return { endIndex: dateEnd, mismatch: null };
+  }
+
+  const endIndex = dateEnd + weekdayMatch[0].length;
+  const actualWeekday = getMondayBasedWeekday(date);
+  const groupName = ['jpWeekday', 'enWeekday', 'bareWeekday'].find((name) => weekdayMatch.groups[name] !== undefined);
+  const writtenText = weekdayMatch.groups[groupName];
+  const isEnglish = groupName === 'enWeekday';
+  const writtenWeekday = isEnglish
+    ? ENGLISH_WEEKDAY_NAMES.findIndex((name) => name.slice(0, ENGLISH_WEEKDAY_ABBREVIATION_LENGTH).toLowerCase() === writtenText.slice(0, ENGLISH_WEEKDAY_ABBREVIATION_LENGTH).toLowerCase())
+    : WEEKDAY_CHARACTERS.indexOf(writtenText);
+  if (writtenWeekday === actualWeekday) {
+    return { endIndex, mismatch: null };
+  }
+
+  const [start, end] = weekdayMatch.indices.groups[groupName];
+  const correctText = isEnglish ? toEnglishWeekdayLike(writtenText, actualWeekday) : WEEKDAY_CHARACTERS[actualWeekday];
+  return { endIndex, mismatch: { start, end, correctText } };
+}
+
+/**
+ * 書かれた英語の曜日と同じ書き方（略称か正式名か、大文字・小文字）で、正しい曜日を作る。
+ * 例：Wed → Thu、WEDNESDAY → THURSDAY、wednesday → thursday
+ *
+ * @param {string} writtenText 書かれた英語の曜日（Wed、Wednesday など）
+ * @param {number} weekday 正しい曜日（月曜始まりの番号。月=0〜日=6）
+ * @returns {string} 正しい曜日
+ */
+function toEnglishWeekdayLike(writtenText, weekday) {
+  const fullName = ENGLISH_WEEKDAY_NAMES[weekday];
+  const name = writtenText.length === ENGLISH_WEEKDAY_ABBREVIATION_LENGTH ? fullName.slice(0, ENGLISH_WEEKDAY_ABBREVIATION_LENGTH) : fullName;
+  if (writtenText === writtenText.toUpperCase()) {
+    return name.toUpperCase();
+  }
+  return writtenText[0] === writtenText[0].toLowerCase() ? name.toLowerCase() : name;
 }
 
 /**

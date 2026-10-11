@@ -14,8 +14,10 @@ import {
   WARNING_AMBIGUOUS_ORDER,
   WARNING_PAST,
   WARNING_WEEKDAY_MISMATCH,
+  correctWrittenWeekdays,
   extractDateCandidates,
 } from '../src/core/dateExtractor.js';
+import { extractEventDetails } from '../src/core/detailExtractor.js';
 
 /** テストの基準日時：2026-10-11(日) 10:00 JST（= 01:00 UTC） */
 const NOW = new Date('2026-10-11T01:00:00Z');
@@ -655,4 +657,59 @@ describe('処理時間（悪意のある長い入力でも固まらない：ReDo
       assert.ok(elapsedMilliseconds < 1000, `${elapsedMilliseconds.toFixed(0)}ms かかった`);
     });
   }
+});
+
+describe('correctWrittenWeekdays：下書きの曜日を日付に合わせる', () => {
+  /** 基準日時を固定して曜日を直す */
+  const correct = (text) => correctWrittenWeekdays(text, { now: NOW });
+
+  test('日付と合わない曜日を、本当の曜日に書き換える（2026年10月15日は木曜）', () => {
+    assert.equal(correct('10月15日(水)のご訪問'), '10月15日(木)のご訪問');
+    assert.equal(correct('10月15日（水曜日）'), '10月15日（木曜日）');
+    assert.equal(correct('2026年10月15日 水曜日 打ち合わせ'), '2026年10月15日 木曜日 打ち合わせ');
+    assert.equal(correct('10/15(水・祝)'), '10/15(木・祝)');
+  });
+
+  test('英語の曜日は、略称・正式名と大文字・小文字をそろえて書き換える', () => {
+    assert.equal(correct('Oct 15 (Wed) Review'), 'Oct 15 (Thu) Review');
+    assert.equal(correct('Oct 15 (Wednesday)'), 'Oct 15 (Thursday)');
+    assert.equal(correct('Oct 15 (WEDNESDAY)'), 'Oct 15 (THURSDAY)');
+  });
+
+  test('曜日が合っている・曜日がない・日付がない・「来週火曜」は変えない', () => {
+    for (const text of ['10月15日(木)のご訪問', '10月15日のご訪問', '定例会のお知らせ', '来週火曜(水)', '']) {
+      assert.equal(correct(text), text);
+    }
+  });
+
+  test('日付が2つあれば、それぞれの曜日を直す', () => {
+    assert.equal(correct('10/15(水)と10/16(木)'), '10/15(木)と10/16(金)');
+  });
+
+  test('長すぎる文章・文字列でない値は断る', () => {
+    assert.throws(() => correct('あ'.repeat(MAX_INPUT_LENGTH + 1)), InputTooLongError);
+    assert.throws(() => correct(null), TypeError);
+  });
+
+  test('メールの誤記の例（架空の文面）：候補に警告が出て、件名の下書きは日付の曜日に直る', () => {
+    const mail = [
+      '-----Original Message-----',
+      'From: Taro Example <taro@example.com>',
+      'Sent: Friday, October 9, 2026 6:39 PM',
+      'Subject: 10月13日（水） 15時30分のご訪問',
+      '',
+      '架空商事 例山様',
+      '',
+      '10月13日（水）15時30分',
+      '部品の納品',
+      '',
+      'にてお伺いいたします。',
+    ].join('\n');
+    const { candidates } = extract(mail);
+    const visit = candidates.find((candidate) => candidate.start.day === 13);
+    assert.deepEqual(visit.start, dateTime(2026, 10, 13, 15, 30));
+    assert.deepEqual(visit.warnings, [WARNING_WEEKDAY_MISMATCH]);
+    const { title } = extractEventDetails(mail);
+    assert.equal(correct(title), '10月13日(火) 15時30分のご訪問');
+  });
 });
