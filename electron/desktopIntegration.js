@@ -18,7 +18,7 @@
  * このファイルは electron を import しない。単体テストでは一時フォルダに書き込んで確かめる。
  */
 
-import { chmod, copyFile, lstat, mkdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 /** デスクトップのアイコンと起動用のアプリの名前（確認ウインドウの見出しと同じ） */
@@ -301,17 +301,18 @@ export async function disableMacAutoStart({ launchAgentsDir }) {
 }
 
 /**
- * Mac のログイン時の自動起動がオンか。自分の LaunchAgent の plist が、今の場所の起動用アプリを指しているときだけオンとみなす。
- * プロジェクトのフォルダを移動すると plist は古い場所を指したままになる（ログインしても起動しない）ため、
- * そのときはオフと表示し、利用者がオンにして保存し直せば今の場所で作り直されるようにする。
+ * Mac のログイン時の自動起動がオンか（自分の LaunchAgent の plist があるか）。
+ * フォルダを移動して plist が古い場所を指していても、オンのまま保存すれば今の場所で作り直される（settingsIpc.js の handleSave）。
  *
- * @param {{launchAgentsDir: string, launcherPath: string}} options LaunchAgents のフォルダと、今の起動用のアプリのパス
+ * @param {{launchAgentsDir: string}} options LaunchAgents のフォルダ
  * @returns {Promise<boolean>}
  */
-export async function isMacAutoStartEnabled({ launchAgentsDir, launcherPath }) {
+export async function isMacAutoStartEnabled({ launchAgentsDir }) {
   assertSafeAbsolutePath(launchAgentsDir, 'posix');
-  const content = await readFile(path.join(launchAgentsDir, MAC_LAUNCH_AGENT_FILE_NAME), 'utf8').catch(() => null);
-  return content !== null && content === buildMacLaunchAgentPlist({ launcherPath });
+  return stat(path.join(launchAgentsDir, MAC_LAUNCH_AGENT_FILE_NAME)).then(
+    (stats) => stats.isFile(),
+    () => false,
+  );
 }
 
 /**

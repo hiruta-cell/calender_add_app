@@ -38,7 +38,7 @@ import { AUTO_RESET_DELAY_MS, AUTO_RESET_DELAY_SECONDS } from '../src/core/autoR
 import { formatCalendarDate, formatCalendarDateTime } from '../src/core/calendarUrl.js';
 import { MAX_INPUT_LENGTH, extractDateCandidates } from '../src/core/dateExtractor.js';
 import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
-import { DEFAULT_SETTINGS } from '../src/core/settings.js';
+import { DEFAULT_SETTINGS, buildAccelerator } from '../src/core/settings.js';
 
 /** プロジェクトのフォルダ */
 const PROJECT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -90,6 +90,12 @@ const DEMO_TEXT = [
 
 /** 日時を含まない架空の文面 */
 const NO_DATE_TEXT = 'お世話になっております。資料を拝見しました。引き続きよろしくお願いいたします。';
+
+/** メインプロセスで確認ウインドウ（app://bundle の画面）を探す式（BrowserWindow を取り出してから使う） */
+const FIND_MAIN_WINDOW_EXPRESSION = `BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().startsWith(${JSON.stringify(APP_ENTRY_URL)}))`;
+
+/** 既定のホットキー（Electron の表記。CommandOrControl+Shift+Y） */
+const DEFAULT_ACCELERATOR = buildAccelerator(DEFAULT_SETTINGS);
 
 /** 確認結果の一覧 { name, passed, detail } */
 const results = [];
@@ -224,13 +230,15 @@ class DevToolsConnection {
    * 画面の中で JavaScript の式を実行し、結果の値を返す。
    *
    * @param {string} expression 実行する式（Promise なら完了を待つ）
+   * @param {{commandLineApi?: boolean}} [options] commandLineApi：メインプロセスで require を使う式なら true
    * @returns {Promise<unknown>}
    */
-  async evaluate(expression) {
+  async evaluate(expression, { commandLineApi = false } = {}) {
     const response = await this.send('Runtime.evaluate', {
       expression,
       awaitPromise: true,
       returnByValue: true,
+      includeCommandLineAPI: commandLineApi,
     });
     if (response.exceptionDetails) {
       const detail = response.exceptionDetails.exception?.description ?? response.exceptionDetails.text;
@@ -352,39 +360,60 @@ async function clickButton(connection, label) {
 }
 
 /**
- * React が管理する入力欄（日付・時刻など）に値を入れる（実際の入力と同じイベントを起こす）。
+ * React が管理する入力欄・選択肢の欄に値を入れる（実際の入力と同じイベントを起こす）。
+ * React は value を直接書き換えても気付かないため、要素の種類の本来の setter で入れてからイベントを送る。
  *
  * @param {DevToolsConnection} connection
- * @param {string} selector 入力欄の CSS セレクター
+ * @param {string} selector 欄の CSS セレクター
  * @param {string} value 入れる値
+ * @param {{elementClass: string, eventName: string}} [kind] 要素の種類と送るイベント（既定は <input> と input）
  */
-async function setInputValue(connection, selector, value) {
+async function setFieldValue(connection, selector, value, { elementClass = 'HTMLInputElement', eventName = 'input' } = {}) {
   await connection.evaluate(`(() => {
-    const input = document.querySelector(${JSON.stringify(selector)});
-    if (!input) throw new Error('入力欄が見つかりません');
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-    setter.call(input, ${JSON.stringify(value)});
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const field = document.querySelector(${JSON.stringify(selector)});
+    if (!field) throw new Error('欄が見つかりません');
+    const setter = Object.getOwnPropertyDescriptor(${elementClass}.prototype, 'value').set;
+    setter.call(field, ${JSON.stringify(value)});
+    field.dispatchEvent(new Event(${JSON.stringify(eventName)}, { bubbles: true }));
   })()`);
   await sleep(UI_SETTLE_MS);
 }
 
 /**
- * React が管理する選択肢の欄（<select>）の値を変える（実際の選択と同じ change イベントを起こす）。
+ * 日付・時刻・URL などの入力欄（<input>）に値を入れる。
+ *
+ * @param {DevToolsConnection} connection
+ * @param {string} selector 入力欄の CSS セレクター
+ * @param {string} value 入れる値
+ */
+function setInputValue(connection, selector, value) {
+  return setFieldValue(connection, selector, value);
+}
+
+/**
+ * 選択肢の欄（<select>）の値を変える（実際の選択と同じ change イベントを起こす）。
  *
  * @param {DevToolsConnection} connection
  * @param {string} selector 選択肢の欄の CSS セレクター
  * @param {string} value 選ぶ値
  */
-async function setSelectValue(connection, selector, value) {
-  await connection.evaluate(`(() => {
-    const select = document.querySelector(${JSON.stringify(selector)});
-    if (!select) throw new Error('選択肢の欄が見つかりません');
-    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
-    setter.call(select, ${JSON.stringify(value)});
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  })()`);
-  await sleep(UI_SETTLE_MS);
+function setSelectValue(connection, selector, value) {
+  return setFieldValue(connection, selector, value, { elementClass: 'HTMLSelectElement', eventName: 'change' });
+}
+
+/**
+ * メインプロセスで、ホットキーが登録されているかを調べる。
+ *
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ * @param {string} accelerator Electron の表記（例：CommandOrControl+Shift+Y）
+ * @returns {Promise<boolean>}
+ */
+async function isHotkeyRegistered(mainConnection, accelerator) {
+  const registered = await mainConnection.evaluate(
+    `require('electron').globalShortcut.isRegistered(${JSON.stringify(accelerator)})`,
+    { commandLineApi: true },
+  );
+  return registered === true;
 }
 
 /**
@@ -395,20 +424,15 @@ async function setSelectValue(connection, selector, value) {
  * @param {DevToolsConnection} mainConnection メインプロセスへの接続
  */
 async function preventFocusStealing(mainConnection) {
-  const response = await mainConnection.send('Runtime.evaluate', {
-    expression: `(() => {
+  await mainConnection.evaluate(
+    `(() => {
       const { app, BrowserWindow } = require('electron');
       BrowserWindow.prototype.show = function show() { this.showInactive(); };
       BrowserWindow.prototype.focus = function focus() {};
       app.focus = () => {};
-      return true;
     })()`,
-    includeCommandLineAPI: true,
-    returnByValue: true,
-  });
-  if (response.exceptionDetails || response.result.value !== true) {
-    throw new Error('メインプロセスのウインドウの表示を差し替えられませんでした');
-  }
+    { commandLineApi: true },
+  );
 }
 
 /**
@@ -420,21 +444,17 @@ async function showMainWindowWithoutFocus(mainConnection) {
   // 起動直後は画面の読み込み中で URL がまだ空のことがあるため、見つかるまで待つ（上限 STEP_TIMEOUT_MS）
   const deadline = Date.now() + STEP_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const response = await mainConnection.send('Runtime.evaluate', {
-      expression: `(() => {
+    const isShown = await mainConnection.evaluate(
+      `(() => {
         const { BrowserWindow } = require('electron');
-        const window = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().startsWith(${JSON.stringify(APP_ENTRY_URL)}));
+        const window = ${FIND_MAIN_WINDOW_EXPRESSION};
         if (window === undefined) return false;
         window.showInactive();
         return true;
       })()`,
-      includeCommandLineAPI: true,
-      returnByValue: true,
-    });
-    if (response.exceptionDetails) {
-      break;
-    }
-    if (response.result.value === true) {
+      { commandLineApi: true },
+    );
+    if (isShown === true) {
       return;
     }
     await sleep(POLL_INTERVAL_MS);
@@ -594,12 +614,7 @@ async function checkCapture(connection, mainConnection, port, screenshotDir) {
   await replaceScreenCapture(mainConnection);
   await clickButton(connection, 'クリア');
 
-  const hotkeyResponse = await mainConnection.send('Runtime.evaluate', {
-    expression: `require('electron').globalShortcut.isRegistered('CommandOrControl+Shift+Y')`,
-    includeCommandLineAPI: true,
-    returnByValue: true,
-  });
-  record('ホットキー（Ctrl/Cmd+Shift+Y）が登録されている', hotkeyResponse.result?.value === true);
+  record('ホットキー（Ctrl/Cmd+Shift+Y）が登録されている', await isHotkeyRegistered(mainConnection, DEFAULT_ACCELERATOR));
 
   // 1. 取り込み → 範囲選択 → OCR → 日時の抽出
   await connection.evaluate(`[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る')).click()`);
@@ -766,7 +781,7 @@ async function replaceMinimize(mainConnection) {
   const response = await mainConnection.send('Runtime.evaluate', {
     expression: `(() => {
       const { BrowserWindow } = require('electron');
-      const window = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().startsWith(${JSON.stringify(APP_ENTRY_URL)}));
+      const window = ${FIND_MAIN_WINDOW_EXPRESSION};
       if (window === undefined) return false;
       globalThis.__smokeTestMinimizeCount = 0;
       window.minimize = () => { globalThis.__smokeTestMinimizeCount += 1; };
@@ -800,7 +815,7 @@ async function restoreMinimizedMainWindow(mainConnection) {
   const response = await mainConnection.send('Runtime.evaluate', {
     expression: `(async () => {
       const { BrowserWindow } = require('electron');
-      const window = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().startsWith(${JSON.stringify(APP_ENTRY_URL)}));
+      const window = ${FIND_MAIN_WINDOW_EXPRESSION};
       if (window === undefined) return false;
       const deadline = Date.now() + ${MINIMIZE_WAIT_MS};
       while (!window.isMinimized() && Date.now() < deadline) {
@@ -1062,15 +1077,6 @@ async function checkSettings(connection, mainConnection, screenshotDir) {
     await clickButton(connection, '保存');
     await waitFor(connection, `document.querySelector('.settings-dialog')?.open === false`);
   };
-  /** メインプロセスで、ホットキーが登録されているかを調べる */
-  const isHotkeyRegistered = async (accelerator) => {
-    const response = await mainConnection.send('Runtime.evaluate', {
-      expression: `require('electron').globalShortcut.isRegistered(${JSON.stringify(accelerator)})`,
-      includeCommandLineAPI: true,
-      returnByValue: true,
-    });
-    return response.result?.value === true;
-  };
 
   await openSettings();
   record(
@@ -1092,7 +1098,7 @@ async function checkSettings(connection, mainConnection, screenshotDir) {
   await saveSettings();
   record(
     'ホットキーを変えて保存すると、新しいキーだけが登録される（前のキーは解除）',
-    (await isHotkeyRegistered('CommandOrControl+Shift+U')) && !(await isHotkeyRegistered('CommandOrControl+Shift+Y')),
+    (await isHotkeyRegistered(mainConnection, 'CommandOrControl+Shift+U')) && !(await isHotkeyRegistered(mainConnection, DEFAULT_ACCELERATOR)),
   );
   const captureButtonLabel = await connection.evaluate(
     `[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る'))?.textContent ?? ''`,
@@ -1120,7 +1126,7 @@ async function checkSettings(connection, mainConnection, screenshotDir) {
   await saveSettings();
   record(
     '元の設定（60分・Ctrl/Cmd+Shift+Y）に戻せる',
-    (await isHotkeyRegistered('CommandOrControl+Shift+Y')) && !(await isHotkeyRegistered('CommandOrControl+Shift+U')),
+    (await isHotkeyRegistered(mainConnection, DEFAULT_ACCELERATOR)) && !(await isHotkeyRegistered(mainConnection, 'CommandOrControl+Shift+U')),
   );
   await clickButton(connection, 'クリア');
   return settingsImage;
@@ -1135,17 +1141,16 @@ async function checkHiddenStart() {
   const mainConnection = new DevToolsConnection(mainInspectorUrl);
   /** 確認ウインドウの状態（読み込み中・まだ作られていなければ null） */
   const readWindowState = async () => {
-    const response = await mainConnection.send('Runtime.evaluate', {
-      expression: `(() => {
+    const state = await mainConnection.evaluate(
+      `(() => {
         const { BrowserWindow, globalShortcut } = require('electron');
-        const window = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().startsWith(${JSON.stringify(APP_ENTRY_URL)}));
+        const window = ${FIND_MAIN_WINDOW_EXPRESSION};
         if (window === undefined || window.webContents.isLoading()) return null;
-        return JSON.stringify({ visible: window.isVisible(), hotkeyRegistered: globalShortcut.isRegistered('CommandOrControl+Shift+Y') });
+        return JSON.stringify({ visible: window.isVisible(), hotkeyRegistered: globalShortcut.isRegistered(${JSON.stringify(DEFAULT_ACCELERATOR)}) });
       })()`,
-      includeCommandLineAPI: true,
-      returnByValue: true,
-    });
-    return response.result?.value ?? null;
+      { commandLineApi: true },
+    );
+    return state ?? null;
   };
   try {
     await mainConnection.open();

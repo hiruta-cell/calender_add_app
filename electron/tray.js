@@ -5,6 +5,7 @@
  */
 
 import { Menu, Tray, nativeImage } from 'electron';
+import { APP_DISPLAY_NAME } from './desktopIntegration.js';
 
 /**
  * トレイのアイコンとメニューを作る。
@@ -23,7 +24,7 @@ export function createAppTray({ iconPath, isTemplateImage, hotkeyLabel, onCaptur
   const icon = nativeImage.createFromPath(iconPath);
   icon.setTemplateImage(isTemplateImage);
   const tray = new Tray(icon);
-  tray.setToolTip('カレンダー登録ツール');
+  tray.setToolTip(APP_DISPLAY_NAME);
 
   /** メニューを作り直す（ホットキーの表記を入れる） */
   const setHotkeyLabel = (label) => {

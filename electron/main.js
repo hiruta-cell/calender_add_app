@@ -36,7 +36,6 @@ import {
 import {
   DesktopIntegrationError,
   HIDDEN_START_ARGUMENT,
-  MAC_LAUNCHER_BUNDLE_NAME,
   WINDOWS_SHORTCUT_FILE_NAME,
   buildWindowsLoginItemSettings,
   buildWindowsShortcutOptions,
@@ -116,14 +115,6 @@ let settingsStore = null;
 /** トレイ（メニューのホットキーの表記を変える関数付き） */
 let trayController = null;
 
-/** 最初の確認ウインドウを、ウインドウを出さずに作るか（自動起動のとき。2つ目以降は通常どおり表示する） */
-let shouldStartHidden = START_HIDDEN;
-
-/**
- * 起動処理（startApp）が終わったか。設定の読み込みを待つ間に Dock の activate や2つ目の起動が来ても、
- * 通信の受け付け・トレイ・ホットキーがそろう前にウインドウを作らない（ウインドウが2つできるのを防ぐ）
- */
-let isAppStarted = false;
 
 /** 取り込んだ画像の置き場所（メモリの中だけ） */
 const captureImageStore = createCaptureImageStore();
@@ -151,21 +142,18 @@ app.enableSandbox();
 
 /**
  * 確認ウインドウを作成して画面を読み込む。
+ *
+ * @param {{show?: boolean}} [options] show：読み込みが終わったら表示するか（自動起動のときは false で、出さずに常駐する）
  */
-function createMainWindow() {
+function createMainWindow({ show = true } = {}) {
   const window = new BrowserWindow({
     ...MAIN_WINDOW_SIZE,
     show: false, // 読み込みが終わってから表示する（白い画面のちらつきを防ぐ）
     webPreferences: { ...SECURE_WEB_PREFERENCES, preload: PRELOAD_PATH },
   });
-  // 自動起動のときは、最初のウインドウを出さずに常駐する（トレイ・ホットキーから使う）
-  const isHiddenStart = shouldStartHidden;
-  shouldStartHidden = false;
-  window.once('ready-to-show', () => {
-    if (!isHiddenStart) {
-      window.show();
-    }
-  });
+  if (show) {
+    window.once('ready-to-show', () => window.show());
+  }
   // 閉じるボタンでは終了せず隠す（常駐）。取り込んだ画像はこのときに消す
   window.on('close', (event) => {
     if (!isQuitting) {
@@ -185,12 +173,9 @@ function createMainWindow() {
 }
 
 /**
- * 確認ウインドウを表示して前面に出す（なければ作る）。起動処理の途中は何もしない（isAppStarted を参照）。
+ * 確認ウインドウを表示して前面に出す（なければ作る）。起動処理が終わってから呼ぶ（showMainWindowWhenStarted を参照）。
  */
 function showMainWindow() {
-  if (!isAppStarted) {
-    return; // 起動処理の最後に startApp がウインドウを作る
-  }
   if (mainWindow === null || mainWindow.isDestroyed()) {
     createMainWindow();
     return;
@@ -335,10 +320,7 @@ const autoStart = {
    */
   async isEnabled() {
     if (IS_MAC) {
-      return isMacAutoStartEnabled({
-        launchAgentsDir: getMacLaunchAgentsDir(),
-        launcherPath: path.join(MAC_LAUNCHER_DIR, MAC_LAUNCHER_BUNDLE_NAME),
-      });
+      return isMacAutoStartEnabled({ launchAgentsDir: getMacLaunchAgentsDir() });
     }
     if (IS_WINDOWS) {
       return app.getLoginItemSettings(buildWindowsLoginItemSettings({ electronPath: process.execPath, appPath: APP_DIR })).openAtLogin;
@@ -439,6 +421,8 @@ function registerIpcHandlers() {
 
 /**
  * app の準備ができたら、セキュリティ設定を適用し、設定を読み込んで、常駐・ホットキー・ウインドウを用意する。
+ *
+ * @returns {Promise<boolean>} 起動できたら true（画面のファイルがなく終了するときは false）
  */
 async function startApp() {
   if (!existsSync(path.join(RENDERER_DIST_DIR, 'index.html'))) {
@@ -447,7 +431,7 @@ async function startApp() {
       '画面のファイルが見つかりません。\nプロジェクトのフォルダで「npm start」を実行して起動してください。',
     );
     app.quit();
-    return;
+    return false;
   }
   applySessionSecurity(session.defaultSession);
   protocol.handle(APP_SCHEME, (request) =>
@@ -474,8 +458,9 @@ async function startApp() {
   // 登録できなかった場合（ほかのアプリが使っている）は、確認ウインドウで知らせる（要件§12）
   registerCaptureHotkey(buildAccelerator(currentSettings));
 
-  createMainWindow();
-  isAppStarted = true;
+  // 自動起動（--hidden）のときは、最初のウインドウを出さずに常駐する（トレイ・ホットキーから使う）
+  createMainWindow({ show: !START_HIDDEN });
+  return true;
 }
 
 // ---- 多重起動の防止 ----
@@ -483,17 +468,32 @@ async function startApp() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', showMainWindow);
+  /**
+   * 起動処理（startApp）の結果。設定の読み込みを待つ間に Dock の activate や2つ目の起動が来ても、
+   * 準備（通信の受け付け・トレイ・ホットキー）がそろってから表示する（取りこぼさず、ウインドウも2つ作らない）
+   */
+  const appStarted = app
+    .whenReady()
+    .then(startApp)
+    .catch((error) => {
+      // 起動処理そのものに失敗した場合は、動作を続けられないため知らせて終了する
+      dialog.showErrorBox('起動できません', `起動中にエラーが発生しました。（${error.name}）`);
+      app.quit();
+      return false;
+    });
+  /** 起動処理が終わってから確認ウインドウを表示する（起動できなかったときは何もしない） */
+  const showMainWindowWhenStarted = () => {
+    appStarted.then((isStarted) => {
+      if (isStarted) showMainWindow();
+    });
+  };
+  app.on('second-instance', showMainWindowWhenStarted);
   // 画面が作られるたびに、ページ移動・新しいウインドウの制限をかける
   app.on('web-contents-created', (_event, contents) => hardenWebContents(contents));
   // ウインドウがすべて閉じても終了しない（常駐する）。何もしない処理を登録すると自動で終了しなくなる
   app.on('window-all-closed', () => {});
   // Mac で Dock のアイコンを押したら、確認ウインドウを表示する
-  app.on('activate', () => {
-    if (app.isReady()) {
-      showMainWindow();
-    }
-  });
+  app.on('activate', showMainWindowWhenStarted);
   // 終了するときは、確認ウインドウを隠さずに閉じる
   app.on('before-quit', () => {
     isQuitting = true;
@@ -503,12 +503,4 @@ if (!app.requestSingleInstanceLock()) {
     globalShortcut.unregisterAll();
     captureController.clearCapture();
   });
-  app
-    .whenReady()
-    .then(startApp)
-    .catch((error) => {
-      // 起動処理そのものに失敗した場合は、動作を続けられないため知らせて終了する
-      dialog.showErrorBox('起動できません', `起動中にエラーが発生しました。（${error.name}）`);
-      app.quit();
-    });
 }

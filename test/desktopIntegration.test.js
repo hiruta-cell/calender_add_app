@@ -188,27 +188,18 @@ describe('Mac のログイン時の自動起動（LaunchAgent）', () => {
     const directory = await createTemporaryDirectory();
     const launchAgentsDir = path.join(directory, 'LaunchAgents');
     const launcherPath = path.join(directory, MAC_LAUNCHER_BUNDLE_NAME);
-    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath }), false);
+    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir }), false);
     const plistPath = await enableMacAutoStart({ launchAgentsDir, launcherPath });
     assert.equal(plistPath, path.join(launchAgentsDir, MAC_LAUNCH_AGENT_FILE_NAME));
-    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath }), true);
+    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir }), true);
     if (IS_MAC) {
       await execFileAsync('/usr/bin/plutil', ['-lint', plistPath]);
     }
     await disableMacAutoStart({ launchAgentsDir });
     await disableMacAutoStart({ launchAgentsDir });
-    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath }), false);
+    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir }), false);
   });
 
-  test('プロジェクトのフォルダを移動したら（plist が古い場所を指す）、オフとみなす', { skip: !IS_POSIX }, async () => {
-    const directory = await createTemporaryDirectory();
-    const launchAgentsDir = path.join(directory, 'LaunchAgents');
-    await enableMacAutoStart({ launchAgentsDir, launcherPath: path.join(directory, '古い場所', MAC_LAUNCHER_BUNDLE_NAME) });
-    const movedLauncherPath = path.join(directory, '新しい場所', MAC_LAUNCHER_BUNDLE_NAME);
-    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath: movedLauncherPath }), false);
-    await enableMacAutoStart({ launchAgentsDir, launcherPath: movedLauncherPath }); // オンにして保存し直すと今の場所で作り直す
-    assert.equal(await isMacAutoStartEnabled({ launchAgentsDir, launcherPath: movedLauncherPath }), true);
-  });
 });
 
 describe('Windows のデスクトップのショートカットとログイン時の起動', () => {

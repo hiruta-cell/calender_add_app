@@ -316,27 +316,22 @@ export default function App() {
     });
   }, [autoResetId]);
 
-  // 起動時：取り込みの結果の受け取りを登録し、ホットキーが使えるかを確かめる
+  // 起動時：取り込みの結果の受け取りを登録し、設定（予定の既定の長さ）とホットキーが使えるかを1回で受け取る
+  // （受け取れなければ、既定の60分・既定のキーの表記のまま）
   useEffect(() => {
     if (window.calendarApp === undefined) {
       return undefined;
     }
     const unsubscribe = window.calendarApp.onCaptureStatus((status) => captureStatusHandlerRef.current?.(status));
     window.calendarApp
-      .getAppStatus()
-      .then((appStatus) => {
-        if (!appStatus.ok) return;
-        setHotkeyLabel(appStatus.hotkeyLabel);
-        if (!appStatus.hotkeyRegistered) {
-          setErrorMessage(HOTKEY_UNAVAILABLE_MESSAGE);
-        }
-      })
-      .catch(() => {});
-    // 予定の既定の長さを設定から受け取る（受け取れなければ既定の60分のまま）
-    window.calendarApp
       .getSettings()
       .then((result) => {
-        if (result.ok) setDurationMinutes(result.settings.durationMinutes);
+        if (!result.ok) return;
+        setDurationMinutes(result.settings.durationMinutes);
+        setHotkeyLabel(result.hotkeyLabel);
+        if (!result.hotkeyRegistered) {
+          setErrorMessage(HOTKEY_UNAVAILABLE_MESSAGE);
+        }
       })
       .catch(() => {});
     return unsubscribe;

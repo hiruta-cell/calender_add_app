@@ -41,19 +41,14 @@ export function createSettingsStore(directory) {
      * @returns {Promise<{durationMinutes: number, hotkeyModifiers: string, hotkeyKey: string}>}
      */
     async load() {
-      let buffer;
       try {
-        buffer = await readFile(filePath);
-      } catch {
-        return normalizeStoredSettings(null); // まだ保存していない・読めない
-      }
-      if (buffer.length > MAX_SETTINGS_FILE_BYTES) {
-        return normalizeStoredSettings(null);
-      }
-      try {
+        const buffer = await readFile(filePath);
+        if (buffer.length > MAX_SETTINGS_FILE_BYTES) {
+          throw new RangeError('settings file too large');
+        }
         return normalizeStoredSettings(JSON.parse(buffer.toString('utf8')));
       } catch {
-        return normalizeStoredSettings(null); // JSON として読めない
+        return normalizeStoredSettings(null); // まだ保存していない・読めない・大きすぎる・JSON として読めない
       }
     },
 

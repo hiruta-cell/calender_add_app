@@ -128,34 +128,35 @@ export function createSettingsHandlers({
 
       isSaving = true;
       try {
+        // 1. 何も変えない確かめを先に済ませる（ここで断れば、元に戻すものがない）
+        let wasAutoStartEnabled;
+        try {
+          wasAutoStartEnabled = await readAutoStart();
+        } catch {
+          return { ok: false, message: AUTO_START_FAILED_MESSAGE };
+        }
+        if (request.autoStart && !autoStart.isSupported) {
+          return { ok: false, message: AUTO_START_UNSUPPORTED_MESSAGE };
+        }
+
+        // 2. ホットキー。変わったら登録し直す。起動時に登録できなかったキーは、同じ組み合わせでも登録し直す
+        //    （まだほかのアプリが使っていても保存は続け、結果は hotkeyRegistered で画面に知らせる）
         const previousSettings = getCurrentSettings();
         const isHotkeyChanged = buildAccelerator(request.settings) !== buildAccelerator(previousSettings);
         if (isHotkeyChanged && !changeHotkey(request.settings)) {
           return { ok: false, message: HOTKEY_UNAVAILABLE_MESSAGE };
         }
         if (!isHotkeyChanged && !getHotkeyStatus().hotkeyRegistered) {
-          // 起動時にほかのアプリが使っていて登録できなかったキーを、同じ組み合わせのまま登録し直す。
-          // まだ使われていても保存は続ける（結果は hotkeyRegistered で画面に知らせる）
           changeHotkey(request.settings);
         }
-        /** ホットキーを元に戻す（途中で失敗したとき） */
+        /** ホットキーを元に戻す（このあとで失敗したとき） */
         const revertHotkey = () => {
           if (isHotkeyChanged) changeHotkey(previousSettings);
         };
 
-        let wasAutoStartEnabled;
-        try {
-          wasAutoStartEnabled = await readAutoStart();
-        } catch {
-          revertHotkey(); // 自動起動の状態を読めないときも、ホットキーだけ変わったままにしない
-          return { ok: false, message: AUTO_START_FAILED_MESSAGE };
-        }
-        const isAutoStartChanged = request.autoStart !== wasAutoStartEnabled;
-        if (isAutoStartChanged) {
-          if (!autoStart.isSupported) {
-            revertHotkey();
-            return { ok: false, message: AUTO_START_UNSUPPORTED_MESSAGE };
-          }
+        // 3. 自動起動。オンのときは毎回登録し直す（フォルダを移動した後も、今の場所で起動するように）。オフは変わったときだけ
+        const shouldApplyAutoStart = request.autoStart || request.autoStart !== wasAutoStartEnabled;
+        if (shouldApplyAutoStart) {
           try {
             await autoStart.setEnabled(request.autoStart);
           } catch {
@@ -164,11 +165,12 @@ export function createSettingsHandlers({
           }
         }
 
+        // 4. ファイルに保存する。できなければ、ここまでの変更を元に戻す
         try {
           await store.save(request.settings);
         } catch {
           revertHotkey();
-          if (isAutoStartChanged) {
+          if (shouldApplyAutoStart) {
             await autoStart.setEnabled(wasAutoStartEnabled).catch(() => {}); // 戻せなくても、保存の失敗を先に知らせる
           }
           return { ok: false, message: SAVE_FAILED_MESSAGE };

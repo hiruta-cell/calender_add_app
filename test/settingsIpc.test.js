@@ -152,12 +152,13 @@ describe('設定の保存', () => {
     assert.deepEqual(state.savedSettings, []);
   });
 
-  test('自動起動は、変わったときだけ OS の登録を変える', async () => {
+  test('自動起動は、オンなら保存のたびに登録し直し（フォルダの移動に追いつく）、オフは変わったときだけ OS の登録を変える', async () => {
     const { handlers, state } = createHarness();
     await handlers.handleSave({}, { ...SAMPLE_REQUEST, autoStart: true });
     await handlers.handleSave({}, { ...SAMPLE_REQUEST, autoStart: true });
     await handlers.handleSave({}, { ...SAMPLE_REQUEST, autoStart: false });
-    assert.deepEqual(state.autoStartCalls, [true, false]);
+    await handlers.handleSave({}, { ...SAMPLE_REQUEST, autoStart: false });
+    assert.deepEqual(state.autoStartCalls, [true, true, false]);
   });
 
   test('自動起動を変えられなければ、ホットキーを元に戻して断る（保存しない）', async () => {

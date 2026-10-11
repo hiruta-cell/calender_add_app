@@ -201,7 +201,7 @@ export default function SettingsDialog({ open, onClose, onSaved }) {
         </div>
       </div>
       <p className="field-note">
-        今の選択：{formatHotkeyLabel(form, isMac)}（文字の入力を邪魔しないよう、{isMac ? 'Cmd' : 'Ctrl'} を含む組み合わせだけ選べます）
+        今の選択：{formatHotkeyLabel(form, isMac)}（文字の入力を邪魔しないよう、{formatModifierLabel('CommandOrControl', isMac)} を含む組み合わせだけ選べます）
       </p>
 
       <label className="settings-row settings-checkbox">
