@@ -2,7 +2,7 @@
 
 コードを追加・改名・削除したら、同じ変更の中でこの一覧も更新する（[CLAUDE.md](../CLAUDE.md) 参照）。
 
-- 最終更新：2026-10-11（3日目：OCR の読み取り部分）
+- 最終更新：2026-10-11（3日目：常駐・ホットキー・範囲キャプチャ・OCR・手入力の改善）
 - 「公開」は他のファイルから使えるもの（export）、「内部」はそのファイルの中だけで使うもの
 
 ## フォルダの意味
@@ -14,7 +14,8 @@
 | `src/renderer/` | 確認ウインドウの画面（React）。利用者が操作する部分 |
 | `src/renderer/components/` | 画面を構成する部品（入力欄、候補の一覧、ポップアップなど） |
 | `electron/` | Electron のメインプロセス。アプリの起動、ウインドウ、セキュリティ設定など PC 側の処理 |
-| `scripts/` | 開発者用の補助スクリプト（実機の自動確認） |
+| `scripts/` | 開発者用の補助スクリプト（実機の自動確認、テスト用の画像やアイコンの作成） |
+| `assets/icons/` | タスクトレイ（Mac はメニューバー）のアイコン（コードで描いたもの） |
 | `test/` | 単体テスト（Node.js 標準の `node:test`） |
 | `test/fixtures/` | テスト用の小さなファイル（app:// の配信テスト、OCR のテスト用の架空の画像） |
 | `docs/` | 説明ファイル（このファイル、受け入れ基準） |
@@ -41,7 +42,8 @@
 | `src/core/calendarUrl.js` | Googleカレンダーの予定作成画面と「その日の表示」の URL を組み立て、内容と URL を検証する |
 | `src/core/registration.js` | 選んだ候補と入力欄の内容から、登録する予定の一覧を作る（終日／時刻指定、手入力の候補も） |
 | `src/core/ocrText.js` | OCR の結果の文章を整える（日本語の文字の間の余分な空白を除く） |
-| `src/renderer/index.html` | 画面の土台となる HTML |
+| `src/renderer/index.html` | 確認ウインドウの土台となる HTML |
+| `src/renderer/overlay.html` / `overlay.js` / `overlay.css` | 範囲選択の画面（撮影した画面を暗く表示し、ドラッグで範囲を選ぶ。Esc・右クリックで中止） |
 | `src/renderer/main.jsx` | 画面の起点。App を描画し、エラーを受け止める枠で包む |
 | `src/renderer/App.jsx` | 確認ウインドウ全体。貼り付け→抽出・下書き→候補の選択・追記→登録の流れを管理する |
 | `src/renderer/styles.css` | 画面の見た目（ダークモード対応） |
@@ -53,17 +55,25 @@
 | `src/renderer/components/EventDetailsForm.jsx` | 件名・場所・オンライン会議 URL・メモの入力欄 |
 | `src/renderer/components/RegisterSection.jsx` | 「Googleカレンダーで開く」ボタンと登録の確認（右の欄の下端に固定） |
 | `src/renderer/components/RegistrationChecklist.jsx` | 開いた予定の一覧（「保存した」のチェック、「カレンダーで確認」ボタン） |
-| `src/renderer/components/NoDateDialog.jsx` | 「日時の情報がありません」のポップアップ（「手入力する」へ進める） |
+| `src/renderer/components/NoDateDialog.jsx` | 「日時の情報がありません」のポップアップ（その場で日付・時刻を手入力して「追加する」） |
+| `src/renderer/components/CaptureImagePanel.jsx` | 取り込んだ画像・読み取りの状態・「横書き／縦書きで読み直す」 |
 | `src/renderer/components/ErrorBanner.jsx` | エラーの内容を画面上部に表示する |
 | `src/renderer/components/ErrorBoundary.jsx` | 画面の表示中のエラーを受け止め、最初の画面に戻れるようにする |
-| `electron/main.js` | アプリの起動、ウインドウの作成、多重起動の防止、登録要求の受け付けの登録 |
-| `electron/preload.cjs` | 画面に「予定作成画面を開く」「その日の表示を開く」関数だけを公開する |
+| `electron/main.js` | アプリの起動、確認ウインドウ、常駐（トレイ）、ホットキー、多重起動の防止、画面との通信の受け付けの登録 |
+| `electron/tray.js` | タスクトレイ（Mac はメニューバー）のアイコンとメニュー |
+| `electron/captureController.js` | 範囲キャプチャから OCR までの流れ（撮影・範囲選択・切り出し・拡大・OCR・失敗時の後始末） |
+| `electron/captureGeometry.js` | 範囲選択の座標の検証と、画面の座標から画像の画素への変換 |
+| `electron/captureImageStore.js` | 取り込んだ画像をメモリの中だけで持つ（app://bundle/capture/〜 で表示） |
+| `electron/captureIpc.js` | 範囲キャプチャの通信の受け付け（送信元・読み直しの向きの検証） |
+| `electron/overlayPreload.cjs` | 範囲選択の画面に「選んだ範囲を送る」「中止する」の2つだけを公開する |
+| `electron/preload.cjs` | 確認ウインドウに、登録・確認・範囲キャプチャに必要な関数だけを公開する |
 | `electron/calendarIpc.js` | 画面からの登録要求・確認の要求を検証し、予定作成画面・その日の表示を既定のブラウザで開く |
 | `electron/ocrEngine.js` | 画像から文字を読み取る（Tesseract.js。横書き・縦書き、PC 内の文字データだけを使う） |
 | `electron/appProtocol.js` | 画面ファイルを app:// で配信し、CSP を付ける（配信フォルダの外は読ませない） |
 | `electron/security.js` | セキュリティ設定（隔離、外部通信の遮断、権限要求の拒否、外部への移動の禁止） |
 | `scripts/smoke-test.js` | アプリを実際に起動し、画面を自動操作して機能とセキュリティを確認する |
 | `scripts/generate-ocr-fixtures.js` | OCR のテスト用の画像（架空の文章）を作る（開発者が一度だけ実行） |
+| `scripts/generate-icons.js` | トレイのアイコンをコードで描いて作る（開発者がアイコンを作り直すときだけ実行） |
 | `test/*.test.js` | 各ファイルの単体テスト（詳しくは末尾の「test/」の表） |
 | `README.md` | 利用者向けの説明（起動手順、使い方、対応する書き方） |
 | `CLAUDE.md` | 開発のルール（セキュリティ方針、コーディング規約など） |
@@ -297,6 +307,8 @@
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `UNEXPECTED_ERROR_MESSAGE` / `REGISTER_ERROR_MESSAGE` | 定数 | 予期しないエラーの表示文（抽出／登録） | 文章の内容を含めずにエラーを知らせる |
+| `EMPTY_CAPTURE` | 定数 | 範囲キャプチャの状態の初期値（status・imageUrl・orientation・confidence・isLowConfidence・isEmpty） | 取り込みの表示 |
+| `HOTKEY_UNAVAILABLE_MESSAGE` | 定数 | ホットキーを登録できなかったときの案内 | 要件§12 |
 | `EMPTY_EVENT_DETAILS` | 定数 | 予定の内容の入力欄の初期値（元の文章を入れる：オフ） | 要件§6.2 |
 | `App` | コンポーネント | 確認ウインドウ全体 | 貼り付け→抽出・下書き→選択・追記→登録の流れを管理 |
 | `inputText` | 状態 | 入力欄の文章 | 抽出の対象 |
@@ -310,21 +322,38 @@
 | `isNoDateDialogOpen` | 状態 | 「日時の情報がありません」の表示中か | 要件§5.8 |
 | `isRegistering` | 状態 | ブラウザで開く処理の途中か | 二度押しを防ぐ |
 | `openedEvents` | 状態 | 予定作成画面を開いた予定（{id, label, title, date, saved}） | 登録の確認の一覧（要件§12） |
-| `manualDateInputRef` / `shouldFocusManualDateRef` | 参照 | 手入力の日付欄／ダイアログが閉じたら移るか | 「手入力する」から日付欄へ移る |
+| `capture` | 状態 | 範囲キャプチャの状態（EMPTY_CAPTURE の形） | 読み取り中の表示、取り込んだ画像、精度の案内 |
+| `hotkeyLabel` | 状態 | ホットキーの表記 | ボタンに表示する |
+| `captureStatusHandlerRef` | 参照 | 読み取り結果を受け取る最新の処理 | 起動時に1回だけ登録しても最新の処理を呼ぶ |
 | `allCandidates` | 計算値 | 抽出した候補と手入力の候補 | 候補の一覧・登録に使う |
 | `highlightRanges` | 計算値 | すべての候補の位置をまとめたもの | 色付けに渡す |
 | `isInputChangedAfterExtraction` | 計算値 | 抽出後に文章が書き換えられたか | 再抽出を促すお知らせの表示 |
-| `handleExtract()` | 関数 | 抽出・下書きを行い、候補がなければポップアップ、エラーなら待機状態に戻す | 「日時を抽出」ボタン |
+| `handleExtract()` | 関数 | 入力欄の文章で extractFromText を呼ぶ | 「日時を抽出」ボタン |
+| `extractFromText(text)` | 関数 | 抽出・下書きを行い、候補がなければポップアップ、エラーなら待機状態に戻す | 貼り付け・OCR の両方で使う |
+| `handleCaptureStatus(status)` | 関数 | 読み取り中・結果（文章を入れて抽出）・エラー・中止・画像の消去を画面に反映 | 範囲キャプチャの結果の表示 |
+| `handleStartCapture()` / `handleRereadCapture(orientation)` | 関数 | 範囲キャプチャを始めてもらう／向きを指定して読み直してもらう | 「画面から読み取る」「横書き／縦書きで読み直す」 |
 | `resetResults()` | 関数 | 抽出結果・選択・入力欄を初期状態に戻す | エラー時・クリア時の後始末 |
 | `handleClear()` | 関数 | 入力・結果・エラーを消して最初の状態に戻す | 「クリア」ボタン |
 | `handleToggleCandidate(candidateId)` | 関数 | 候補のチェックを切り替える | 候補の選択 |
 | `handleTimeChoiceChange(candidateId, changes)` | 関数 | 終日／時刻指定・時刻を変える | 要件§5.10 |
-| `handleAddManualDate(date)` | 関数 | 手入力した日付を候補に加えてチェックを付ける | 要件§5.8 |
-| `handleStartManualEntry()` / `handleNoDateDialogClose()` | 関数 | 「手入力する」を選んだ印を付ける／ダイアログが閉じたら日付欄に移る | 手入力への導線 |
+| `handleAddManualDate(date, startTime, endTime)` | 関数 | 手入力した日付（と時刻）を候補に加えてチェックを付ける。時刻があれば「時刻を指定」 | 要件§5.8 |
+| `handleAddFromDialog(entry)` | 関数 | ポップアップで入れた日時を候補に加える | 手入力（依頼者の指摘で、ポップアップの中で完結する形に改善） |
 | `handleDetailChange(field, value)` | 関数 | 予定の内容の入力欄を変える | 追記（要件§5.5） |
 | `handleRegister()` | 関数 | 内容を確かめ、メインプロセスに予定作成画面を開いてもらい、登録の確認の一覧を作る | 登録ボタン（要件§5.6） |
 | `handleToggleSaved(openedEventId)` | 関数 | 「保存した」を切り替える | 登録の確認 |
 | `handleOpenDay(date)` | 関数 | その日の Googleカレンダーの表示を開いてもらう | 「カレンダーで確認」 |
+
+### overlay.js（範囲選択の画面）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `MIN_SELECTION_SIZE` | 定数 | 8 | 小さすぎる範囲は選び直してもらう |
+| `SCREENSHOT_URL` | 定数 | './capture/screenshot.png' | 撮影した画面（メモリの中の画像） |
+| `dragStart` / `isFinished` | 変数 | ドラッグを始めた位置／送ったか | 二重に送らない |
+| `toRect(start, current)` | 関数 | 2点から矩形を作る | 範囲の計算 |
+| `drawSelection(rect)` | 関数 | 選んでいる範囲を描く | 外側を暗く、内側を明るく |
+| `resetSelection()` | 関数 | 選び直せる状態に戻す | クリックだけ・小さすぎる範囲 |
+| `cancel()` | 関数 | 中止をメインプロセスに知らせる | Esc・右クリック |
 
 ### components/
 
@@ -339,7 +368,7 @@
 | CandidateList.jsx | `CandidateList` | コンポーネント | 候補をチェックボックス付きで一覧表示（警告・補足のバッジ付き）。日付だけの候補は選ぶと時刻の扱いを表示 | 要件§5.3・§5.10 |
 | TimeChoiceFields.jsx | `TimeChoiceFields` | コンポーネント | 「終日／時刻を指定」と開始・終了時刻の入力欄 | 要件§5.10 |
 | TimeChoiceFields.jsx | `groupName` | 計算値 | ラジオボタンのグループ名（候補ごと） | 候補ごとに選択を分ける |
-| ManualDateForm.jsx | `ManualDateForm` | コンポーネント | 日付欄と「追加」ボタン | 要件§5.8：手入力 |
+| ManualDateForm.jsx | `ManualDateForm` | コンポーネント | 日付欄と「追加」ボタン、次にすることの説明 | 要件§5.8：手入力 |
 | ManualDateForm.jsx | `dateValue` / `date` / `handleAdd()` | 状態・計算値・関数 | 日付欄の値／読み取った日付／候補に追加 | 手入力の候補の追加 |
 | EventDetailsForm.jsx | `EventDetailsForm` | コンポーネント | 件名・場所・会議 URL・メモ・「元の文章をメモに入れる」 | 要件§5.5・§6.2・§12 |
 | EventDetailsForm.jsx | `meetingUrlText` / `meeting` | 計算値 | 入力された会議 URL／検証結果 | 不正な URL・会議サービス以外の URL を知らせる |
@@ -347,7 +376,11 @@
 | RegistrationChecklist.jsx | `RegistrationChecklist` | コンポーネント | 開いた予定の一覧。「保存した」のチェックと「カレンダーで確認」ボタン。全件保存で完了を知らせる | 要件§12：登録の確認 |
 | RegistrationChecklist.jsx | `totalCount` / `savedCount` / `isAllSaved` | 計算値 | 開いた件数／保存した件数／全件保存したか | 保存し忘れが分かるようにする |
 | NoDateDialog.jsx | `SUPPORTED_FORMAT_EXAMPLES` | 定数 | 対応している書き方の例 | 利用者が書き方を確かめられるようにする |
-| NoDateDialog.jsx | `NoDateDialog` | コンポーネント | 「日時の情報がありません」のポップアップ（HTML 標準の `<dialog>`）。「閉じる」「手入力する」 | 要件§5.8 |
+| NoDateDialog.jsx | `NoDateDialog` | コンポーネント | 「日時の情報がありません」のポップアップ。日付（必須）・開始／終了時刻（任意）を入れて「追加する」 | 要件§5.8 |
+| NoDateDialog.jsx | `dateValue` / `startTimeValue` / `endTimeValue` | 状態 | ポップアップの入力欄の値 | 手入力 |
+| NoDateDialog.jsx | `isEndBeforeStart` / `canAdd` / `handleAdd()` | 計算値・関数 | 終了が開始以前か／追加できるか／候補に加えて閉じる | 入力の誤りをその場で知らせる |
+| CaptureImagePanel.jsx | `ORIENTATION_LABELS` | 定数 | 向きの表示名（横書き・縦書き） | 読み取った向きの表示 |
+| CaptureImagePanel.jsx | `CaptureImagePanel` | コンポーネント | 取り込んだ画像、読み取り中、向きと確信度、精度が低い・読めないときの案内、読み直しのボタン | 要件§6.1・§12 |
 | NoDateDialog.jsx | `dialogRef` | 参照 | `<dialog>` 要素 | 開閉（`showModal` / `close`）を呼ぶ |
 | ErrorBanner.jsx | `ErrorBanner` | コンポーネント | エラーの文と「閉じる」ボタン | 要件§5.9：エラーの内容を表示 |
 | ErrorBoundary.jsx | `ErrorBoundary` | クラス | 表示中のエラーを受け止め「最初の画面に戻る」を出す | 要件§5.9：アプリを止めない |
@@ -364,6 +397,7 @@
 |---|---|---|---|
 | `APP_SCHEME` / `APP_HOST` | 定数（公開） | `'app'` / `'bundle'` | 画面を配信する独自の URL（app://bundle/） |
 | `APP_ENTRY_URL` | 定数（公開） | `app://bundle/index.html` | 確認ウインドウで最初に開く URL |
+| `OVERLAY_ENTRY_URL` | 定数（公開） | `app://bundle/overlay.html` | 範囲選択の画面の URL |
 | `APP_SCHEME_PRIVILEGES` | 定数（公開） | `{standard: true, secure: true}` だけ | 必要最小限の特権（CSP の回避などは与えない） |
 | `CONTENT_SECURITY_POLICY` | 定数（公開） | 自分自身のファイル以外の読み込み・通信・インラインスクリプトを禁止する設定 | 画面への不正なコードの混入を防ぐ |
 | `CONTENT_TYPES` / `DEFAULT_CONTENT_TYPE` | 定数（内部） | 拡張子と Content-Type の対応 | 正しい形式で配信し、中身を推測させない |
@@ -372,7 +406,7 @@
 | `resolveAssetPath(requestUrl, rootDir)` | 関数（公開） | URL を配信フォルダ内のファイルパスに変換（外を指すものは null） | パストラバーサル対策 |
 | `getContentType(filePath)` | 関数（公開） | 拡張子から Content-Type を決める | 正しい形式での配信 |
 | `createEmptyResponse(status)` | 関数（内部） | 本文のないエラー応答を作る | 404 などの応答 |
-| `handleAppRequest(request, rootDir)` | 関数（公開） | app:// の要求にファイルの内容で応答（CSP などのヘッダー付き） | `protocol.handle` に渡す処理 |
+| `handleAppRequest(request, rootDir, getCaptureImage)` | 関数（公開） | app:// の要求にファイルの内容で応答（CSP などのヘッダー付き）。`capture/〜` はメモリの中の取り込んだ画像を返す | `protocol.handle` に渡す処理 |
 
 ### security.js（セキュリティ設定）
 
@@ -406,6 +440,12 @@
 | `OPEN_CALENDAR_DAY_CHANNEL` | 定数 | 'calendar:open-day' | 「カレンダーで確認」のチャンネル名 |
 | `window.calendarApp.openCalendarEvents(events)` | 関数（画面に公開） | 予定の一覧をメインプロセスに渡す | 登録。ipcRenderer そのものは公開しない |
 | `window.calendarApp.openCalendarDay(date)` | 関数（画面に公開） | 確認する日付をメインプロセスに渡す | 「カレンダーで確認」 |
+| `CAPTURE_START_CHANNEL` などのチャンネル名 | 定数 | captureIpc.js と同じ値 | 範囲キャプチャの通信 |
+| `window.calendarApp.startCapture()` | 関数（画面に公開） | 範囲キャプチャを始めてもらう | 「画面から読み取る」 |
+| `window.calendarApp.rereadCapture(orientation)` | 関数（画面に公開） | 向きを指定して読み直してもらう | 「横書き／縦書きで読み直す」 |
+| `window.calendarApp.clearCapture()` | 関数（画面に公開） | 取り込んだ画像を消してもらう | 「クリア」 |
+| `window.calendarApp.getAppStatus()` | 関数（画面に公開） | ホットキーが使えるか、その表記を尋ねる | ホットキーが使えないときの案内 |
+| `window.calendarApp.onCaptureStatus(callback)` | 関数（画面に公開） | 読み取りの進み具合と結果を受け取る（内容だけを渡す。解除する関数を返す） | 読み取り結果の表示 |
 
 ### ocrEngine.js（文字の読み取り）
 
@@ -413,7 +453,9 @@
 |---|---|---|---|
 | `ORIENTATION_AUTO` / `ORIENTATION_HORIZONTAL` / `ORIENTATION_VERTICAL` | 定数（公開） | 'auto' ／ 'horizontal' ／ 'vertical' | 読み取りの向き（要件§12：縦書き対応） |
 | `ORIENTATIONS` | 定数（公開） | 向きの一覧 | 画面から届く値の検証 |
-| `OCR_TIMEOUT_MS` | 定数（公開） | 60000 | 1回の読み取りの制限時間（固まらないようにする） |
+| `OCR_TIMEOUT_MS` | 定数（公開） | 15000 | 読み取りの制限時間（両方の向きで読む場合も合計。依頼者の指示：読めないなら手入力の方が早い） |
+| `SKIP_VERTICAL_CONFIDENCE` | 定数（公開） | 80 | 自動のとき、横書きの確信度がこれ以上なら縦書きを省く（待ち時間を半分に） |
+| `TIMEOUT_MESSAGE` | 定数（内部） | 時間切れの表示文（手入力・範囲の選び直しを案内） | 利用者が次にすることを分かるようにする |
 | `MAX_IMAGE_BYTES` | 定数（公開） | 20MB | 大きすぎる画像を受け付けない |
 | `LANGUAGE_DATA_VARIANT` | 定数（内部） | '4.0.0_best_int' | 精度を保ったまま軽くした文字データ（各 約2MB） |
 | `LANGUAGE_SETTINGS` | 定数（内部） | 向きごとの文字データ名・PC 内のフォルダ・文章の並びの解析方法 | 外部から文字データを取得しない |
@@ -422,23 +464,98 @@
 | `getLanguageSettings()` | 関数（公開） | 向きごとの設定を返す | テストで設定を確かめる |
 | `ignoreWorkerError()` | 関数（内部） | 作業スレッドのエラーを受け流す | Tesseract.js の例外でアプリが止まらないようにする |
 | `buildWorkerOptions(setting)` | 関数（公開） | 作業スレッドの設定（PC 内のフォルダ・書き出しなし・エラー処理）を作る | 外部取得・ファイル書き出しの防止 |
-| `recognizeText(image, options)` | 関数（公開） | 画像から文字を読み取る（自動なら横・縦の両方で読み、確信度の高い方） | このファイルの中心 |
+| `recognizeText(image, options)` | 関数（公開） | 画像から文字を読み取る（自動：横書きで読み、確信度が低ければ縦書きでも読んで高い方。実際に読んだ向きも返す） | このファイルの中心 |
 | `chooseBetterResult(horizontal, vertical)` | 関数（公開） | 確信度の高い方を選ぶ（同じなら横書き） | 縦書きの自動判定 |
 | `recognizeWithOrientation(image, orientation, timeoutMs)` | 関数（内部） | 1つの向きで読み取り、必ず作業スレッドを終了する（時間切れでも） | CPU を使い続けない（要件§5.9） |
 
-### main.js（起動とウインドウ）
+### main.js（起動・確認ウインドウ・常駐・ホットキー）
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
-| `ELECTRON_DIR` | 定数 | electron/ フォルダのパス | 画面ファイルの場所を求める |
+| `ELECTRON_DIR` | 定数 | electron/ フォルダのパス | 画面ファイルなどの場所を求める |
 | `RENDERER_DIST_DIR` | 定数 | dist/renderer のパス | app:// で配信してよいフォルダ |
-| `PRELOAD_PATH` | 定数 | electron/preload.cjs のパス | 画面に関数を1つだけ公開する |
+| `PRELOAD_PATH` / `OVERLAY_PRELOAD_PATH` | 定数 | 確認ウインドウ／範囲選択の画面の preload のパス | 画面に決めた関数だけを公開する |
+| `IS_MAC` | 定数 | Mac か | トレイのアイコン・ホットキーの表記を分ける |
+| `TRAY_ICON_PATH` | 定数 | トレイのアイコンのパス（Mac は白黒のテンプレート画像） | 常駐の表示 |
+| `CAPTURE_HOTKEY` / `CAPTURE_HOTKEY_LABEL` | 定数 | 'CommandOrControl+Shift+Y' ／ 表記（Ctrl+Shift+Y・Cmd+Shift+Y） | 要件§12：ホットキー |
 | `MAIN_WINDOW_SIZE` | 定数 | ウインドウの大きさ（1120×760、最小 820×560） | 確認ウインドウの表示 |
-| `mainWindow` | 変数 | 確認ウインドウ（なければ null） | 前面に出す・作り直す |
-| `createMainWindow()` | 関数 | 安全な設定でウインドウを作り、画面を読み込む | 確認ウインドウの表示 |
-| `focusMainWindow()` | 関数 | 2つ目の起動時に既存のウインドウを前面に出す | 多重起動の防止 |
+| `mainWindow` / `tray` | 変数 | 確認ウインドウ／トレイのアイコン | 表示・常駐 |
+| `isQuitting` | 変数 | 終了しようとしているか | 閉じるボタンで隠す（常駐）か、本当に閉じるかを分ける |
+| `isHotkeyRegistered` | 変数 | ホットキーを登録できたか | 使えないときに確認ウインドウで知らせる |
+| `captureImageStore` | 定数 | 取り込んだ画像の置き場所（メモリだけ） | app:// での表示・読み直し |
+| `captureController` | 定数 | 範囲キャプチャから OCR までの処理 | ホットキー・トレイ・ボタンから呼ぶ |
+| `createMainWindow()` | 関数 | 安全な設定でウインドウを作る。閉じるボタンでは隠して画像を消す | 常駐（要件§6.1） |
+| `showMainWindow()` | 関数 | 確認ウインドウを表示して前面に出す（なければ作る） | トレイ・2つ目の起動・読み取り後 |
 | `isTrustedSender(event)` | 関数 | IPC の送信元が確認ウインドウの最上位のフレーム（app://bundle）か | 送信元の検証（CLAUDE.md） |
-| `startApp()` | 関数 | 画面ファイルの確認、セキュリティ設定、app:// と登録要求の受け付けの登録、ウインドウ作成 | 起動処理 |
+| `registerIpcHandlers()` | 関数 | 登録・確認・範囲キャプチャ・範囲選択の画面の通信の受け付けを登録する | IPC の入口をまとめる |
+| `startApp()` | 関数 | セキュリティ設定、app:// の登録、通信の受け付け、トレイ、ホットキー、ウインドウ作成 | 起動処理 |
+
+### tray.js（タスクトレイ）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `createAppTray(options)` | 関数（公開） | アイコンとメニュー（範囲を選んで読み取る／確認ウインドウを開く／終了）を作る。Windows は左クリックで確認ウインドウ | 常駐（要件§6.1） |
+
+### captureGeometry.js（範囲の座標）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `MIN_SELECTION_SIZE` | 定数（公開） | 8 | 小さすぎる範囲は読み取れないため断る |
+| `UPSCALE_PIXEL_RATIO_THRESHOLD` / `UPSCALE_FACTOR` | 定数（公開） | 2 ／ 2 | 文字が小さい画面（等倍・125% など）は2倍に拡大して OCR |
+| `CaptureError` | クラス（公開） | 範囲キャプチャのエラー（利用者向けの文付き） | 画面でそのまま表示できるエラー |
+| `clamp(value, min, max)` | 関数（内部） | 値を範囲に収める | 画面の外にはみ出さないようにする |
+| `validateSelection(rawSelection, viewport)` | 関数（公開） | 範囲選択の画面から届いた矩形を検証し、画面の中に収める | IPC の引数の検証 |
+| `toImageRect(selection, displaySize, imageSize)` | 関数（公開） | 画面の座標を撮影した画像の画素に変換する（外側に丸める） | Retina・拡大率の違いへの対応 |
+| `getUpscaleFactor(displaySize, imageSize)` | 関数（公開） | OCR の前の拡大の倍率を決める | 等倍の画面でも読み取れるようにする |
+
+### captureImageStore.js（取り込んだ画像の置き場所）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `SCREENSHOT_IMAGE_NAME` / `SELECTION_IMAGE_NAME` | 定数（公開） | 'screenshot.png'（範囲選択の背景。選んだらすぐ消す）／'selection.png'（確認ウインドウに表示） | 配信する画像の名前 |
+| `IMAGE_NAMES` / `CAPTURE_PATH_PREFIX` | 定数 | 配信してよい名前の一覧／'/capture/' | 決めた画像以外を配信しない |
+| `createCaptureImageStore()` | 関数（公開） | メモリの中に画像を置く・取り出す・消す（置くたびに版が上がる） | ファイルに保存しない（CLAUDE.md） |
+| `getCaptureImageName(requestUrl)` | 関数（公開） | URL が取り込んだ画像を指していれば名前を返す | app:// での配信 |
+
+### captureIpc.js（範囲キャプチャの通信の受け付け）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `CAPTURE_START_CHANNEL` / `CAPTURE_REREAD_CHANNEL` / `CAPTURE_CLEAR_CHANNEL` / `APP_STATUS_CHANNEL` | 定数（公開） | 確認ウインドウ → メインプロセスのチャンネル名 | 取り込み開始・読み直し・画像を消す・状態の問い合わせ |
+| `CAPTURE_STATUS_CHANNEL` | 定数（公開） | メインプロセス → 確認ウインドウのチャンネル名 | 読み取りの進み具合と結果 |
+| `OVERLAY_SELECT_CHANNEL` / `OVERLAY_CANCEL_CHANNEL` | 定数（公開） | 範囲選択の画面 → メインプロセスのチャンネル名 | 選んだ範囲・中止 |
+| `UNTRUSTED_SENDER_MESSAGE` | 定数（内部） | 送信元を確認できないときの文 | 不正な要求を断る |
+| `createCaptureHandlers(dependencies)` | 関数（公開） | 送信元・向きを検証して、取り込みの処理を呼ぶ関数をまとめて作る（途中なら重ねて始めない） | IPC の引数の検証（CLAUDE.md） |
+
+### captureController.js（範囲キャプチャから OCR まで）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `HIDE_SETTLE_MS` | 定数（内部） | 200 | 確認ウインドウを隠してから撮影するまでの待ち（写り込み防止） |
+| `OVERLAY_TIMEOUT_MS` | 定数（内部） | 120000 | 範囲選択の画面を放置したときに自動で中止する |
+| `LOW_CONFIDENCE_THRESHOLD` | 定数（公開） | 40 | これ未満なら「精度が低い可能性」と知らせる |
+| `SELECTION_IMAGE_URL` / `OVERLAY_PATHNAME` | 定数（内部） | 表示する画像の URL／範囲選択の画面のパス | 表示・送信元の確認 |
+| `SCREEN_PERMISSION_MESSAGE` など | 定数（内部） | 画面収録の許可がない・撮影できない・予期しないエラーの文 | 失敗時の案内（要件§5.9） |
+| `delay(milliseconds)` | 関数（内部） | 指定時間待つ | 撮影前の待ち |
+| `createCaptureController(dependencies)` | 関数（公開） | 範囲キャプチャの処理を作る | main.js から使う |
+| `isOverlaySender(event)` | 関数 | IPC の送信元が範囲選択の画面（最上位のフレーム、/overlay.html）か | 送信元の検証 |
+| `settleSelection(value)` | 関数（内部） | 範囲の選択の待ちを終える（範囲・中止・エラー） | 範囲選択の画面との受け渡し |
+| `closeOverlay()` | 関数（内部） | 範囲選択の画面を閉じる | 暗い表示を残さない（要件§5.9） |
+| `ensureScreenPermission(stage)` | 関数（内部） | Mac の画面収録の許可を確かめる | 許可がないときに手順を案内する |
+| `captureDisplay(display)` | 関数（内部） | カーソルがある画面を撮影する | 取り込み |
+| `selectRegion(display)` | 関数（内部） | 範囲選択の画面を開き、範囲が選ばれるか中止されるまで待つ | 要件§6.1：範囲選択 |
+| `cropForOcr(screenshot, selection, display)` | 関数（内部） | 選んだ範囲を切り出し、必要なら2倍に拡大する | OCR の精度を上げる |
+| `runOcr(png, orientation)` | 関数（内部） | OCR にかけ、結果を確認ウインドウに送る | 読み取り |
+| `fail(error, options)` | 関数（内部） | 後始末（画面を閉じる・画像を消す）をしてエラーを送る | 要件§5.9 |
+| `isBusy()` / `startCapture()` / `rereadSelection(orientation)` / `clearCapture()` | 関数（公開） | 途中か／取り込み開始／読み直し／画像を消す | ホットキー・トレイ・画面から呼ぶ |
+| `handleOverlaySelect(event, rawSelection)` / `handleOverlayCancel(event)` | 関数（公開） | 範囲選択の画面から届いた範囲・中止を検証して受け取る | IPC の入口 |
+
+### overlayPreload.cjs（範囲選択の画面に公開する関数）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `OVERLAY_SELECT_CHANNEL` / `OVERLAY_CANCEL_CHANNEL` | 定数 | captureIpc.js と同じ値 | チャンネル名 |
+| `window.captureOverlay.select(rect)` / `cancel()` | 関数（画面に公開） | 選んだ範囲を送る／中止を送る | 公開するのはこの2つだけ |
 
 ---
 
@@ -447,7 +564,9 @@
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `PROJECT_DIR` | 定数 | プロジェクトのフォルダ | アプリの起動 |
-| `OVERALL_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 制限時間 60秒 / 確認間隔 / 画面の更新待ち | 確認が固まらないようにする |
+| `OVERALL_TIMEOUT_MS` / `STEP_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 全体の制限 30秒（正常なら約16秒）／1つの待ちの上限 10秒／確認間隔／画面の更新待ち | 止まったらすぐ知らせる（依頼者の指示） |
+| `CAPTURE_FIXTURE_PATH` | 定数 | 範囲キャプチャで「撮影した画面」として使う架空の画像 | 画面収録の許可なしで確認する |
+| `APP_EXIT_TIMEOUT_MS` / `launchedApp` | 定数・変数 | アプリの終了を待つ上限 5秒／起動したアプリ | 常駐するアプリを必ず閉じる |
 | `DEMO_TITLE` / `DEMO_LOCATION` / `DEMO_MEETING_URL` | 定数 | デモ文面の件名・場所・会議 URL（架空） | 下書き・登録内容の確認 |
 | `DEMO_TEXT` / `NO_DATE_TEXT` | 定数 | 架空のデモ文面（日時3つ・件名・場所・URL 付き）／日時のない文面 | 画面操作の入力 |
 | `results` / `unexpectedErrors` / `isExpectingErrors` | 変数 | 確認結果／画面のエラー／意図的なエラーを数えない期間か | 合否の判定 |
@@ -464,7 +583,13 @@
 | `getOpenedUrls(mainConnection)` | 関数 | メインプロセスが開こうとした URL の一覧を受け取る | 登録内容の確認 |
 | `clickRegister(connection)` | 関数 | 登録ボタンを押し、処理が終わるまで待つ | 登録の再現 |
 | `saveScreenshot(connection, directory, fileName)` | 関数 | 画面の画像を保存 | 見た目の確認 |
-| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出・下書き・候補・登録・時刻指定・ポップアップ・手入力・エラー表示を確認 | 機能の確認 |
+| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出・下書き・候補・登録・登録の確認・時刻指定・ポップアップでの手入力・エラー表示を確認 | 機能の確認 |
+| `replaceScreenCapture(mainConnection)` | 関数 | 画面の撮影を、架空の画像を返す関数に差し替える | 利用者の画面を撮影しない |
+| `connectToOverlay(port, connection)` / `waitForOverlayClosed(port)` | 関数 | 範囲選択の画面に接続する／閉じるまで待つ（上限付き） | 範囲選択の確認 |
+| `dragWholeOverlay(overlayConnection)` | 関数 | 範囲選択の画面でドラッグする | 範囲選択の再現 |
+| `waitForWithTimeout(connection, expression, timeoutMs)` | 関数 | 条件を満たすまで待つ（上限付き。満たさなければ false） | 不合格を記録して先に進む |
+| `checkCapture(connection, mainConnection, port, screenshotDir)` | 関数 | ホットキー・撮影・範囲選択・OCR・抽出・読み直し・Esc での中止・小さすぎる範囲を確認 | 範囲キャプチャの確認 |
+| `stopLaunchedApp()` | 関数 | アプリを終了させる（終わらなければ強制終了） | 次の確認が多重起動防止で動かなくならないように |
 | `checkSecurity(connection, mainConnection)` | 関数 | 公開機能が1つだけか、不正な登録要求が断られるか、Node.js 機能・外部通信・インラインスクリプト・新規ウインドウ・外部移動の遮断を確認 | セキュリティの実地確認 |
 | `main()` | 関数 | 確認全体を実行し、終了コードを返す | 確認の実行 |
 | `timeout` | 変数 | 制限時間のタイマー | 時間切れで失敗終了する |
@@ -480,6 +605,15 @@
 | `buildHtml(fixture)` | 関数 | 画像に描く HTML を作る | 文章の描画 |
 | `renderFixture(window, fixture)` | 関数 | 1枚の画像を作って保存する（同じ画面を書き換えて撮影） | 画像の作成 |
 
+## scripts/generate-icons.js（トレイのアイコンを作る）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `OUTPUT_DIR` | 定数 | assets/icons | 保存先 |
+| `TEMPLATE_COLOR` / `BRAND_COLOR` | 定数 | 黒（Mac のテンプレート画像）／青 #1a73e8（Windows） | アイコンの色 |
+| `drawCalendarIcon(size, color)` | 関数 | カレンダーの形の画素を作る | 外部の画像素材を使わない |
+| `saveIcon(fileName, size, color)` | 関数 | PNG で保存する | アイコンの作成 |
+
 ## test/（単体テスト）
 
 | ファイル | 主な名前 | 機能 | 目的 |
@@ -494,6 +628,8 @@
 | calendarIpc.test.js | `sampleEvent()`、`createTestHandler()` | 登録要求の処理の確認（偽のブラウザを開く関数を使う） | 送信元・引数の検証、順に開く、二度押し、preload との整合 |
 | electronSecurity.test.js | `FIXTURE_ROOT`、`isInsideRoot()`、`createFakeSession()`、`createFakeContents()`、`createFakeEvent()` | セキュリティ設定と app:// の配信を偽物のオブジェクトで確認 | 設定を誤って緩めたら失敗させる |
 | ocrText.test.js | — | OCR の結果の整形の確認 | 空白の除去、整形後に日時を抽出できること |
+| capture.test.js | `VIEWPORT` | 範囲の座標の検証・変換、拡大の判定、画像の置き場所 | Retina・拡大率への対応、小さすぎる範囲、メモリだけで持つこと |
+| captureIpc.test.js | `createTestHandlers()` | 範囲キャプチャの通信の受け付けと preload の確認 | 送信元・向きの検証、重ねて始めない、公開する関数が決めたものだけ |
 | ocrEngine.test.js | `FIXTURE_DIR`、`NOW`、`readFixture()` | 架空の画像で実際に読み取る | 横書き・縦書きの自動判定、PC 内の文字データの使用、ファイルを書き出さない、時間切れ |
 | fixtures/ | — | app:// のテスト用ファイル（`outside-secret.txt` は配信フォルダの外） | パストラバーサル対策の確認 |
 | fixtures/ocr/ | — | OCR のテスト用の架空の画像（横書きのメール 等倍・2倍、チャット、縦書きのお知らせ） | 文字の読み取りの確認 |
