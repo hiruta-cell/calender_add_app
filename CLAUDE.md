@@ -86,6 +86,10 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 - force push、履歴書き換え、ブランチ・リポジトリ削除は、依頼者の明示的な指示なしに行わない
 - 依頼者の恒久的な指示（2026-10-11）：**コードを変更するたびに、コミットして `origin/main`（https://github.com/hiruta-cell/calender_add_app.git）へ push する**。コミットメッセージは日本語で変更内容を簡潔に書く
 - push 前に必ず差分を確認し、秘密情報・個人情報が含まれる場合は push せず依頼者へ報告する
+- **【重大・絶対に再発させない】コミットの作者・コミッターは `hiruta-cell <326308597+hiruta-cell@users.noreply.github.com>` だけにする**（2026-10-11、作者欄に本名と PC の名前から作られたアドレスが載っていた事故による依頼者の指示。過去55件は同日に書き換えて強制プッシュ済み）
+  - コミットの前に `git config user.name` / `git config user.email` を確かめる。違う・未設定なら、コミットせずに止めて依頼者へ報告する
+  - push の前に `git log origin/main..HEAD --format='%an <%ae> / %cn <%ce>'` で、push するコミットの作者・コミッターを確かめる
+  - `.git/hooks/pre-commit` が noreply 以外のアドレスのコミットを止める（Git の管理外のため、clone し直したら入れ直す）
 - `SECURITY.md` に脆弱性の連絡方法を記載する
 
 ### 復元できない操作の確認
