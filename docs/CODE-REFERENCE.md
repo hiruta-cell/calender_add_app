@@ -68,6 +68,7 @@
 | `LICENSE` | ライセンス（MIT） |
 | `docs/CODE-REFERENCE.md` | このファイル。フォルダ・ファイル・変数・関数の説明 |
 | `docs/ACCEPTANCE.md` | ゴール（受け入れ基準）と確認の記録 |
+| `docs/WINDOWS-CHECK.md` | Windows での起動確認の手順（依頼者が実施） |
 
 ## データの形：日時の候補（`extractDateCandidates` が返すもの）
 
