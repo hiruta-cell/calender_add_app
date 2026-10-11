@@ -1,0 +1,28 @@
+{
+  "name": "calender-add-app",
+  "productName": "Calendar Add App",
+  "version": "0.1.0",
+  "description": "画面の文面から日時を抽出し、Googleカレンダーの予定作成画面を開くデスクトップツール",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "electron/main.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch",
+    "start": "npm run build && electron .",
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:smoke": "npm run build && node scripts/smoke-test.js"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "vite": "8.3.2"
+  }
+}
