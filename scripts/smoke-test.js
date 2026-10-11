@@ -32,8 +32,11 @@ import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
 /** プロジェクトのフォルダ */
 const PROJECT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 確認全体の制限時間（ミリ秒）。正常なら約22秒で終わる。これを超えたら失敗として終了する（固まったままにしない） */
-const OVERALL_TIMEOUT_MS = 30_000;
+/**
+ * 確認が進まない（新しい確認の結果が出ない）まま、この時間がたったら止まったとみなし、失敗として終了する（ミリ秒）。
+ * 依頼者の指示：「操作がまったくないまま30秒」で止める。確認全体の時間（正常なら約22秒）の上限ではない
+ */
+const IDLE_TIMEOUT_MS = 30_000;
 
 /** 画面の表示や接続を待つときの確認間隔（ミリ秒） */
 const POLL_INTERVAL_MS = 200;
@@ -86,8 +89,24 @@ let isExpectingErrors = false;
 /** 起動したアプリのプロセス。時間切れ・中断のときも必ず終了させるために保持する（常駐するため自分では終わらない） */
 let launchedApp = null;
 
+/** 確認が止まったことを見張るタイマー（確認の結果が出るたびに、最初から数え直す） */
+let idleTimer = null;
+
 /**
- * 確認結果を記録して表示する。
+ * 止まったことを見張るタイマーを、最初から数え直す（確認を始めるときと、確認の結果が1件出るたびに呼ぶ）。
+ * 進まないまま IDLE_TIMEOUT_MS たったら、アプリを終了させてから失敗として終了する（確認が固まったままにならないように）。
+ */
+function restartIdleTimer() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    console.error(`✖ ${IDLE_TIMEOUT_MS / 1000} 秒間、確認が進みませんでした（最後に表示した確認の次で止まっています）`);
+    launchedApp?.kill('SIGKILL'); // すぐに終了するため、強制終了する
+    process.exit(1);
+  }, IDLE_TIMEOUT_MS);
+}
+
+/**
+ * 確認結果を記録して表示する。確認が進んだので、止まったことを見張るタイマーを数え直す。
  *
  * @param {string} name 確認する内容
  * @param {boolean} passed 合格なら true
@@ -96,6 +115,7 @@ let launchedApp = null;
 function record(name, passed, detail = '') {
   results.push({ name, passed, detail });
   console.log(`${passed ? '✔' : '✖'} ${name}${detail ? `（${detail}）` : ''}`);
+  restartIdleTimer();
 }
 
 /**
@@ -1075,12 +1095,8 @@ function stopLaunchedApp() {
   });
 }
 
-// 制限時間を超えたら、アプリを終了させてから失敗として終了する（確認が固まったままにならないように）
-const timeout = setTimeout(() => {
-  console.error(`✖ ${OVERALL_TIMEOUT_MS / 1000} 秒以内に終わりませんでした（最後に合格した確認の次で止まっています）`);
-  launchedApp?.kill('SIGKILL'); // すぐに終了するため、強制終了する
-  process.exit(1);
-}, OVERALL_TIMEOUT_MS);
+// 止まったことの見張りを始める（アプリの起動・接続の間も見張る）
+restartIdleTimer();
 
 // Ctrl+C で中断したときも、アプリを終了させる
 process.on('SIGINT', () => {
@@ -1090,11 +1106,11 @@ process.on('SIGINT', () => {
 
 main()
   .then((exitCode) => {
-    clearTimeout(timeout);
+    clearTimeout(idleTimer);
     process.exit(exitCode);
   })
   .catch((error) => {
-    clearTimeout(timeout);
+    clearTimeout(idleTimer);
     console.error(`✖ 確認を実行できませんでした：${error.message}`);
     process.exit(1);
   });

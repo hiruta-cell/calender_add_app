@@ -616,7 +616,7 @@
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `PROJECT_DIR` | 定数 | プロジェクトのフォルダ | アプリの起動 |
-| `OVERALL_TIMEOUT_MS` / `STEP_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 全体の制限 30秒（正常なら約22秒）／1つの待ちの上限 10秒／確認間隔／画面の更新待ち | 止まったらすぐ知らせる（依頼者の指示） |
+| `IDLE_TIMEOUT_MS` / `STEP_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 確認が進まないまま30秒で失敗終了（全体の時間の上限ではない。正常なら全体で約22秒）／1つの待ちの上限 10秒／確認間隔／画面の更新待ち | 止まったらすぐ知らせる（依頼者の指示：操作がまったくないまま30秒） |
 | `MINIMIZE_WAIT_MS` | 定数 | 3秒 | 登録のあと確認ウインドウが最小化される（元に戻る）のを待つ上限。Mac は最小化の動きに時間がかかる |
 | `AUTO_RESET_TEST_DELAY_MS` | 定数 | 自動のクリアの確認で、60秒の代わりに待つ時間（1秒） | 確認全体の時間を短くする |
 | `CAPTURE_FIXTURE_PATH` / `IMPORT_FIXTURE_PATH` | 定数 | 範囲キャプチャで「撮影した画面」とする画像／貼り付けに使う画像（架空） | 画面収録の許可なしで確認する |
@@ -624,7 +624,8 @@
 | `DEMO_TITLE` / `DEMO_LOCATION` / `DEMO_MEETING_URL` | 定数 | デモ文面の件名・場所・会議 URL（架空） | 下書き・登録内容の確認 |
 | `DEMO_TEXT` / `NO_DATE_TEXT` | 定数 | 架空のデモ文面（日時3つ・件名・場所・URL 付き）／日時のない文面 | 画面操作の入力 |
 | `results` / `unexpectedErrors` / `isExpectingErrors` | 変数 | 確認結果／画面のエラー／意図的なエラーを数えない期間か | 合否の判定 |
-| `record(name, passed, detail)` | 関数 | 確認結果を記録・表示 | 結果の一覧 |
+| `idleTimer` / `restartIdleTimer()` | 変数・関数 | 止まったことを見張るタイマー／それを最初から数え直す（開始時と、確認の結果が出るたび） | 進まないまま30秒たったら、アプリを終了させて失敗終了する |
+| `record(name, passed, detail)` | 関数 | 確認結果を記録・表示し、止まったことの見張りを数え直す | 結果の一覧 |
 | `sleep(milliseconds)` | 関数 | 指定時間待つ | 画面の更新待ち |
 | `DevToolsConnection` | クラス | DevTools への接続（`open` / `send` / `handleMessage` / `evaluate` / `close`） | 画面を外から操作する |
 | `launchApp()` | 関数 | 確認用の接続口（画面用・メインプロセス用）付きで Electron を起動 | アプリの起動 |
@@ -649,7 +650,6 @@
 | `stopLaunchedApp()` | 関数 | アプリを終了させる（終わらなければ強制終了） | 次の確認が多重起動防止で動かなくならないように |
 | `checkSecurity(connection, mainConnection)` | 関数 | 公開する関数が決めた8つだけか、不正な登録要求が断られ最小化もしないか、Node.js 機能・外部通信・インラインスクリプト・新規ウインドウ・外部移動の遮断を確認 | セキュリティの実地確認 |
 | `main()` | 関数 | 確認全体を実行し、終了コードを返す | 確認の実行 |
-| `timeout` | 変数 | 制限時間のタイマー | 時間切れで失敗終了する |
 
 ## scripts/generate-ocr-fixtures.js（OCR のテスト用の画像を作る）
 
