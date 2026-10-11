@@ -267,6 +267,8 @@
 | `ADDRESS_LABELS` / `ADDRESS_LABEL_LINE_PATTERN` | 定数（内部） | 住所のラベル（住所、所在地、Address）／その行の正規表現 | 場所のラベル・文がないとき、署名を除いた行から住所を取り出す |
 | `PREFECTURES` | 定数（内部） | 47都道府県の名前 | 住所らしい行を見つける |
 | `ADDRESS_LINE_PATTERN` | 定数（内部） | 都道府県＋市区町村で始まる行（行頭の化けた文字2文字・郵便番号は読み飛ばす） | 見出しのない住所（催しの一覧のページ・OCR）を取り出す（依頼者の指示） |
+| `MUNICIPALITY_LINE_PATTERN` | 定数（内部） | 県名のない、市区町村（仙台市青葉区・塩竈市・柴田郡大河原町など）で始まる行 | 県名のない住所の取り出し（依頼者の指示） |
+| `MUNICIPALITY_REST_PATTERN` | 定数（内部） | 市区町村名の後ろとして認める書き方（町名＋番地、または行末・「 / 分類」） | 「朝市10月20日」「登米市にある能舞台」のような行を住所と取り違えない |
 | `ADDRESS_TRAILING_PATTERN` | 定数（内部） | 住所の後ろの「 / 分類」、2つ以上の空白の後ろ | 「宮城県登米市 / 芸術鑑賞」→「宮城県登米市」、OCR で隣の欄が混ざった部分を除く |
 | `HAS_STREET_NUMBER_PATTERN` | 定数（内部） | 数字を含むか | 番地のある住所を、地域だけの行より優先する |
 | `EMAIL_ADDRESS_PATTERN` / `COMPANY_PATTERN` / `PHONE_LABEL_PATTERN` | 定数（内部） | メールアドレス／会社名（株式会社など）／TEL・FAX・電話 | 署名らしいまとまり（メールアドレス、または会社名と電話の両方）を見分ける |
@@ -288,7 +290,8 @@
 | `findHeadingTitle(lines)` | 関数（内部） | 先頭の5行から「〜のお知らせ」などの短い見出しを探す | 件名のラベルがないときの件名 |
 | `findLocationSentence(lines)` | 関数（内部） | 「会場は〜です」のような文から場所を取り出す | 場所のラベルがないときの場所 |
 | `blankOutSignatureLines(lines)` | 関数（内部） | 署名らしい行を空行にする（「-- 」より後、署名らしいまとまり） | 署名の会社の住所を場所にしない |
-| `findAddressLine(lines)` | 関数（内部） | 都道府県＋市区町村で始まる行から住所を取り出す（番地のあるものを優先） | 見出しのない住所の取り出し |
+| `matchMunicipalityLine(line)` | 関数（内部） | 県名のない、市区町村で始まる住所の行か確かめる | 県名のない住所の取り出し |
+| `findAddressLine(lines)` | 関数（内部） | 都道府県または市区町村で始まる行から住所を取り出す（番地のあるものを優先） | 見出しのない住所の取り出し |
 | `isAnyLabelLine(line)` | 関数（内部） | 件名・場所・住所のラベルの行か | 次の行を値とみなしてよいかの判定 |
 | `findMeetingUrl(text)` | 関数（内部） | 会議サービスの URL、なければ最初の https の URL を選ぶ | 会議 URL の取り出し |
 | `parseMeetingUrl(text)` | 関数（公開） | URL を検証し、会議サービスかを判定する（xn-- の形に直す）。`{href, hostname, isKnownMeetingService}` を返す（hostname はフィッシングの注意でサイト名として見せる） | なりすまし URL・https 以外を弾く。入力欄の検証にも使う |

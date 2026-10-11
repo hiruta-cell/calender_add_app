@@ -88,6 +88,33 @@ describe('場所：見出しのない住所（催しの一覧のページ・OCR�
     assert.equal(extractEventDetails('10月20日(火) 14時 定例会').location, '');
   });
 
+  test('県名のない住所：市区町村で始まり、番地が続く行', () => {
+    assert.equal(extractEventDetails('塩竈市本町8-1講習室').location, '塩竈市本町8-1講習室');
+    assert.equal(extractEventDetails('仙台市青葉区架空町1-2-3 架空ビル').location, '仙台市青葉区架空町1-2-3 架空ビル');
+    assert.equal(extractEventDetails('柴田郡大河原町架空1-1').location, '柴田郡大河原町架空1-1');
+    assert.equal(extractEventDetails('さいたま市中央区架空1丁目').location, 'さいたま市中央区架空1丁目');
+    assert.equal(extractEventDetails('架空市中央123番地').location, '架空市中央123番地');
+  });
+
+  test('県名のない住所：市区町村だけで行末・「 / 分類」で終わる行（催しの一覧の地域の表示）', () => {
+    assert.equal(extractEventDetails('登米市 / 芸術鑑賞・自然観賞').location, '登米市');
+    assert.equal(extractEventDetails('Q登米市/芸術鑑賞').location, '登米市');
+    assert.equal(extractEventDetails('9仙台市若林区/自然体験').location, '仙台市若林区');
+    const list = ['こども探偵事務所', '塩竈市 / 芸術鑑賞・自然観賞', '2026年10月11日(日)', '塩竈市本町8-1講習室'].join('\n');
+    assert.equal(extractEventDetails(list).location, '塩竈市本町8-1講習室');
+  });
+
+  test('県名のない住所と取り違えやすい行は使わない（日付・時刻・文のつながりが続く）', () => {
+    for (const text of ['朝市10月20日', '朝市 10月20日', '登米市にある能舞台', '仙台市で10-20歳が対象', '仙台市民会館で開催', '仙台市内 14:00', '市民センターで集合', '町内会の集まり']) {
+      assert.equal(extractEventDetails(text).location, '', text);
+    }
+  });
+
+  test('署名のまとまりの県名のない住所も使わない', () => {
+    const mail = ['10月20日(火) 14時にお伺いします。', '', '架空商事株式会社 例田', '架空市中央1-1', 'TEL：000-0000-0000'].join('\n');
+    assert.equal(extractEventDetails(mail).location, '');
+  });
+
   test('「場所：」「会場は〜です」があればそちらを優先する', () => {
     assert.equal(extractEventDetails('場所：架空ホール\n宮城県架空市中央1-1').location, '架空ホール');
     assert.equal(extractEventDetails('会場は架空公民館です。\n宮城県架空市中央1-1').location, '架空公民館');

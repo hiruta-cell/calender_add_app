@@ -8,7 +8,8 @@
  *     件名：最初の数行のうち「〜のお知らせ」「〜のご案内」「〜のご連絡」「〜開催決定！」で終わる短い行
  *     場所：「会場は〜です」「場所は〜で行います」のように「です」などで終わる文。
  *           それもなければ「住所：」「所在地：」の行、さらになければ「宮城県塩竈市本町8-1」のように
- *           都道府県＋市区町村で始まる行（催しの一覧のページなど。依頼者の指示 2026-10-11）。
+ *           都道府県＋市区町村で始まる行や、「塩竈市本町8-1」「登米市 / 芸術鑑賞」のように
+ *           市区町村で始まり番地が続く（または行末・分類で終わる）行（催しの一覧のページなど。依頼者の指示 2026-10-11）。
  *           署名らしいまとまり（メールアドレス、または会社名と TEL・FAX を含む）と「--」より後の住所は使わない
  * - URL は https:// の部分から取り出す。Zoom・Google Meet・Teams・Webex を優先する。
  * - 取り出した内容は下書きであり、利用者が確認・修正してから登録する。
@@ -45,9 +46,28 @@ const PREFECTURES = [
  *   - value：住所から行末まで
  */
 const ADDRESS_LINE_PATTERN = new RegExp(
-  String.raw`^[ \t]{0,8}(?:[^ \t]{1,2}[ \t]{0,2})??(?:〒?[ \t]?\d{3}-?\d{4}[ \t]{0,2})?(?<value>(?:${PREFECTURES.join('|')})[^ \t/|]{1,10}?(?:市|区|町|村|郡).*)$`,
+  String.raw`^[ \t]{0,8}(?:[^ \t]{1,2}?[ \t]{0,2})??(?:〒?[ \t]?\d{3}-?\d{4}[ \t]{0,2})?(?<value>(?:${PREFECTURES.join('|')})[^ \t/|]{1,10}?(?:市|区|町|村|郡).*)$`,
   'u',
 );
+
+/**
+ * 都道府県のない、市区町村で始まる行（依頼者の指示：県名のない住所の方が多い）。
+ *   municipality：市区町村名（「仙台市青葉区」「塩竈市」「柴田郡大河原町」など。名前は漢字・かな・カタカナ6文字まで）
+ *   rest：その後ろ（番地が続くか、行末・分類で終わるかを MUNICIPALITY_REST_PATTERN で確かめる）
+ * 都道府県の行と同じく、行頭の化けた文字2文字と郵便番号は読み飛ばす。
+ */
+const MUNICIPALITY_LINE_PATTERN =
+  /^[ \t]{0,8}(?:[^ \t]{1,2}?[ \t]{0,2})??(?:〒?[ \t]?\d{3}-?\d{4}[ \t]{0,2})?(?<value>(?<municipality>[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ヶヵ々]{1,6}?(?:市|区|郡|町|村)(?:[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ヶヵ々]{1,6}?(?:区|町|村))?)(?<rest>.*))$/u;
+
+/**
+ * 市区町村名の後ろとして認める書き方（どちらか）。
+ *   1. 町名など（漢字・カタカナと「ヶ」「の」「が」だけ。「で」「にある」のような文のつながりは除く）に続く番地：
+ *      数字＋「-」「丁目」「番地」「号」、または日付・時刻でない数字（「10月」「10日」「14:00」は除く）、「丁目」「番地」
+ *      例：「本町8-1講習室」「一番町1-2-3」「中央123番地」
+ *   2. 何もない（行末）か、「 / 分類」（催しの一覧の地域の表示。例：「登米市 / 芸術鑑賞」）
+ */
+const MUNICIPALITY_REST_PATTERN =
+  /^(?:[\p{Script=Han}\p{Script=Katakana}ヶヵケ々のが]{0,12}?(?:\d{1,5}(?:[-‐−ー－の]\d|丁目|番地?|号|(?![\d月日年時:/.]))|丁目|番地)|[ \t]*(?:[/|｜／].*)?$)/u;
 
 /** 住所の後ろの「 / 芸術鑑賞」のような分類、または2つ以上の空白の後ろ（画面の別の欄）を切り捨てる */
 const ADDRESS_TRAILING_PATTERN = /[ \t]*[/|｜／].*$|[ \t]{2,}.*$/u;
@@ -261,7 +281,19 @@ function blankOutSignatureLines(lines) {
 }
 
 /**
- * 都道府県＋市区町村で始まる行から住所を取り出す。番地（数字）を含むものを優先し、なければ最初のもの。
+ * 都道府県のない、市区町村で始まる住所の行か確かめる（市区町村名の後ろに番地が続くか、行末・分類で終わるもの）。
+ * 例：「塩竈市本町8-1講習室」「登米市 / 芸術鑑賞」は住所。「朝市10月20日」「登米市にある能舞台」は住所ではない。
+ *
+ * @param {string} line 1行の文字列
+ * @returns {RegExpMatchArray | null} 住所なら一致結果（groups.value が住所）、違えば null
+ */
+function matchMunicipalityLine(line) {
+  const match = line.match(MUNICIPALITY_LINE_PATTERN);
+  return match !== null && MUNICIPALITY_REST_PATTERN.test(match.groups.rest) ? match : null;
+}
+
+/**
+ * 都道府県または市区町村で始まる行から住所を取り出す。番地（数字）を含むものを優先し、なければ最初のもの。
  * 例：「宮城県登米市 / 芸術鑑賞・自然観賞」→「宮城県登米市」、「Q宮城県塩竈市本町8-1講習室」（OCR）→「宮城県塩竈市本町8-1講習室」
  *
  * @param {string[]} lines 文章の各行（署名の行は空にしたもの）
@@ -270,7 +302,8 @@ function blankOutSignatureLines(lines) {
 function findAddressLine(lines) {
   const addresses = [];
   for (const line of lines) {
-    const match = sanitizeSingleLine(line).match(ADDRESS_LINE_PATTERN);
+    const singleLine = sanitizeSingleLine(line);
+    const match = singleLine.match(ADDRESS_LINE_PATTERN) ?? matchMunicipalityLine(singleLine);
     if (match !== null) {
       addresses.push(match.groups.value.replace(ADDRESS_TRAILING_PATTERN, '').trim());
     }
