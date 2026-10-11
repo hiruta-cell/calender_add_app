@@ -8,6 +8,7 @@
  * 対応する書き方（要件§5.7・§12）：
  *   日付：10/15、10月15日、2026年10月15日、明日、来週火曜（来週の火曜日）
  *   曜日：日付の後の (木)、(木曜日)、(月・祝)、木曜日 は読み飛ばす
+ *   漢字の数字：十月十五日、十五時三十分、二〇二六年 など（japaneseNumber.js で数値にする）
  *   時刻：14:00、14時、14時30分、14時半、午前/午後、全角数字、3pm・3:00 PM・PM3:00（英語の AM/PM）
  *   時間帯：正午(12時)、朝(9時)、昼(11時)、夕方(15時)、夜(18時)。「夜7時」→19時のように手がかりにもする
  *   範囲：14時〜15時、15:00-16:00、14時から15時
@@ -20,6 +21,7 @@
  *   - 過去の日時には警告を付ける（要件§12）
  */
 
+import { parseJapaneseNumber } from './japaneseNumber.js';
 import { normalizeWidth } from './textNormalizer.js';
 import {
   DAYS_PER_WEEK,
@@ -66,7 +68,7 @@ const HALF_HOUR_MINUTES = 30;
 /**
  * 日付の書き方に一致する正規表現（文章全体から探すため g フラグ、漢字の判定に u フラグ）。
  * 名前付きグループで、どの書き方に一致したかを区別する。
- *   jpYear / jpMonth / jpDay … 2026年10月15日、10月15日
+ *   jpYear / jpMonth / jpDay … 2026年10月15日、10月15日、十月十五日、二〇二六年十月十五日（漢字の数字も可）
  *   slashMonth / slashDay    … 10/15（前後に数字や / が続くもの（2026/10/15、1/2/3 など）は除外）
  *   tomorrow                 … 明日（直前が漢字のものは除外。「説明日程」の「明日」を誤認しないため）
  *   nextWeekWeekday          … 来週火曜、来週の火曜日（「再来週」は除外。1週間ずれるのを防ぐため）
@@ -74,7 +76,7 @@ const HALF_HOUR_MINUTES = 30;
  */
 const DATE_PATTERN = new RegExp(
   [
-    String.raw`(?<!\d)(?:(?<jpYear>\d{4})[ \t]?年[ \t]?)?(?<jpMonth>\d{1,2})[ \t]?月[ \t]?(?<jpDay>\d{1,2})[ \t]?日`,
+    String.raw`(?<![\d〇一二三四五六七八九十百千])(?:(?<jpYear>\d{4}|[〇一二三四五六七八九十百千]{2,7})[ \t]?年[ \t]?)?(?<jpMonth>\d{1,2}|[一二三四五六七八九十]{1,3})[ \t]?月[ \t]?(?<jpDay>\d{1,2}|[一二三四五六七八九十]{1,3})[ \t]?日`,
     String.raw`(?<![\d/])(?<slashMonth>\d{1,2})/(?<slashDay>\d{1,2})(?![\d/])`,
     String.raw`(?<!\p{Script=Han})(?<tomorrow>明日)`,
     String.raw`(?<!再)来週[ \t]?(?:の[ \t]?)?(?<nextWeekWeekday>[月火水木金土日])曜日?`,
@@ -96,13 +98,14 @@ const CONNECTOR_PATTERN = /[ \t]{0,3}(?:[のは、,][ \t]{0,3})?/y;
  * 時刻の書き方。i フラグ：英語の AM/PM を大文字・小文字どちらでも受け付ける。
  *   meridiem                  … 前に付く 午前 / 午後 / AM / PM / a.m. / p.m.
  *   colonHour / colonMinute   … 14:00（分は2桁）
- *   kanjiHour / kanjiMinute   … 14時、14時30分（「1時間」の「時」は時刻ではないので除外）
+ *   kanjiHour / kanjiMinute   … 14時、14時30分、十五時三十分（漢字の数字も可）
+ *                               「2時間」「一時的」「一時停止」などの「時」は時刻ではないので除外
  *   half                      … 14時半
  *   bareHour                  … 3pm の「3」（後ろに AM/PM があるときだけ）
  *   suffixMeridiem            … 後ろに付く AM / PM（3pm、3:00 PM）
  */
 const TIME_PATTERN =
-  /(?:(?<meridiem>午前|午後|A\.M\.|P\.M\.|AM|PM)[ \t]{0,2})?(?:(?<colonHour>\d{1,2}):(?<colonMinute>\d{2})(?!\d)|(?<kanjiHour>\d{1,2})時(?!間)(?:[ \t]{0,2}(?<kanjiMinute>\d{1,2})分|(?<half>半))?|(?<bareHour>\d{1,2})(?=[ \t]{0,2}(?:A\.M\.|P\.M\.|AM|PM)(?![A-Z])))(?:[ \t]{0,2}(?<suffixMeridiem>A\.M\.|P\.M\.|AM|PM)(?![A-Z]))?/iy;
+  /(?:(?<meridiem>午前|午後|A\.M\.|P\.M\.|AM|PM)[ \t]{0,2})?(?:(?<colonHour>\d{1,2}):(?<colonMinute>\d{2})(?!\d)|(?<kanjiHour>\d{1,2}|[〇一二三四五六七八九十]{1,3})時(?!間|的|点|期|代|限|刻|停|保)(?:[ \t]{0,2}(?<kanjiMinute>\d{1,2}|[〇一二三四五六七八九十]{1,3})分|(?<half>半))?|(?<bareHour>\d{1,2})(?=[ \t]{0,2}(?:A\.M\.|P\.M\.|AM|PM)(?![A-Z])))(?:[ \t]{0,2}(?<suffixMeridiem>A\.M\.|P\.M\.|AM|PM)(?![A-Z]))?/iy;
 
 /**
  * 時間帯を表す言葉（要件§12）。時刻が続かなければ、この言葉の既定の時刻を開始にする。
@@ -304,11 +307,11 @@ function resolveDate(groups, today) {
  * @returns {{year: number, month: number, day: number} | null} 実在しない日付なら null
  */
 function resolveCalendarDate(yearText, monthText, dayText, today) {
-  const month = Number(monthText);
-  const day = Number(dayText);
+  const month = parseJapaneseNumber(monthText);
+  const day = parseJapaneseNumber(dayText);
 
   if (yearText !== undefined) {
-    const year = Number(yearText);
+    const year = parseJapaneseNumber(yearText);
     return isValidDate(year, month, day) ? { year, month, day } : null;
   }
 
@@ -445,13 +448,13 @@ function meridiemFromTimeWord(word, rawHour) {
  *   meridiem は実際に使った午前/午後（なければ null）。時刻として成り立たなければ null
  */
 function parseTime(groups, inheritedMeridiem, timeWord) {
-  const rawHour = Number(groups.colonHour ?? groups.kanjiHour ?? groups.bareHour);
+  const rawHour = parseJapaneseNumber(groups.colonHour ?? groups.kanjiHour ?? groups.bareHour);
 
   let minute = 0;
   if (groups.colonMinute !== undefined) {
     minute = Number(groups.colonMinute);
   } else if (groups.kanjiMinute !== undefined) {
-    minute = Number(groups.kanjiMinute);
+    minute = parseJapaneseNumber(groups.kanjiMinute);
   } else if (groups.half !== undefined) {
     minute = HALF_HOUR_MINUTES;
   }
@@ -461,7 +464,7 @@ function parseTime(groups, inheritedMeridiem, timeWord) {
     meridiemFromTimeWord(timeWord, rawHour) ??
     inheritedMeridiem;
   const hour = applyMeridiem(rawHour, meridiem);
-  if (hour === null || minute > 59) {
+  if (!Number.isInteger(rawHour) || !Number.isInteger(minute) || hour === null || minute > 59) {
     return null;
   }
   return { hour, minute, meridiem };

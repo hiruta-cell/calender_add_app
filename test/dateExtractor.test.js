@@ -249,6 +249,47 @@ describe('時間帯の言葉（正午・朝・昼・夕方・夜）', () => {
   });
 });
 
+describe('漢字の数字', () => {
+  test('十月十五日（木）十五時〜十六時', () => {
+    const candidate = extractSingle('十月十五日（木）十五時〜十六時');
+    assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 15, 0));
+    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 16, 0));
+  });
+
+  test('年も漢字：二〇二六年十月十五日、二千二十六年十月三十一日', () => {
+    assert.deepEqual(extractSingle('二〇二六年十月十五日').start, dateTime(2026, 10, 15, null, null));
+    assert.deepEqual(extractSingle('二千二十六年十月三十一日').start, dateTime(2026, 10, 31, null, null));
+  });
+
+  test('時刻：十五時三十分、午後三時半、明日の朝八時、夜七時', () => {
+    assert.deepEqual(extractSingle('10/15 十五時三十分').start, dateTime(2026, 10, 15, 15, 30));
+    assert.deepEqual(extractSingle('10/15 午後三時半').start, dateTime(2026, 10, 15, 15, 30));
+    assert.deepEqual(extractSingle('明日の朝八時').start, dateTime(2026, 10, 12, 8, 0));
+    assert.deepEqual(extractSingle('明日の夜七時').start, dateTime(2026, 10, 12, 19, 0));
+  });
+
+  test('漢字と数字の混在：10月十五日 14時〜十六時', () => {
+    const candidate = extractSingle('10月十五日 14時〜十六時');
+    assert.deepEqual(candidate.start, dateTime(2026, 10, 15, 14, 0));
+    assert.deepEqual(candidate.end, dateTime(2026, 10, 15, 16, 0));
+  });
+
+  test('「十一月」を「一月」と誤認しない', () => {
+    assert.deepEqual(extractSingle('十一月三日').start, dateTime(2026, 11, 3, null, null));
+  });
+
+  test('実在しない日付・時刻は使わない：十月三十二日、二十五時', () => {
+    assert.equal(extract('十月三十二日').candidates.length, 0);
+    assert.equal(extractSingle('10/15 二十五時').hasTime, false);
+  });
+
+  test('「一時的」「一時停止」「一日中」を時刻・日付と誤認しない', () => {
+    assert.equal(extractSingle('明日一時的に停止します').hasTime, false);
+    assert.equal(extractSingle('明日、一時停止します').hasTime, false);
+    assert.equal(extract('一日中かかります').candidates.length, 0);
+  });
+});
+
 describe('年の記載がない日付（今日以降で最も近い日）と過去の警告', () => {
   test('今年すでに過ぎた日付は来年：10/5 → 2027/10/5（警告なし）', () => {
     const candidate = extractSingle('10/5');
@@ -436,6 +477,8 @@ describe('処理時間（悪意のある長い入力でも固まらない：ReDo
     '空白の繰り返し': `10/15${' '.repeat(MAX_INPUT_LENGTH - 10)}`,
     '来週の繰り返し': '来週の'.repeat(MAX_INPUT_LENGTH / 3),
     '数字だけ': '9'.repeat(MAX_INPUT_LENGTH),
+    '漢字の数字の繰り返し': '十二'.repeat(MAX_INPUT_LENGTH / 2),
+    '漢字の月の繰り返し': '十月'.repeat(MAX_INPUT_LENGTH / 2),
   };
 
   for (const [name, input] of Object.entries(adversarialInputs)) {
