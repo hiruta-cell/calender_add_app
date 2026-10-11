@@ -552,6 +552,33 @@ async function checkCapture(connection, mainConnection, port, screenshotDir) {
     await connection.evaluate(`![...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る')).disabled`),
   );
   await clickButton(connection, '閉じる');
+
+  // 5. Mac で画面収録の許可がない → 案内と「システム設定を開く」ボタン（Mac のときだけ確認する）
+  if (process.platform === 'darwin') {
+    await mainConnection.send('Runtime.evaluate', {
+      expression: `require('electron').systemPreferences.getMediaAccessStatus = () => 'denied'`,
+      includeCommandLineAPI: true,
+    });
+    await connection.evaluate(`[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る')).click()`);
+    const isPermissionShown = await waitForWithTimeout(
+      connection,
+      `(document.querySelector('.error-banner')?.textContent ?? '').includes('画面を取り込む許可がありません')`,
+      STEP_TIMEOUT_MS,
+    );
+    record('画面収録の許可がないと、取り込みを中止して許可の手順を案内する', isPermissionShown);
+    await clickButton(connection, 'システム設定を開く');
+    const settingsUrl = (await getOpenedUrls(mainConnection)).at(-1);
+    record(
+      '「システム設定を開く」で、画面収録の設定画面（決まった URL）を開く',
+      settingsUrl === 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+      settingsUrl,
+    );
+    await mainConnection.send('Runtime.evaluate', {
+      expression: `require('electron').systemPreferences.getMediaAccessStatus = () => 'granted'`,
+      includeCommandLineAPI: true,
+    });
+    await clickButton(connection, '閉じる');
+  }
   return [overlayImage, captureImage];
 }
 
@@ -770,9 +797,9 @@ async function checkSecurity(connection, mainConnection) {
   isExpectingErrors = true; // ここで起きるエラーは意図的に起こしたもの
 
   record(
-    '画面に公開されている機能は、決めた関数だけ（登録・確認・取り込みの7つ）',
+    '画面に公開されている機能は、決めた関数だけ（登録・確認・取り込み・設定画面の8つ）',
     JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp).sort()`)) ===
-      JSON.stringify(['clearCapture', 'getAppStatus', 'onCaptureStatus', 'openCalendarDay', 'openCalendarEvents', 'rereadCapture', 'startCapture']) &&
+      JSON.stringify(['clearCapture', 'getAppStatus', 'onCaptureStatus', 'openCalendarDay', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'startCapture']) &&
       (await connection.evaluate(`typeof window.ipcRenderer === 'undefined' && typeof window.electron === 'undefined'`)),
   );
   const openedBefore = (await getOpenedUrls(mainConnection)).length;

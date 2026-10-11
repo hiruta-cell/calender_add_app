@@ -28,9 +28,11 @@ import {
   CAPTURE_REREAD_CHANNEL,
   CAPTURE_START_CHANNEL,
   CAPTURE_STATUS_CHANNEL,
+  OPEN_SCREEN_SETTINGS_CHANNEL,
   OVERLAY_CANCEL_CHANNEL,
   OVERLAY_SELECT_CHANNEL,
   createCaptureHandlers,
+  createOpenScreenSettingsHandler,
 } from './captureIpc.js';
 import { SECURE_WEB_PREFERENCES, applySessionSecurity, hardenWebContents } from './security.js';
 import { createAppTray } from './tray.js';
@@ -179,6 +181,10 @@ function registerIpcHandlers() {
   ipcMain.handle(APP_STATUS_CHANNEL, captureHandlers.handleAppStatus);
   ipcMain.handle(OVERLAY_SELECT_CHANNEL, (event, rect) => captureController.handleOverlaySelect(event, rect));
   ipcMain.handle(OVERLAY_CANCEL_CHANNEL, (event) => captureController.handleOverlayCancel(event));
+  ipcMain.handle(
+    OPEN_SCREEN_SETTINGS_CHANNEL,
+    createOpenScreenSettingsHandler({ isTrustedSender, openExternal, platform: process.platform }),
+  );
 }
 
 /**

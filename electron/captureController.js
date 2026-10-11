@@ -13,7 +13,13 @@
 
 import { app, BrowserWindow, desktopCapturer, screen, systemPreferences } from 'electron';
 import { OVERLAY_ENTRY_URL, isAppUrl } from './appProtocol.js';
-import { CaptureError, getUpscaleFactor, toImageRect, validateSelection } from './captureGeometry.js';
+import {
+  CAPTURE_ERROR_SCREEN_PERMISSION,
+  CaptureError,
+  getUpscaleFactor,
+  toImageRect,
+  validateSelection,
+} from './captureGeometry.js';
 import { SCREENSHOT_IMAGE_NAME, SELECTION_IMAGE_NAME } from './captureImageStore.js';
 import { ORIENTATION_AUTO, OcrError, recognizeText } from './ocrEngine.js';
 import { buildScreenPermissionMessage, getScreenPermissionAppName } from './screenPermission.js';
@@ -131,7 +137,10 @@ export function createCaptureController({
     const isDenied = stage === 'before' ? status === 'denied' || status === 'restricted' : status !== 'granted';
     if (isDenied) {
       // 起動元のアプリ（ターミナル・VSCode など）の名前を入れて、どれを許可すればよいかを案内する
-      throw new CaptureError(buildScreenPermissionMessage(getScreenPermissionAppName(process.env)));
+      throw new CaptureError(
+        buildScreenPermissionMessage(getScreenPermissionAppName(process.env)),
+        CAPTURE_ERROR_SCREEN_PERMISSION,
+      );
     }
   }
 
@@ -264,7 +273,8 @@ export function createCaptureController({
       console.error('範囲キャプチャに失敗しました:', error?.name); // 画像や文章の内容は記録しない
     }
     const message = isExpected ? error.message : UNEXPECTED_ERROR_MESSAGE;
-    sendStatus({ state: 'error', message });
+    // reason：画面で特別な案内をするための理由（画面収録の許可がないなら「システム設定を開く」ボタンを出す）
+    sendStatus({ state: 'error', message, reason: error instanceof CaptureError ? error.reason : null });
     return { ok: false, message };
   }
 

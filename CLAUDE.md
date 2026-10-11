@@ -43,7 +43,7 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 - Content-Security-Policy を設定する（`default-src 'none'` を基本に、`script-src 'self'` などを必要な分だけ許可する。`connect-src 'none'`。`unsafe-eval` / `unsafe-inline` は使わない）。実体は `electron/appProtocol.js` の `CONTENT_SECURITY_POLICY`
 - `setWindowOpenHandler` で新規ウインドウを全て拒否し、`will-navigate` で外部遷移を拒否する
 - `session.setPermissionRequestHandler` で不要な権限要求（カメラ、位置情報、通知など）を全て拒否する
-- 外部URLを開くのは `shell.openExternal` のみ。開く前に必ず URL をパースし、`https:` かつ ホスト `calendar.google.com` で、パスが `/calendar/render`（予定作成画面。action=TEMPLATE）または `/calendar/r/day/年/月/日`（登録の確認用の日の表示。2026-10-11 依頼者承認）のものだけを許可する（許可リスト方式）。URL は画面から受け取らず、メインプロセスで検証した値から組み立てる
+- 外部URLを開くのは `shell.openExternal` のみ。開く前に必ず URL をパースし、`https:` かつ ホスト `calendar.google.com` で、パスが `/calendar/render`（予定作成画面。action=TEMPLATE）または `/calendar/r/day/年/月/日`（登録の確認用の日の表示。2026-10-11 依頼者承認）のものだけを許可する（許可リスト方式）。URL は画面から受け取らず、メインプロセスで検証した値から組み立てる。例外として、Mac でだけ、画面収録の設定画面を開く固定の URL `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture` を開いてよい（2026-10-11 依頼者承認。electron/captureIpc.js の SCREEN_RECORDING_SETTINGS_URL）
 - リモートのコード・フォント・画像・CDN を読み込まない。全て同梱する
 - アプリの画面は独自プロトコル `app://bundle/` で読み込む（`dist/renderer` の中だけを配信）。`file://` と Vite の開発用サーバー（localhost）は使わない（CSP を緩める必要が出るため）。開発時は `npm run watch` でビルドし直す
 - Electron Fuses は、パッケージ化したバイナリにのみ効く。本プロジェクトは npm 起動（パッケージ化しない）のため対象外。防御は上記の隔離設定・CSP・URL許可リストで担保する

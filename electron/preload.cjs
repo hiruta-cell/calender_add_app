@@ -25,6 +25,8 @@ const CAPTURE_CLEAR_CHANNEL = 'capture:clear';
 const APP_STATUS_CHANNEL = 'app:get-status';
 /** 取り込み・読み取りの進み具合と結果を受け取る（メインプロセスから届く） */
 const CAPTURE_STATUS_CHANNEL = 'capture:status';
+/** Mac の画面収録の設定画面を開く */
+const OPEN_SCREEN_SETTINGS_CHANNEL = 'system:open-screen-settings';
 
 contextBridge.exposeInMainWorld('calendarApp', {
   /**
@@ -73,6 +75,13 @@ contextBridge.exposeInMainWorld('calendarApp', {
    * @returns {Promise<{ok: boolean, hotkeyRegistered: boolean, hotkeyLabel: string}>}
    */
   getAppStatus: () => ipcRenderer.invoke(APP_STATUS_CHANNEL),
+
+  /**
+   * Mac の「画面収録とシステムオーディオ録音」の設定画面を開いてもらう（開く URL はメインプロセスで決まっている）。
+   *
+   * @returns {Promise<{ok: boolean, message?: string}>}
+   */
+  openScreenRecordingSettings: () => ipcRenderer.invoke(OPEN_SCREEN_SETTINGS_CHANNEL),
 
   /**
    * 取り込み・読み取りの進み具合と結果を受け取る関数を登録する。

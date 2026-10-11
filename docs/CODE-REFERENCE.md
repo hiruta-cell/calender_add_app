@@ -316,6 +316,7 @@
 | `UNEXPECTED_ERROR_MESSAGE` / `REGISTER_ERROR_MESSAGE` | 定数 | 予期しないエラーの表示文（抽出／登録） | 文章の内容を含めずにエラーを知らせる |
 | `EMPTY_CAPTURE` | 定数 | 範囲キャプチャの状態の初期値（status・imageUrl・orientation・confidence・isLowConfidence・isEmpty） | 取り込みの表示 |
 | `HOTKEY_UNAVAILABLE_MESSAGE` | 定数 | ホットキーを登録できなかったときの案内 | 要件§12 |
+| `CAPTURE_ERROR_SCREEN_PERMISSION` | 定数 | 'screenPermission'（メインプロセスと同じ値） | 「システム設定を開く」ボタンを出す判定 |
 | `EMPTY_EVENT_DETAILS` | 定数 | 予定の内容の入力欄の初期値（元の文章を入れる：オフ） | 要件§6.2 |
 | `App` | コンポーネント | 確認ウインドウ全体 | 貼り付け→抽出・下書き→選択・追記→登録の流れを管理 |
 | `inputText` | 状態 | 入力欄の文章 | 抽出の対象 |
@@ -326,6 +327,7 @@
 | `timeChoices` | 状態 | 日付だけの候補の時刻の扱い（候補の ID → 選択） | 要件§5.10 |
 | `eventDetails` | 状態 | 件名・場所・会議 URL・メモ・元の文章を入れるか | 予定の内容 |
 | `errorMessage` | 状態 | 画面上部に表示するエラーの文 | 要件§5.9：エラーの内容を表示 |
+| `errorAction` | 状態 | エラーの帯に出す追加の操作（対象のエラーの文が表示されている間だけ有効） | 「システム設定を開く」ボタン |
 | `isNoDateDialogOpen` | 状態 | 「日時の情報がありません」の表示中か | 要件§5.8 |
 | `isRegistering` | 状態 | ブラウザで開く処理の途中か | 二度押しを防ぐ |
 | `openedEvents` | 状態 | 予定作成画面を開いた予定（{id, label, title, date, saved}） | 登録の確認の一覧（要件§12） |
@@ -338,6 +340,7 @@
 | `handleExtract()` | 関数 | 入力欄の文章で extractFromText を呼ぶ | 「日時を抽出」ボタン |
 | `extractFromText(text)` | 関数 | 抽出・下書きを行い、候補がなければポップアップ、エラーなら待機状態に戻す | 貼り付け・OCR の両方で使う |
 | `handleCaptureStatus(status)` | 関数 | 読み取り中・結果（文章を入れて抽出）・エラー・中止・画像の消去を画面に反映 | 範囲キャプチャの結果の表示 |
+| `handleOpenScreenSettings()` | 関数 | Mac の画面収録の設定画面を開いてもらう | 「システム設定を開く」 |
 | `handleStartCapture()` / `handleRereadCapture(orientation)` | 関数 | 範囲キャプチャを始めてもらう／向きを指定して読み直してもらう | 「画面から読み取る」「横書き／縦書きで読み直す」 |
 | `resetResults()` | 関数 | 抽出結果・選択・入力欄を初期状態に戻す | エラー時・クリア時の後始末 |
 | `handleClear()` | 関数 | 入力・結果・エラーを消して最初の状態に戻す | 「クリア」ボタン |
@@ -389,7 +392,7 @@
 | CaptureImagePanel.jsx | `ORIENTATION_LABELS` | 定数 | 向きの表示名（横書き・縦書き） | 読み取った向きの表示 |
 | CaptureImagePanel.jsx | `CaptureImagePanel` | コンポーネント | 取り込んだ画像、読み取り中、向きと確信度、精度が低い・読めないときの案内、読み直しのボタン | 要件§6.1・§12 |
 | NoDateDialog.jsx | `dialogRef` | 参照 | `<dialog>` 要素 | 開閉（`showModal` / `close`）を呼ぶ |
-| ErrorBanner.jsx | `ErrorBanner` | コンポーネント | エラーの文と「閉じる」ボタン | 要件§5.9：エラーの内容を表示 |
+| ErrorBanner.jsx | `ErrorBanner` | コンポーネント | エラーの文と「閉じる」ボタン（次にすることがあるエラーは、その操作のボタンも） | 要件§5.9：エラーの内容を表示 |
 | ErrorBoundary.jsx | `ErrorBoundary` | クラス | 表示中のエラーを受け止め「最初の画面に戻る」を出す | 要件§5.9：アプリを止めない |
 | ErrorBoundary.jsx | `hasError` / `resetKey` | 状態 | エラー表示中か／画面を作り直すための番号 | 最初の画面への復帰 |
 | ErrorBoundary.jsx | `getDerivedStateFromError()` / `componentDidCatch(error)` / `handleReset()` | 関数 | エラー状態にする／エラーの種類だけ記録／作り直す | 文章の内容をログに出さずに復帰する |
@@ -452,6 +455,7 @@
 | `window.calendarApp.rereadCapture(orientation)` | 関数（画面に公開） | 向きを指定して読み直してもらう | 「横書き／縦書きで読み直す」 |
 | `window.calendarApp.clearCapture()` | 関数（画面に公開） | 取り込んだ画像を消してもらう | 「クリア」 |
 | `window.calendarApp.getAppStatus()` | 関数（画面に公開） | ホットキーが使えるか、その表記を尋ねる | ホットキーが使えないときの案内 |
+| `window.calendarApp.openScreenRecordingSettings()` | 関数（画面に公開） | Mac の画面収録の設定画面を開いてもらう | 「システム設定を開く」 |
 | `window.calendarApp.onCaptureStatus(callback)` | 関数（画面に公開） | 読み取りの進み具合と結果を受け取る（内容だけを渡す。解除する関数を返す） | 読み取り結果の表示 |
 
 ### ocrEngine.js（文字の読み取り）
@@ -509,7 +513,8 @@
 |---|---|---|---|
 | `MIN_SELECTION_SIZE` | 定数（公開） | 8 | 小さすぎる範囲は読み取れないため断る |
 | `UPSCALE_PIXEL_RATIO_THRESHOLD` / `UPSCALE_FACTOR` | 定数（公開） | 2 ／ 2 | 文字が小さい画面（等倍・125% など）は2倍に拡大して OCR |
-| `CaptureError` | クラス（公開） | 範囲キャプチャのエラー（利用者向けの文付き） | 画面でそのまま表示できるエラー |
+| `CaptureError` | クラス（公開） | 範囲キャプチャのエラー（利用者向けの文と、特別な案内のための理由 reason 付き） | 画面でそのまま表示できるエラー |
+| `CAPTURE_ERROR_SCREEN_PERMISSION` | 定数（公開） | 'screenPermission' | 画面収録の許可がないエラーの理由（「システム設定を開く」ボタンを出す） |
 | `clamp(value, min, max)` | 関数（内部） | 値を範囲に収める | 画面の外にはみ出さないようにする |
 | `validateSelection(rawSelection, viewport)` | 関数（公開） | 範囲選択の画面から届いた矩形を検証し、画面の中に収める | IPC の引数の検証 |
 | `toImageRect(selection, displaySize, imageSize)` | 関数（公開） | 画面の座標を撮影した画像の画素に変換する（外側に丸める） | Retina・拡大率の違いへの対応 |
@@ -531,8 +536,11 @@
 | `CAPTURE_START_CHANNEL` / `CAPTURE_REREAD_CHANNEL` / `CAPTURE_CLEAR_CHANNEL` / `APP_STATUS_CHANNEL` | 定数（公開） | 確認ウインドウ → メインプロセスのチャンネル名 | 取り込み開始・読み直し・画像を消す・状態の問い合わせ |
 | `CAPTURE_STATUS_CHANNEL` | 定数（公開） | メインプロセス → 確認ウインドウのチャンネル名 | 読み取りの進み具合と結果 |
 | `OVERLAY_SELECT_CHANNEL` / `OVERLAY_CANCEL_CHANNEL` | 定数（公開） | 範囲選択の画面 → メインプロセスのチャンネル名 | 選んだ範囲・中止 |
+| `OPEN_SCREEN_SETTINGS_CHANNEL` | 定数（公開） | 'system:open-screen-settings' | 「システム設定を開く」のチャンネル名 |
+| `SCREEN_RECORDING_SETTINGS_URL` | 定数（公開） | Mac の画面収録の設定画面の固定の URL | 許可リストに加えた唯一の Mac の設定画面の URL |
 | `UNTRUSTED_SENDER_MESSAGE` | 定数（内部） | 送信元を確認できないときの文 | 不正な要求を断る |
 | `createCaptureHandlers(dependencies)` | 関数（公開） | 送信元・向きを検証して、取り込みの処理を呼ぶ関数をまとめて作る（途中なら重ねて始めない） | IPC の引数の検証（CLAUDE.md） |
+| `createOpenScreenSettingsHandler(dependencies)` | 関数（公開） | 送信元を検証し、Mac でだけ決まった設定画面の URL を開く処理を作る | 「システム設定を開く」 |
 
 ### captureController.js（範囲キャプチャから OCR まで）
 

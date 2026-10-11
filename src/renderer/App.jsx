@@ -48,6 +48,9 @@ const EMPTY_CAPTURE = Object.freeze({
   isEmpty: false, // 文字を読み取れなかったか
 });
 
+/** エラーの理由：Mac の画面収録の許可がない（メインプロセスの captureGeometry.js の値と同じ） */
+const CAPTURE_ERROR_SCREEN_PERMISSION = 'screenPermission';
+
 /** ホットキーを登録できなかったときの案内 */
 const HOTKEY_UNAVAILABLE_MESSAGE =
   'ホットキーを登録できませんでした（ほかのアプリが使っている可能性があります）。「画面から読み取る」ボタンか、トレイのメニューを使ってください。';
@@ -83,6 +86,11 @@ export default function App() {
   const [eventDetails, setEventDetails] = useState(EMPTY_EVENT_DETAILS);
   /** 画面上部に表示するエラーの文（なければ空文字） */
   const [errorMessage, setErrorMessage] = useState('');
+  /**
+   * エラーの帯に出す追加の操作。{forMessage: 対象のエラーの文, type: 'openScreenSettings'}。
+   * 対象のエラーの文が表示されている間だけボタンを出す（別のエラーに変わったら出さない）
+   */
+  const [errorAction, setErrorAction] = useState(null);
   /** 「日時の情報がありません」の表示中かどうか */
   const [isNoDateDialogOpen, setIsNoDateDialogOpen] = useState(false);
   /** ブラウザで開く処理の途中かどうか（二度押しを防ぐ） */
@@ -208,10 +216,14 @@ export default function App() {
         }
         break;
       }
-      case 'error':
+      case 'error': {
+        const message = typeof status.message === 'string' ? status.message : UNEXPECTED_ERROR_MESSAGE;
         setCapture((previous) => ({ ...previous, status: 'idle' }));
-        setErrorMessage(typeof status.message === 'string' ? status.message : UNEXPECTED_ERROR_MESSAGE);
+        setErrorMessage(message);
+        // 画面収録の許可がないときは、エラーの帯に「システム設定を開く」ボタンを出す
+        setErrorAction(status.reason === CAPTURE_ERROR_SCREEN_PERMISSION ? { forMessage: message, type: 'openScreenSettings' } : null);
         break;
+      }
       case 'cleared':
         setCapture(EMPTY_CAPTURE);
         break;
@@ -254,6 +266,21 @@ export default function App() {
     } catch (error) {
       setErrorMessage('画面の取り込みを始められませんでした。もう一度お試しください。');
       console.error('範囲キャプチャを始められませんでした:', error?.name);
+    }
+  }
+
+  /**
+   * 「システム設定を開く」：Mac の画面収録の設定画面を開いてもらう（開く URL はメインプロセスで決まっている）。
+   */
+  async function handleOpenScreenSettings() {
+    try {
+      const result = await window.calendarApp.openScreenRecordingSettings();
+      if (!result.ok) {
+        setErrorMessage(result.message);
+      }
+    } catch (error) {
+      setErrorMessage('システム設定を開けませんでした。手順に沿って、システム設定から開いてください。');
+      console.error('システム設定を開けませんでした:', error?.name);
     }
   }
 
@@ -440,7 +467,15 @@ export default function App() {
         <h1>カレンダー登録ツール</h1>
       </header>
 
-      {errorMessage !== '' && <ErrorBanner message={errorMessage} onDismiss={() => setErrorMessage('')} />}
+      {errorMessage !== '' && (
+        <ErrorBanner
+          message={errorMessage}
+          onDismiss={() => setErrorMessage('')}
+          {...(errorAction?.forMessage === errorMessage && errorAction.type === 'openScreenSettings'
+            ? { actionLabel: 'システム設定を開く', onAction: handleOpenScreenSettings }
+            : {})}
+        />
+      )}
 
       <main className="app-main">
         <section className="pane" aria-label="文章の入力">

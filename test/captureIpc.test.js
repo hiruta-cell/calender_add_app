@@ -13,9 +13,12 @@ import {
   CAPTURE_REREAD_CHANNEL,
   CAPTURE_START_CHANNEL,
   CAPTURE_STATUS_CHANNEL,
+  OPEN_SCREEN_SETTINGS_CHANNEL,
   OVERLAY_CANCEL_CHANNEL,
   OVERLAY_SELECT_CHANNEL,
+  SCREEN_RECORDING_SETTINGS_URL,
   createCaptureHandlers,
+  createOpenScreenSettingsHandler,
 } from '../electron/captureIpc.js';
 
 /**
@@ -77,10 +80,39 @@ describe('確認ウインドウからの要求', () => {
   });
 });
 
+describe('「システム設定を開く」の要求', () => {
+  /** テスト用の処理を作る。開いた URL を記録する */
+  function createSettingsHandler({ trusted = true, platform = 'darwin' } = {}) {
+    const opened = [];
+    const handler = createOpenScreenSettingsHandler({
+      isTrustedSender: () => trusted,
+      openExternal: async (url) => { opened.push(url); },
+      platform,
+    });
+    return { handler, opened };
+  }
+
+  test('Mac では、決まった設定画面の URL だけを開く（画面から URL は受け取らない）', async () => {
+    const { handler, opened } = createSettingsHandler();
+    assert.deepEqual(await handler({}, 'https://evil.example/'), { ok: true });
+    assert.deepEqual(opened, [SCREEN_RECORDING_SETTINGS_URL]);
+    assert.equal(SCREEN_RECORDING_SETTINGS_URL, 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+  });
+
+  test('信頼できない送信元・Mac 以外では何も開かない', async () => {
+    const untrusted = createSettingsHandler({ trusted: false });
+    assert.equal((await untrusted.handler({})).ok, false);
+    assert.equal(untrusted.opened.length, 0);
+    const windows = createSettingsHandler({ platform: 'win32' });
+    assert.equal((await windows.handler({})).ok, false);
+    assert.equal(windows.opened.length, 0);
+  });
+});
+
 describe('preload との整合', () => {
   test('確認ウインドウの preload：チャンネル名が captureIpc.js と同じ', async () => {
     const preload = await readFile(new URL('../electron/preload.cjs', import.meta.url), 'utf8');
-    for (const channel of [CAPTURE_START_CHANNEL, CAPTURE_REREAD_CHANNEL, CAPTURE_CLEAR_CHANNEL, APP_STATUS_CHANNEL, CAPTURE_STATUS_CHANNEL]) {
+    for (const channel of [CAPTURE_START_CHANNEL, CAPTURE_REREAD_CHANNEL, CAPTURE_CLEAR_CHANNEL, APP_STATUS_CHANNEL, CAPTURE_STATUS_CHANNEL, OPEN_SCREEN_SETTINGS_CHANNEL]) {
       assert.ok(preload.includes(`'${channel}'`), channel);
     }
     // メインプロセスからの受信は、結果を届けるチャンネルだけ。IPC のイベントそのものは画面に渡さない

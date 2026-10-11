@@ -24,6 +24,14 @@ export const CAPTURE_STATUS_CHANNEL = 'capture:status';
 export const OVERLAY_SELECT_CHANNEL = 'overlay:select';
 /** 範囲選択の画面 → メインプロセス：中止 */
 export const OVERLAY_CANCEL_CHANNEL = 'overlay:cancel';
+/** 確認ウインドウ → メインプロセス：Mac の画面収録の設定画面を開く */
+export const OPEN_SCREEN_SETTINGS_CHANNEL = 'system:open-screen-settings';
+
+/**
+ * Mac の「画面収録とシステムオーディオ録音」の設定画面を開く URL（固定。依頼者承認 2026-10-11）。
+ * 開いてよい URL の許可リストに加えたのはこの1つだけで、画面から URL は受け取らない。
+ */
+export const SCREEN_RECORDING_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
 
 /** 送信元を確認できなかったときの文 */
 const UNTRUSTED_SENDER_MESSAGE = '不正な要求のため、処理を中断しました。';
@@ -91,5 +99,32 @@ export function createCaptureHandlers({ isTrustedSender, controller, getAppStatu
       if (rejected !== null) return rejected;
       return { ok: true, ...getAppStatus() };
     },
+  };
+}
+
+/**
+ * 「システム設定を開く」の要求を処理する関数を作る（ipcMain.handle に渡す）。
+ * Mac でだけ、決まった設定画面の URL（SCREEN_RECORDING_SETTINGS_URL）を開く。
+ *
+ * @param {object} dependencies
+ * @param {(event: object) => boolean} dependencies.isTrustedSender 送信元が確認ウインドウの画面か
+ * @param {(url: string) => Promise<void>} dependencies.openExternal URL を開く関数（shell.openExternal）
+ * @param {string} dependencies.platform 動いている OS（process.platform）
+ * @returns {(event: object) => Promise<{ok: boolean, message?: string}>}
+ */
+export function createOpenScreenSettingsHandler({ isTrustedSender, openExternal, platform }) {
+  return async function handleOpenScreenSettings(event) {
+    if (!isTrustedSender(event)) {
+      return { ok: false, message: UNTRUSTED_SENDER_MESSAGE };
+    }
+    if (platform !== 'darwin') {
+      return { ok: false, message: 'この操作は Mac でだけ使えます。' };
+    }
+    try {
+      await openExternal(SCREEN_RECORDING_SETTINGS_URL);
+      return { ok: true };
+    } catch {
+      return { ok: false, message: 'システム設定を開けませんでした。手順に沿って、システム設定から開いてください。' };
+    }
   };
 }

@@ -22,12 +22,17 @@ export const UPSCALE_FACTOR = 2;
 export class CaptureError extends Error {
   /**
    * @param {string} message 利用者に表示する文
+   * @param {string | null} [reason] 画面で特別な案内をするための理由（例：'screenPermission'）。なければ null
    */
-  constructor(message) {
+  constructor(message, reason = null) {
     super(message);
     this.name = 'CaptureError';
+    this.reason = reason;
   }
 }
+
+/** エラーの理由：Mac の画面収録の許可がない（画面に「システム設定を開く」ボタンを出す） */
+export const CAPTURE_ERROR_SCREEN_PERMISSION = 'screenPermission';
 
 /**
  * 値を最小値と最大値の間に収める。
