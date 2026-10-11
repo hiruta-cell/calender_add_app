@@ -3,7 +3,10 @@
  * 目的：文章から「件名」「場所」「オンライン会議の URL」を取り出し、入力欄の下書きにする（要件§12）。
  *
  * - PC 内のルール処理だけで行い、文章を外部へ送らない（要件§5.2）。
- * - 件名・場所は、ラベル付きの行（「件名：」「【会場】」など）から取り出す。ラベルがなければ空にする。
+ * - 件名・場所は、ラベル付きの行（「件名：」「【会場】」など）から取り出す。
+ *   ラベルがなければ、簡単な規則で補う（依頼者の指摘。凝りすぎない）：
+ *     件名：最初の数行のうち「〜のお知らせ」「〜のご案内」「〜のご連絡」「〜開催決定！」で終わる短い行
+ *     場所：「会場は〜です」「場所は〜で行います」のように「です」などで終わる文
  * - URL は https:// の部分から取り出す。Zoom・Google Meet・Teams・Webex を優先する。
  * - 取り出した内容は下書きであり、利用者が確認・修正してから登録する。
  */
@@ -21,6 +24,28 @@ const LOCATION_LABELS = ['開催場所', '集合場所', '開催地', '場所', 
 
 /** 会議サービスのホスト名（このホスト、またはそのサブドメインの URL を優先する） */
 const MEETING_HOSTS = ['zoom.us', 'zoom.com', 'meet.google.com', 'teams.microsoft.com', 'teams.live.com', 'webex.com'];
+
+/** 見出し（件名の代わり）を探す、文章の先頭からの行数 */
+const MAX_HEADING_LINES = 5;
+
+/** 見出しとみなす行の最大文字数（長い文は見出しにしない） */
+const MAX_HEADING_LENGTH = 40;
+
+/**
+ * 見出しとみなす行の終わり方（件名のラベルがないお知らせ・告知の1行目など）。
+ * 末尾の記号（「!」「】」「◆」など、文字と数字以外）は3文字まで許す。
+ * 文章は半角にそろえた後なので、全角の「！」は「!」になっている。
+ */
+const HEADING_ENDING_PATTERN = /(?:のお知らせ|のご案内|のご連絡|開催決定)[^\p{L}\p{N}]{0,3}$/u;
+
+/**
+ * 場所を表す文（「会場は第二会議室です」「場所はZoomで行います」）。値は「。」「、」をまたがない40文字まで。
+ *   - 「です」「で行います」などの終わり方と、その後の「。」・空白・行末が必要
+ *     （「場所は追って連絡します」「会場は〜ですが」のような文から場所を取り出さないため）
+ *   - 「会場」などの直前に漢字・ひらがな・カタカナがないこと（「駐車場所は」「この場所は」を除くため）
+ */
+const LOCATION_SENTENCE_PATTERN =
+  /(?<![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])(?:開催場所|集合場所|会場|場所)は[、, \t]{0,2}(?<value>[^。、]{1,40}?)(?:です|でございます|で行います|で開催します|にて開催します|にて行います|となります)(?=[。.! \t]|$)/u;
 
 /** ラベルの直後に値がない場合に、値を探す次の行の数（「■会場」の次の行に住所がある書き方） */
 const NEXT_LINE_LOOKAHEAD = 2;
@@ -74,8 +99,13 @@ export function extractEventDetails(text) {
   const lines = normalizeWidth(text).split(/\r\n|\r|\n/);
 
   const meeting = findMeetingUrl(lines.join('\n'));
-  const title = truncate(findLabeledValue(lines, TITLE_LINE_PATTERN).replace(REPLY_PREFIX_PATTERN, ''), MAX_TITLE_LENGTH);
-  let location = findLabeledValue(lines, LOCATION_LINE_PATTERN);
+  const labeledTitle = findLabeledValue(lines, TITLE_LINE_PATTERN);
+  const title = truncate(
+    (labeledTitle !== '' ? labeledTitle : findHeadingTitle(lines)).replace(REPLY_PREFIX_PATTERN, ''),
+    MAX_TITLE_LENGTH,
+  );
+  const labeledLocation = findLabeledValue(lines, LOCATION_LINE_PATTERN);
+  let location = labeledLocation !== '' ? labeledLocation : findLocationSentence(lines);
 
   // 「場所：オンライン https://zoom.us/...」のように場所に URL が書かれていたら、URL は会議 URL の欄に任せる
   if (meeting !== null) {
@@ -116,6 +146,33 @@ function findLabeledValue(lines, pattern) {
       return isAnyLabelLine(nextLine) ? '' : nextLine;
     }
     return '';
+  }
+  return '';
+}
+
+/**
+ * 件名のラベルがないとき、文章の先頭の数行から見出し（「定例会のお知らせ」など）を探す。
+ *
+ * @param {string[]} lines 文章の各行
+ * @returns {string} 見出し（見つからなければ空文字）
+ */
+function findHeadingTitle(lines) {
+  const headLines = lines.map(sanitizeSingleLine).filter((line) => line !== '').slice(0, MAX_HEADING_LINES);
+  return headLines.find((line) => line.length <= MAX_HEADING_LENGTH && HEADING_ENDING_PATTERN.test(line)) ?? '';
+}
+
+/**
+ * 場所のラベルがないとき、「会場は〜です」のような文から場所を取り出す。
+ *
+ * @param {string[]} lines 文章の各行
+ * @returns {string} 場所（見つからなければ空文字）
+ */
+function findLocationSentence(lines) {
+  for (const line of lines) {
+    const match = sanitizeSingleLine(line).match(LOCATION_SENTENCE_PATTERN);
+    if (match !== null) {
+      return match.groups.value.trim();
+    }
   }
   return '';
 }

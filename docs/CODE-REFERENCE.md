@@ -234,6 +234,10 @@
 | `TITLE_LABELS` | 定数（内部） | 件名のラベル（件名、題名、タイトル、会議名、イベント名、Subject、Title） | 件名の行を見つける |
 | `LOCATION_LABELS` | 定数（内部） | 場所のラベル（開催場所、集合場所、開催地、場所、会場、Location、Place、Venue） | 場所の行を見つける。署名に多い「住所」は含めない |
 | `MEETING_HOSTS` | 定数（内部） | 会議サービスのホスト（zoom.us、meet.google.com、teams.microsoft.com など） | 会議 URL を優先する |
+| `MAX_HEADING_LINES` | 定数（内部） | 5 | 見出し（件名の代わり）を探す、先頭からの行数 |
+| `MAX_HEADING_LENGTH` | 定数（内部） | 40 | 見出しとみなす行の最大文字数（長い文は見出しにしない） |
+| `HEADING_ENDING_PATTERN` | 定数（内部） | 「のお知らせ」「のご案内」「のご連絡」「開催決定」で終わる（末尾の記号3文字まで可） | ラベルのない見出しを件名にする（依頼者の指摘） |
+| `LOCATION_SENTENCE_PATTERN` | 定数（内部） | 「会場は〜です」「場所は〜で行います」などの文。値は40文字まで、「会場」の直前に漢字・かながないこと | ラベルのない文から場所を取り出す。「場所は追って連絡します」「駐車場所は」は除く |
 | `NEXT_LINE_LOOKAHEAD` | 定数（内部） | 2 | 「■会場」の次の行の値を探す行数 |
 | `REPLY_PREFIX_PATTERN` | 定数（内部） | Re: Fw: Fwd: 返信: 転送: | 件名から返信・転送の印を除く |
 | `HTTPS_URL_PATTERN` | 定数（内部） | https の URL（半角の URL 文字だけ） | 日本語の手前で URL を止める |
@@ -243,6 +247,8 @@
 | `buildLabelPattern(labels)` | 関数（内部） | ラベルの一覧から行の正規表現を作る | 「件名：」「【件名】」「■件名」などに対応 |
 | `extractEventDetails(text)` | 関数（公開） | 件名・場所・会議 URL を取り出す | 入力欄の下書き（要件§12） |
 | `findLabeledValue(lines, pattern)` | 関数（内部） | ラベルの行の値（なければ次の行）を返す | 件名・場所の取り出し |
+| `findHeadingTitle(lines)` | 関数（内部） | 先頭の5行から「〜のお知らせ」などの短い見出しを探す | 件名のラベルがないときの件名 |
+| `findLocationSentence(lines)` | 関数（内部） | 「会場は〜です」のような文から場所を取り出す | 場所のラベルがないときの場所 |
 | `isAnyLabelLine(line)` | 関数（内部） | 件名・場所のラベルの行か | 次の行を値とみなしてよいかの判定 |
 | `findMeetingUrl(text)` | 関数（内部） | 会議サービスの URL、なければ最初の https の URL を選ぶ | 会議 URL の取り出し |
 | `parseMeetingUrl(text)` | 関数（公開） | URL を検証し、会議サービスかを判定する（xn-- の形に直す） | なりすまし URL・https 以外を弾く。入力欄の検証にも使う |
@@ -675,7 +681,7 @@
 | japaneseNumber.test.js | — | 漢字の数字の変換の確認 | 位を使う書き方・1桁ずつの書き方・不正な書き方 |
 | dateUtils.test.js | — | 日付計算と全角→半角の確認 | 繰り上がり・曜日・東京時間 |
 | display.test.js | `NOW`、`firstCandidate()` | 表示文字列と色付けの分割の確認 | 表示の正しさ、HTML を解釈しないこと |
-| detailExtractor.test.js | — | 件名・場所・会議 URL の下書きの確認 | ラベルの書き方、次の行の値、URL の優先順位・なりすまし対策 |
+| detailExtractor.test.js | — | 件名・場所・会議 URL の下書きの確認 | ラベルの書き方、次の行の値、ラベルのない見出し・「会場は〜です」、URL の優先順位・なりすまし対策 |
 | calendarUrl.test.js | `timedEvent()`、`allDayEvent()`、`queryOf()` | 予定作成 URL の組み立て・検証・許可リストの確認 | dates・ctz・エンコード・長さ・危険な文字 |
 | registration.test.js | `NOW`、`emptyDetails()`、`candidatesOf()` | 登録内容の組み立ての確認 | 終日／時刻指定、手入力、会議 URL の振り分け、元の文章の抜粋 |
 | calendarIpc.test.js | `sampleEvent()`、`createTestHandler()` | 登録要求の処理の確認（偽のブラウザを開く関数を使う） | 送信元・引数の検証、順に開く、二度押し、preload との整合 |

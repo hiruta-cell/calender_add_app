@@ -112,6 +112,56 @@ describe('parseMeetingUrl：入力欄の URL の検証', () => {
   });
 });
 
+describe('見出しのラベルがないお知らせ（依頼者の指摘）', () => {
+  test('縦書きのお知らせ：見出しを件名に、「会場は〜です」から場所を取り出す', () => {
+    const details = extractEventDetails('定例会のお知らせ\n十月二十九日(木)午後二時から\n会場は第二会議室です');
+    assert.equal(details.title, '定例会のお知らせ');
+    assert.equal(details.location, '第二会議室');
+  });
+
+  test('「場所は〜で行います」「集合場所は〜です。」も場所にする。文の途中にあってもよい', () => {
+    assert.equal(extractEventDetails('場所はZoomで行います').location, 'Zoom');
+    assert.equal(extractEventDetails('集合場所は架空駅の東口です。').location, '架空駅の東口');
+    assert.equal(extractEventDetails('日時は10月29日、会場は第二会議室です。お気軽にどうぞ。').location, '第二会議室');
+  });
+
+  test('場所を言い切っていない文や、別の言葉の一部の「場所は」からは取り出さない', () => {
+    assert.equal(extractEventDetails('場所は追って連絡します').location, '');
+    assert.equal(extractEventDetails('会場は第二会議室ですが、変更になるかもしれません').location, '');
+    assert.equal(extractEventDetails('駐車場所は近くの駐車場です').location, '');
+    assert.equal(extractEventDetails('会場は第二会議室、持ち物は筆記用具です').location, '');
+  });
+
+  test('「開催決定！」「のご案内」で終わる短い行も件名にする（全角の！は半角になる）。挨拶の文は件名にしない', () => {
+    assert.equal(extractEventDetails('勉強会 開催決定！\n11月7日(土)').title, '勉強会 開催決定!');
+    assert.equal(extractEventDetails('お世話になっております。\n秋の交流会のご案内').title, '秋の交流会のご案内');
+    assert.equal(extractEventDetails('◆防災訓練のお知らせ◆').title, '◆防災訓練のお知らせ◆');
+    assert.equal(extractEventDetails('お世話になっております。\nよろしくお願いします。').title, '');
+  });
+
+  test('見出しを探すのは先頭の5行まで。長すぎる行は見出しにしない', () => {
+    assert.equal(extractEventDetails('1行目\n2行目\n3行目\n4行目\n5行目\n定例会のお知らせ').title, '');
+    assert.equal(extractEventDetails(`${'あ'.repeat(40)}のお知らせ`).title, '');
+  });
+
+  test('見出しの先頭の Re: も取り除く', () => {
+    assert.equal(extractEventDetails('Re: 定例会のご連絡').title, '定例会のご連絡');
+  });
+
+  test('ラベル付きの行があれば、そちらを優先する', () => {
+    const details = extractEventDetails('件名：第3回 定例会\n定例会のお知らせ\n場所：会議室A\n会場は第二会議室です');
+    assert.equal(details.title, '第3回 定例会');
+    assert.equal(details.location, '会議室A');
+  });
+
+  test('長い入力でも時間がかからない（ReDoS 対策）', () => {
+    const started = performance.now();
+    extractEventDetails(`会場は${'あ'.repeat(19990)}`);
+    extractEventDetails('場所は'.repeat(6000));
+    assert.ok(performance.now() - started < 1000);
+  });
+});
+
 describe('総合：架空のメール', () => {
   test('件名・場所・URL をまとめて取り出す', () => {
     const text = [
