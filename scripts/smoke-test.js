@@ -1060,6 +1060,19 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   const correctedTitle = await connection.evaluate(`document.querySelector('#event-title').value`);
   record('件名の下書きの曜日は日付に合わせて直る', correctedTitle === '2030年1月1日(火)の打ち合わせ', correctedTitle);
 
+  // 9. メールの送信日・引用の見出しの日付は候補にしない（架空の文面）
+  await replaceInputText(connection, [
+    'From: Taro Example <taro@example.com>',
+    'Sent: Friday, January 4, 2030 6:39 PM',
+    'Subject: ご訪問の件',
+    '',
+    'On Fri, Jan 4, 2030 at 6:39 PM Taro Example <taro@example.com> wrote:',
+    '> 2030年1月8日(火) 15時30分にお伺いします。',
+  ].join('\n'));
+  await clickButton(connection, '日時を抽出');
+  const mailCandidates = await connection.evaluate(`[...document.querySelectorAll('.candidate-date')].map((item) => item.textContent)`);
+  record('メールの送信日・引用の見出しの日付は候補にしない', mailCandidates.length === 1 && mailCandidates[0].includes('1月8日'), mailCandidates.join(' / '));
+
   // 5. 長すぎる文章 → エラーを表示して待機状態に戻る
   await replaceInputText(connection, 'あ'.repeat(MAX_INPUT_LENGTH + 1));
   await clickButton(connection, '日時を抽出');

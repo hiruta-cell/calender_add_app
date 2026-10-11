@@ -11,6 +11,7 @@
  *         英語：October 15, 2026、Oct 15、Oct. 15th、15 Oct 2026、15th of October、10/15/2026、tomorrow
  *         （年が最後の数字の日付で、月と日の順番が決まらないもの（05/10/2026）は月/日（米国式）として読み、警告を付ける）
  *   曜日：日付の後の (木)、(木曜日)、(月・祝)、木曜日 は読み飛ばす
+ *   メール：送信日・受信日・引用の見出しの行（Sent:、送信日時:、… wrote: など）の日付は候補にしない（mailHeader.js）
  *   漢字の数字：十月十五日、十五時三十分、二〇二六年 など（japaneseNumber.js で数値にする）
  *   時刻：14:00、14時、14時30分、14時半、午前/午後、全角数字、3pm・3:00 PM・PM3:00（英語の AM/PM）
  *   時間帯：正午(12時)、朝(9時)、昼(11時)、夕方(15時)、夜(18時)。「夜7時」→19時のように手がかりにもする
@@ -28,6 +29,7 @@
 
 import { parseJapaneseNumber } from './japaneseNumber.js';
 import { normalizeWidth } from './textNormalizer.js';
+import { findMailHeaderRanges, isInRanges } from './mailHeader.js';
 import {
   DAYS_PER_WEEK,
   MINUTES_PER_DAY,
@@ -245,7 +247,13 @@ export function extractDateCandidates(text, options = {}) {
   const candidatesByKey = new Map(); // 同じ日時の候補をまとめるための索引
   let truncated = false;
 
+  // メールの送信日・受信日・引用の見出しの行の日付は予定ではないため、候補にしない（依頼者の指摘）
+  const mailHeaderRanges = findMailHeaderRanges(normalizedText);
+
   for (const match of normalizedText.matchAll(DATE_PATTERN)) {
+    if (isInRanges(match.index, mailHeaderRanges)) {
+      continue;
+    }
     const resolved = resolveDate(match.groups, current);
     if (resolved === null) {
       continue; // 実在しない日付（2月30日など）は候補にしない

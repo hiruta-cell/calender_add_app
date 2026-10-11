@@ -42,6 +42,7 @@
 | `src/core/candidateFormatter.js` | 候補を「2026年10月15日(木) 14:00〜15:00」のような表示用の文字列にする |
 | `src/core/highlight.js` | 文章の日時部分を色付けするために、文章を分割する |
 | `src/core/detailExtractor.js` | 文章から件名・場所・オンライン会議の URL を取り出して下書きにする |
+| `src/core/mailHeader.js` | メールの送信日・受信日・引用の見出しの行を見つける（その行の日付を候補にしないため） |
 | `src/core/calendarUrl.js` | Googleカレンダーの予定作成画面の URL を組み立て、内容と URL を検証する |
 | `src/core/registration.js` | 選んだ候補と入力欄の内容から、登録する予定の一覧を作る（終日／時刻指定、手入力の候補も） |
 | `src/core/autoReset.js` | 登録のあと、60秒操作がなければ表示を初期状態に戻す「自動のクリア」を予約する（操作したら取り消す） |
@@ -218,6 +219,23 @@
 | `buildCandidate(date, timeRange, current, minutes, dateWarnings)` | 関数（内部） | 候補の本体（開始・終了・警告）を作る | 候補の形をそろえる |
 | `resolveEnd(start, timeRange, minutes)` | 関数（内部） | 終了日時を決める（省略時は既定の長さ、日またぎも対応） | 要件§5.4 |
 | `getCandidateKey(candidate)` | 関数（内部） | 同じ日時を見分けるキーを作る | 重複する候補を1件にまとめる |
+
+## src/core/mailHeader.js（メールの送信日・受信日の行）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `findMailHeaderRanges(text)` | 関数（公開） | 送信日・受信日・引用の見出しの行の範囲（start〜end）を返す | Outlook・Thunderbird・Gmail・Apple Mail の送信日を予定と誤認しない（依頼者の指摘） |
+| `isInRanges(position, ranges)` | 関数（公開） | 位置が範囲のどれかに含まれるか | 日付が除外する行にあるかの判定 |
+| `QUOTE_PREFIX` | 定数（内部） | 行頭の引用記号「>」と空白の正規表現の部品 | 引用されたヘッダーも対象にする |
+| `buildHeaderLabelPattern(labels)` | 関数（内部） | 行頭の「見出し:」（太字の `*From:*` も可）の正規表現を作る | 見出しの一覧から正規表現を作る |
+| `SENT_DATE_LABEL_PATTERN` | 定数（内部） | Sent / Received / 送信日時 / 受信日時 など | 必ず除外する送信日・受信日の行 |
+| `CONTEXT_DATE_LABEL_PATTERN` | 定数（内部） | Date / 日付 | ヘッダーのまとまりの中にあるときだけ除外（本文の「日付：10月15日」は残す） |
+| `OTHER_HEADER_LABEL_PATTERN` | 定数（内部） | From / To / Cc / Subject / 差出人 / 宛先 / 件名 など | ヘッダーのまとまりかを判定する |
+| `QUOTE_ATTRIBUTION_PATTERN` | 定数（内部） | 「wrote:」「書きました:」「のメール:」「<アドレス>:」で終わる行 | 返信の引用の見出しの行を見つける |
+| `WRAPPED_ATTRIBUTION_FIRST_LINE_PATTERN` | 定数（内部） | 「On 」で始まる、または「<」で終わる行 | 2行に折り返された引用の見出しの1行目も除外する |
+| `LINE_BREAK_PATTERN` / `BLANK_LINE_PATTERN` | 定数（内部） | 改行／空行（引用記号だけの行を含む） | 行とまとまりに分ける |
+| `splitLines(text)` | 関数（内部） | 行に分け、各行の位置を求める | 範囲を位置で返すため |
+| `markHeaderBlocks(lines)` | 関数（内部） | 空行で区切ったまとまりがヘッダーを含むかを調べる | 「Date:」「日付:」の判定 |
 
 ## src/core/candidateFormatter.js（表示用の文字列）
 
@@ -737,7 +755,7 @@
 | `restoreMinimizedMainWindow(mainConnection)` | 関数 | 確認ウインドウが最小化されるのを待って元に戻す | 最初の登録で最小化を確かめる。戻さないと続く確認・画面の画像が取れないため |
 | `replaceMinimize(mainConnection)` / `getMinimizeCount(mainConnection)` | 関数 | 確認ウインドウの最小化を、回数を数えるだけの関数に差し替える／その回数を受け取る | 2回目以降の登録で最小化の動きを待たない。不正な登録要求で最小化しないことの確認 |
 | `saveScreenshot(connection, directory, fileName)` | 関数 | 画面の画像を保存 | 見た目の確認 |
-| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出し直すと右の欄が一番上に戻ること・件名の上限と残りの文字数・URL のフィッシングの注意（会議サービス・それ以外。画面の画像 07-event-details.png）・抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・曜日が日付と合わないときの警告と件名の下書きの直し・エラー表示を確認 | 機能の確認 |
+| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出し直すと右の欄が一番上に戻ること・件名の上限と残りの文字数・URL のフィッシングの注意（会議サービス・それ以外。画面の画像 07-event-details.png）・抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・曜日が日付と合わないときの警告と件名の下書きの直し・メールの送信日を候補にしないこと・エラー表示を確認 | 機能の確認 |
 | `checkAutoReset(connection, mainConnection)` | 関数 | 登録のあと、操作するとクリアせず、操作しないと初期状態に戻ることを確認（画面の setTimeout の60秒だけを短くする） | 自動のクリアの確認（依頼者の指示） |
 | `replaceScreenCapture(mainConnection)` | 関数 | 画面の撮影を、架空の画像を返す関数に差し替える | 利用者の画面を撮影しない |
 | `connectToOverlay(port, connection)` / `waitForOverlayClosed(port)` | 関数 | 範囲選択の画面に接続する／閉じるまで待つ（上限付き） | 範囲選択の確認 |
@@ -788,6 +806,7 @@
 | ファイル | 主な名前 | 機能 | 目的 |
 |---|---|---|---|
 | dateExtractor.test.js | `NOW`、`extract()`、`extractSingle()`、`dateTime()` | 基準日時を 2026-10-11(日) 10:00 に固定して抽出を確かめる | 要件の書き方・年の決定・誤認防止・処理時間 |
+| mailHeader.test.js | `NOW`、`BODY`、`extractLabels()` | メーラーごとの架空の文面で、送信日・受信日・引用の見出しの日付を候補にしないことを確かめる | 送信日の誤認防止（予定の日付は外さない） |
 | japaneseNumber.test.js | — | 漢字の数字の変換の確認 | 位を使う書き方・1桁ずつの書き方・不正な書き方 |
 | dateUtils.test.js | — | 日付計算と全角→半角の確認 | 繰り上がり・曜日・東京時間 |
 | display.test.js | `NOW`、`firstCandidate()` | 表示文字列と色付けの分割の確認 | 表示の正しさ、HTML を解釈しないこと |
