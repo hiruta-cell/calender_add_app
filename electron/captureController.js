@@ -125,17 +125,17 @@ export function createCaptureController({
   }
 
   /**
-   * Mac の画面収録の許可を確かめる。
+   * Mac の画面収録の許可を確かめる（撮影を試みたあとに呼ぶ）。
    *
-   * @param {'before' | 'after'} stage 撮影の前（拒否されていれば止める）か、後（許可されていなければ止める）か
+   * 撮影の前には確かめない：Electron は「まだ一度も尋ねていない」状態も 'denied' として返すため、
+   * 前に止めると macOS に許可の要求が届かず、起動元のアプリが「画面収録」の一覧に追加されない
+   * （依頼者の実機確認で判明）。一度撮影を試みると、macOS がそのアプリを一覧に「オフ」で追加する。
    */
-  function ensureScreenPermission(stage) {
+  function ensureScreenPermission() {
     if (process.platform !== 'darwin') {
       return;
     }
-    const status = systemPreferences.getMediaAccessStatus('screen');
-    const isDenied = stage === 'before' ? status === 'denied' || status === 'restricted' : status !== 'granted';
-    if (isDenied) {
+    if (systemPreferences.getMediaAccessStatus('screen') !== 'granted') {
       // 起動元のアプリ（ターミナル・VSCode など）の名前を入れて、どれを許可すればよいかを案内する
       throw new CaptureError(
         buildScreenPermissionMessage(getScreenPermissionAppName(process.env)),
@@ -298,14 +298,20 @@ export function createCaptureController({
       const mainWindow = getMainWindow();
       const wasMainWindowVisible = mainWindow !== null && !mainWindow.isDestroyed() && mainWindow.isVisible();
       try {
-        ensureScreenPermission('before');
         const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
         if (wasMainWindowVisible) {
           mainWindow.hide(); // 確認ウインドウが写り込まないように隠す
           await delay(HIDE_SETTLE_MS);
         }
-        const screenshot = await captureDisplay(display);
-        ensureScreenPermission('after');
+        // 許可がなくても撮影を試みる（macOS に許可の要求を届け、起動元のアプリを一覧に追加させるため）
+        let screenshot;
+        try {
+          screenshot = await captureDisplay(display);
+        } catch (error) {
+          ensureScreenPermission(); // 許可がないことが原因なら、許可の案内（「システム設定を開く」）を優先する
+          throw error;
+        }
+        ensureScreenPermission();
         imageStore.set(SCREENSHOT_IMAGE_NAME, screenshot.toPNG());
 
         const selection = await selectRegion(display);

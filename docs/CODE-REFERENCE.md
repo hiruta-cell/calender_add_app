@@ -556,7 +556,7 @@
 | `isOverlaySender(event)` | 関数 | IPC の送信元が範囲選択の画面（最上位のフレーム、/overlay.html）か | 送信元の検証 |
 | `settleSelection(value)` | 関数（内部） | 範囲の選択の待ちを終える（範囲・中止・エラー） | 範囲選択の画面との受け渡し |
 | `closeOverlay()` | 関数（内部） | 範囲選択の画面を閉じる | 暗い表示を残さない（要件§5.9） |
-| `ensureScreenPermission(stage)` | 関数（内部） | Mac の画面収録の許可を確かめる | 許可がないときに手順を案内する |
+| `ensureScreenPermission()` | 関数（内部） | Mac の画面収録の許可を、撮影を試みたあとに確かめる（前に確かめると macOS の一覧に起動元のアプリが追加されないため） | 許可がないときに手順を案内する |
 | `captureDisplay(display)` | 関数（内部） | カーソルがある画面を撮影する | 取り込み |
 | `selectRegion(display)` | 関数（内部） | 範囲選択の画面を開き、範囲が選ばれるか中止されるまで待つ | 要件§6.1：範囲選択 |
 | `cropForOcr(screenshot, selection, display)` | 関数（内部） | 選んだ範囲を切り出し、必要なら2倍に拡大する | OCR の精度を上げる |
