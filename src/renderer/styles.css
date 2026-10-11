@@ -1,6 +1,7 @@
 /*
  * styles.css
  * 目的：確認ウインドウの見た目。色は変数（--color-*）にまとめ、OS のダークモードにも対応する。
+ * 余白・文字の大きさは小さめにして、1画面に多くの情報が収まるようにしている（2026-10-11 依頼者の指示：全体をコンパクトに）。
  */
 
 /* ---- 色・形の変数（ライトモード） ---- */
@@ -71,8 +72,8 @@ body {
   background: var(--color-background);
   color: var(--color-text);
   font-family: var(--font-family);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .app {
@@ -86,14 +87,14 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 20px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -101,19 +102,19 @@ body {
 .app-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
+  gap: 10px;
   flex: 1;
   min-height: 0;
-  padding: 16px 20px 20px;
+  padding: 10px 12px 12px;
 }
 
 .pane {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   min-height: 0;
   overflow: auto;
-  padding: 16px;
+  padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface);
@@ -121,17 +122,17 @@ body {
 
 .section-title {
   display: block;
-  margin: 0 0 8px;
-  font-size: 14px;
+  margin: 0 0 4px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 /* ---- 入力欄 ---- */
 .source-text {
   width: 100%;
-  min-height: 180px;
+  min-height: 110px;
   resize: vertical;
-  padding: 10px 12px;
+  padding: 6px 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-background);
@@ -149,7 +150,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .char-count {
@@ -173,7 +174,7 @@ body {
 }
 
 .button {
-  padding: 6px 16px;
+  padding: 4px 12px;
   border: 1px solid transparent;
   border-radius: var(--radius);
   font: inherit;
@@ -207,7 +208,7 @@ body {
 
 /* ---- 色付きの文章 ---- */
 .highlighted-text {
-  padding: 10px 12px;
+  padding: 6px 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-background);
@@ -232,8 +233,8 @@ body {
 .candidate-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 8px 0 0;
+  gap: 6px;
+  margin: 6px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -253,7 +254,7 @@ body {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  padding: 10px 12px;
+  padding: 6px 10px;
   cursor: pointer;
 }
 
@@ -283,7 +284,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .badge-row:empty {
@@ -314,8 +315,8 @@ body {
 
 /* ---- お知らせ・エラー ---- */
 .notice {
-  margin: 0 0 8px;
-  padding: 8px 12px;
+  margin: 0 0 6px;
+  padding: 6px 10px;
   border-radius: var(--radius);
   background: var(--color-notice-background);
   color: var(--color-notice-text);
@@ -326,8 +327,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 12px 20px 0;
-  padding: 10px 14px;
+  margin: 8px 12px 0;
+  padding: 6px 10px;
   border-radius: var(--radius);
   background: var(--color-warning-background);
   color: var(--color-warning-text);
@@ -369,13 +370,13 @@ body {
 /* ---- 予定の内容・手入力・時刻の選択・登録 ---- */
 .field-label {
   display: block;
-  margin: 12px 0 4px;
+  margin: 8px 0 2px;
   font-weight: 600;
 }
 
 .text-field {
   width: 100%;
-  padding: 6px 10px;
+  padding: 4px 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-background);
@@ -418,17 +419,35 @@ body {
   font-weight: 600;
 }
 
+/* URL を登録するときのフィッシングの注意（登録は止めないが、必ず目に入る色にする） */
+.url-warning {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--color-notice-background);
+  color: var(--color-notice-text);
+  font-size: 12px;
+}
+
+.url-warning p {
+  margin: 0;
+}
+
+.url-warning-site strong {
+  overflow-wrap: anywhere; /* 長いサイト名でも欄からはみ出さない */
+}
+
 .checkbox-label,
 .radio-label {
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  margin-top: 10px;
+  margin-top: 8px;
   cursor: pointer;
 }
 
 .manual-date-form {
-  margin-top: 12px;
+  margin-top: 6px;
 }
 
 .manual-date-row {
@@ -441,7 +460,7 @@ body {
 }
 
 .time-choice {
-  padding: 0 12px 10px 38px; /* チェックボックスの右に揃える */
+  padding: 0 10px 6px 36px; /* チェックボックスの右に揃える */
 }
 
 .radio-row {
@@ -482,15 +501,15 @@ body {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   min-height: 0;
   overflow: auto;
-  padding: 16px;
+  padding: 10px 12px;
 }
 
 .register-section {
   flex-shrink: 0;
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-top: 1px solid var(--color-border);
   background: var(--color-surface);
   border-radius: 0 0 var(--radius) var(--radius);
@@ -498,13 +517,13 @@ body {
 
 .button-large {
   width: 100%;
-  padding: 10px 16px;
+  padding: 7px 12px;
   font-weight: 600;
 }
 
 .success-message {
-  margin: 10px 0 0;
-  padding: 8px 12px;
+  margin: 6px 0 0;
+  padding: 6px 10px;
   border-radius: var(--radius);
   background: var(--color-success-background);
   color: var(--color-success-text);
@@ -557,7 +576,7 @@ body {
 /* 取り込んだ画像。大きい画像でも欄からはみ出さないよう縮めて表示する */
 .capture-image {
   max-width: 100%;
-  max-height: 180px;
+  max-height: 140px;
   align-self: flex-start;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);

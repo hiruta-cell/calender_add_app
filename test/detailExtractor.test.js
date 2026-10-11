@@ -5,6 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { MAX_TITLE_LENGTH } from '../src/core/calendarUrl.js';
 import { extractEventDetails, parseMeetingUrl } from '../src/core/detailExtractor.js';
 
 describe('件名', () => {
@@ -109,6 +110,32 @@ describe('parseMeetingUrl：入力欄の URL の検証', () => {
     assert.equal(parseMeetingUrl('ftp://example.com'), null);
     assert.equal(parseMeetingUrl(''), null);
     assert.equal(parseMeetingUrl(`https://example.com/${'a'.repeat(1000)}`), null);
+  });
+
+  test('サイト名（ホスト名）を返す。国際化ドメインは xn-- の形（フィッシングの注意で見せる）', () => {
+    assert.equal(parseMeetingUrl('https://us02web.zoom.us/j/1')?.hostname, 'us02web.zoom.us');
+    assert.equal(parseMeetingUrl('https://Example.COM/a')?.hostname, 'example.com');
+    const lookalike = parseMeetingUrl('https://zооm.us/j/1'); // о はキリル文字（見た目が似た偽のドメイン）
+    assert.ok(lookalike?.hostname.startsWith('xn--'));
+    assert.equal(lookalike?.isKnownMeetingService, false);
+  });
+});
+
+describe('件名の上限（依頼者の指示：50文字）', () => {
+  test('上限は50文字', () => {
+    assert.equal(MAX_TITLE_LENGTH, 50);
+  });
+
+  test('長い件名の下書きは50文字で切る（全角も1文字と数える）', () => {
+    const longTitle = `【架空】${'あ'.repeat(80)}`;
+    const { title } = extractEventDetails(`件名：${longTitle}\n日時：10月15日 14時`);
+    assert.equal(title.length, MAX_TITLE_LENGTH);
+    assert.equal(title, longTitle.slice(0, MAX_TITLE_LENGTH));
+  });
+
+  test('50文字ちょうどの件名は切らない', () => {
+    const title = 'い'.repeat(MAX_TITLE_LENGTH);
+    assert.equal(extractEventDetails(`件名：${title}`).title, title);
   });
 });
 

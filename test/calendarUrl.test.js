@@ -98,8 +98,10 @@ describe('validateCalendarEvent：内容の検証（メインプロセスでも�
     assert.throws(() => validateCalendarEvent(timedEvent({ allDay: 'false' })), CalendarEventError);
   });
 
-  test(`件名が ${MAX_TITLE_LENGTH} 文字を超えたら CalendarEventError`, () => {
+  test(`件名が ${MAX_TITLE_LENGTH} 文字を超えたら CalendarEventError（全角も1文字）`, () => {
     assert.throws(() => validateCalendarEvent(timedEvent({ title: 'x'.repeat(MAX_TITLE_LENGTH + 1) })), CalendarEventError);
+    assert.throws(() => validateCalendarEvent(timedEvent({ title: 'あ'.repeat(MAX_TITLE_LENGTH + 1) })), CalendarEventError);
+    assert.equal(validateCalendarEvent(timedEvent({ title: 'あ'.repeat(MAX_TITLE_LENGTH) })).title.length, MAX_TITLE_LENGTH);
   });
 
   test('実在しない日付・時刻、終了が開始以前、24時間を超える予定は不可', () => {

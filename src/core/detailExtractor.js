@@ -212,7 +212,8 @@ function findMeetingUrl(text) {
  *   - 国際化ドメインは xn-- の形に直して返す（見た目が似た偽のドメインを見分けやすくする）
  *
  * @param {string} text URL の文字列
- * @returns {{href: string, isKnownMeetingService: boolean} | null} 使えない URL なら null
+ * @returns {{href: string, hostname: string, isKnownMeetingService: boolean} | null} 使えない URL なら null。
+ *   hostname は画面でサイト名として見せる（フィッシングの注意。国際化ドメインは xn-- の形）
  */
 export function parseMeetingUrl(text) {
   if (typeof text !== 'string' || text === '' || text.length > MAX_MEETING_URL_LENGTH) {
@@ -230,7 +231,7 @@ export function parseMeetingUrl(text) {
   if (url.href.length > MAX_MEETING_URL_LENGTH) {
     return null;
   }
-  return { href: url.href, isKnownMeetingService: isMeetingHost(url.hostname) };
+  return { href: url.href, hostname: url.hostname, isKnownMeetingService: isMeetingHost(url.hostname) };
 }
 
 /**

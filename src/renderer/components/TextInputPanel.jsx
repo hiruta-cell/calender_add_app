@@ -45,7 +45,7 @@ export default function TextInputPanel({ value, onChange, onExtract, onClear }) 
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={handleKeyDown}
-        rows={10}
+        rows={6}
         spellCheck={false}
         placeholder="例：10月15日(木)14時〜15時に打ち合わせをお願いします。"
       />

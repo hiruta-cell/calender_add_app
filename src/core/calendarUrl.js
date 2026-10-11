@@ -23,8 +23,11 @@ export const CALENDAR_BASE_URL = 'https://calendar.google.com/calendar/render';
 const ALLOWED_HOST = 'calendar.google.com';
 const ALLOWED_PATH = '/calendar/render';
 
-/** 件名の最大文字数 */
-export const MAX_TITLE_LENGTH = 120;
+/**
+ * 件名の最大文字数（全角・半角とも1文字と数える）。
+ * Googleカレンダーの一覧で見えるのは先頭の20〜30文字ほどのため、短くまとめてもらう（2026-10-11 依頼者の指示で120→50）
+ */
+export const MAX_TITLE_LENGTH = 50;
 /** 場所（入力欄）の最大文字数 */
 export const MAX_LOCATION_TEXT_LENGTH = 150;
 /** オンライン会議 URL の最大文字数（Teams の URL は300文字程度になるため余裕を持たせる） */

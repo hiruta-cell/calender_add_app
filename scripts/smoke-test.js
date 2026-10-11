@@ -885,6 +885,35 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   record('会議 URL が下書きされる', drafts.meetingUrl === DEMO_MEETING_URL, drafts.meetingUrl);
   record('メモは空のまま（元の文章を自動で入れない）', drafts.memo === '');
 
+  // 3-2. 件名の上限（50文字）と残りの文字数、URL のフィッシングの注意（依頼者の指示）
+  const titleLimit = await connection.evaluate(`({
+    maxLength: document.querySelector('#event-title').maxLength,
+    count: document.querySelector('#event-title-count')?.textContent ?? '',
+  })`);
+  record(
+    '件名は50文字までで、残りの文字数が表示される',
+    titleLimit.maxLength === 50 && titleLimit.count === `50文字まで（残り ${50 - DEMO_TITLE.length} 文字）`,
+    titleLimit.count,
+  );
+  const knownWarning = await connection.evaluate(`document.querySelector('#event-meeting-warning')?.textContent ?? ''`);
+  record(
+    '会議 URL があると、サイト名（zoom.us）とフィッシングの注意が表示される',
+    knownWarning.includes('サイト：zoom.us') && knownWarning.includes('フィッシング') && !knownWarning.includes('以外のサイト'),
+    knownWarning,
+  );
+  await setInputValue(connection, '#event-meeting-url', 'https://example.com/invite');
+  const unknownWarning = await connection.evaluate(`document.querySelector('#event-meeting-warning')?.textContent ?? ''`);
+  record(
+    '会議サービス以外の URL には、強めの注意（会議サービス以外のサイト）が表示される',
+    unknownWarning.includes('サイト：example.com') && unknownWarning.includes('会議サービス（Zoom・Meet・Teams・Webex）以外のサイト'),
+    unknownWarning,
+  );
+  await setInputValue(connection, '#event-meeting-url', DEMO_MEETING_URL); // 登録の確認のため元に戻す
+  // 件名の残りの文字数と URL の注意が見える位置までスクロールして撮る（見た目の確認用）
+  await connection.evaluate(`document.querySelector('#event-meeting-warning')?.scrollIntoView({ block: 'center' })`);
+  await sleep(UI_SETTLE_MS);
+  const detailsImage = await saveScreenshot(connection, screenshotDir, '07-event-details.png');
+
   // 4. 1件目（時刻あり）と3件目（明日・日付だけ）にチェックを付けて登録する
   await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[0].click()`);
   await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[2].click()`);
@@ -1009,7 +1038,7 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
     await connection.evaluate(`document.querySelector('#source-text').value === '' && document.querySelector('.error-banner') === null`),
   );
 
-  return [candidatesImage, registeredImage, dialogImage];
+  return [candidatesImage, detailsImage, registeredImage, dialogImage];
 }
 
 /**

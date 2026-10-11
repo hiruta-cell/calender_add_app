@@ -50,7 +50,7 @@
 | `src/renderer/overlay.html` / `overlay.js` / `overlay.css` | 範囲選択の画面（撮影した画面を暗く表示し、ドラッグで範囲を選ぶ。Esc・右クリックで中止） |
 | `src/renderer/main.jsx` | 画面の起点。App を描画し、エラーを受け止める枠で包む |
 | `src/renderer/App.jsx` | 確認ウインドウ全体。貼り付け→抽出・下書き→候補の選択・追記→登録の流れを管理する |
-| `src/renderer/styles.css` | 画面の見た目（ダークモード対応） |
+| `src/renderer/styles.css` | 画面の見た目（ダークモード対応。余白・文字を小さめにしたコンパクトな配置） |
 | `src/renderer/imageImport.js` | 貼り付け・ドラッグ＆ドロップした画像を PNG にそろえる（写真の向きの補正・大きすぎる写真の縮小） |
 | `src/renderer/components/TextInputPanel.jsx` | 文章の入力欄と「日時を抽出」「クリア」ボタン |
 | `src/renderer/components/HighlightedText.jsx` | 抽出に使った文章を、日時部分を色付けして表示する |
@@ -111,7 +111,7 @@
 
 | 項目 | 型 | 内容 |
 |---|---|---|
-| `title` | 文字列 | 件名（最大120文字） |
+| `title` | 文字列 | 件名（最大50文字） |
 | `location` | 文字列 | 場所。場所が空なら会議 URL が入る（最大1000文字） |
 | `details` | 文字列 | メモ。場所があるときは先頭に「オンライン会議：URL」（最大2000文字） |
 | `allDay` | 真偽 | 終日の予定か |
@@ -256,7 +256,7 @@
 | `findLocationSentence(lines)` | 関数（内部） | 「会場は〜です」のような文から場所を取り出す | 場所のラベルがないときの場所 |
 | `isAnyLabelLine(line)` | 関数（内部） | 件名・場所のラベルの行か | 次の行を値とみなしてよいかの判定 |
 | `findMeetingUrl(text)` | 関数（内部） | 会議サービスの URL、なければ最初の https の URL を選ぶ | 会議 URL の取り出し |
-| `parseMeetingUrl(text)` | 関数（公開） | URL を検証し、会議サービスかを判定する（xn-- の形に直す） | なりすまし URL・https 以外を弾く。入力欄の検証にも使う |
+| `parseMeetingUrl(text)` | 関数（公開） | URL を検証し、会議サービスかを判定する（xn-- の形に直す）。`{href, hostname, isKnownMeetingService}` を返す（hostname はフィッシングの注意でサイト名として見せる） | なりすまし URL・https 以外を弾く。入力欄の検証にも使う |
 | `isMeetingHost(hostname)` | 関数（内部） | ホスト名が会議サービスか（末尾で判定） | 「zoom.us.偽サイト」を会議サービスとみなさない |
 | `trimTrailingPunctuation(url)` | 関数（内部） | 末尾の句読点・対応しない閉じ括弧を除く | 「（URL）」の括弧を URL に含めない |
 | `countCharacter(text, character)` | 関数（内部） | 文字の数を数える | 括弧の対応の判定 |
@@ -269,7 +269,7 @@
 |---|---|---|---|
 | `CALENDAR_BASE_URL` | 定数（公開） | `https://calendar.google.com/calendar/render` | 予定作成画面の URL |
 | `ALLOWED_HOST` / `ALLOWED_PATH` | 定数（内部） | calendar.google.com ／ /calendar/render | 開いてよい URL の許可リスト |
-| `MAX_TITLE_LENGTH` | 定数（公開） | 120 | 件名の上限 |
+| `MAX_TITLE_LENGTH` | 定数（公開） | 50 | 件名の上限（全角・半角とも1文字。一覧で見えるのは先頭の20〜30文字ほどのため。2026-10-11 依頼者の指示で120→50） |
 | `MAX_LOCATION_TEXT_LENGTH` | 定数（公開） | 150 | 場所の入力欄の上限 |
 | `MAX_MEETING_URL_LENGTH` | 定数（公開） | 1000 | 会議 URL の上限（Teams の長い URL も入る） |
 | `MAX_MEMO_LENGTH` | 定数（公開） | 600 | メモの入力欄の上限 |
@@ -434,7 +434,9 @@
 | ManualDateForm.jsx | `ManualDateForm` | コンポーネント | 日付欄と「追加」ボタン、次にすることの説明 | 要件§5.8：手入力 |
 | ManualDateForm.jsx | `dateValue` / `date` / `handleAdd()` | 状態・計算値・関数 | 日付欄の値／読み取った日付／候補に追加 | 手入力の候補の追加 |
 | EventDetailsForm.jsx | `EventDetailsForm` | コンポーネント | 件名・場所・会議 URL・メモ・「元の文章をメモに入れる」 | 要件§5.5・§6.2・§12 |
-| EventDetailsForm.jsx | `meetingUrlText` / `meeting` | 計算値 | 入力された会議 URL／検証結果 | 不正な URL・会議サービス以外の URL を知らせる |
+| EventDetailsForm.jsx | `PHISHING_WARNING_MESSAGE` / `UNKNOWN_SITE_WARNING_MESSAGE` | 定数（公開） | URL を登録するときのフィッシングの注意／会議サービス以外のサイトへの強めの注意 | 偽のサイトへの誘導に気付いてもらう（依頼者の指示：注意したうえで登録する。登録は止めない） |
+| EventDetailsForm.jsx | `meetingUrlText` / `meeting` | 計算値 | 入力された会議 URL／検証結果 | 不正な URL を知らせ、正しい URL ならサイト名と注意を表示する |
+| EventDetailsForm.jsx | `remainingTitleLength` | 計算値 | 件名に入力できる残りの文字数 | 「50文字まで（残り N 文字）」の表示（依頼者の指示） |
 | RegisterSection.jsx | `RegisterSection` | コンポーネント | 登録ボタンと、開いたあとの案内（開いた件数、「60秒操作しないとクリア」）。右の欄の下端に固定し、スクロールしなくても押せる | 要件§5.6・使いやすさ（依頼者の指摘） |
 | NoDateDialog.jsx | `SUPPORTED_FORMAT_EXAMPLES` | 定数 | 対応している書き方の例 | 利用者が書き方を確かめられるようにする |
 | NoDateDialog.jsx | `NoDateDialog` | コンポーネント | 「日時の情報がありません」のポップアップ。日付（必須）・開始／終了時刻（任意）を入れて「追加する」 | 要件§5.8 |
@@ -545,7 +547,7 @@
 | `MAC_LAUNCHER_DIR` | 定数 | プロジェクトの launcher/ フォルダ | Mac の起動用の .app を置く場所（Git に含めない） |
 | `START_HIDDEN` / `shouldStartHidden` | 定数・変数 | `--hidden` 付きで起動したか／最初のウインドウを出さずに起動するか | ログイン時の自動起動ではウインドウを出さずに常駐する |
 | `TRAY_ICON_PATH` | 定数 | トレイのアイコンのパス（Mac は白黒のテンプレート画像） | 常駐の表示 |
-| `MAIN_WINDOW_SIZE` | 定数 | ウインドウの大きさ（1120×760、最小 820×560） | 確認ウインドウの表示 |
+| `MAIN_WINDOW_SIZE` | 定数 | ウインドウの大きさ（980×660、最小 760×500） | 確認ウインドウの表示（2026-10-11 依頼者の指示で画面をコンパクトにし、小さくした） |
 | `mainWindow` / `trayController` | 変数 | 確認ウインドウ／トレイ（アイコンとメニューの表記の変更） | 表示・常駐 |
 | `isQuitting` | 変数 | 終了しようとしているか | 閉じるボタンで隠す（常駐）か、本当に閉じるかを分ける |
 | `registeredAccelerator` | 変数 | 実際に登録できたホットキー（できなければ null） | 使えないときの案内、設定で変えるときの解除 |
@@ -722,7 +724,7 @@
 | `restoreMinimizedMainWindow(mainConnection)` | 関数 | 確認ウインドウが最小化されるのを待って元に戻す | 最初の登録で最小化を確かめる。戻さないと続く確認・画面の画像が取れないため |
 | `replaceMinimize(mainConnection)` / `getMinimizeCount(mainConnection)` | 関数 | 確認ウインドウの最小化を、回数を数えるだけの関数に差し替える／その回数を受け取る | 2回目以降の登録で最小化の動きを待たない。不正な登録要求で最小化しないことの確認 |
 | `saveScreenshot(connection, directory, fileName)` | 関数 | 画面の画像を保存 | 見た目の確認 |
-| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・エラー表示を確認 | 機能の確認 |
+| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 件名の上限と残りの文字数・URL のフィッシングの注意（会議サービス・それ以外。画面の画像 07-event-details.png）・抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・エラー表示を確認 | 機能の確認 |
 | `checkAutoReset(connection, mainConnection)` | 関数 | 登録のあと、操作するとクリアせず、操作しないと初期状態に戻ることを確認（画面の setTimeout の60秒だけを短くする） | 自動のクリアの確認（依頼者の指示） |
 | `replaceScreenCapture(mainConnection)` | 関数 | 画面の撮影を、架空の画像を返す関数に差し替える | 利用者の画面を撮影しない |
 | `connectToOverlay(port, connection)` / `waitForOverlayClosed(port)` | 関数 | 範囲選択の画面に接続する／閉じるまで待つ（上限付き） | 範囲選択の確認 |

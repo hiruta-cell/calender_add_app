@@ -93,8 +93,8 @@ const MAC_LAUNCHER_DIR = path.join(APP_DIR, 'launcher');
 /** ウインドウを出さずに起動したか（ログイン時の自動起動。要件§12） */
 const START_HIDDEN = process.argv.includes(HIDDEN_START_ARGUMENT);
 
-/** 確認ウインドウの大きさ（px） */
-const MAIN_WINDOW_SIZE = Object.freeze({ width: 1120, height: 760, minWidth: 820, minHeight: 560 });
+/** 確認ウインドウの大きさ（px）。画面をコンパクトにしたため小さめ（2026-10-11 依頼者の指示。以前は 1120×760、最小 820×560） */
+const MAIN_WINDOW_SIZE = Object.freeze({ width: 980, height: 660, minWidth: 760, minHeight: 500 });
 
 /** 確認ウインドウ。作成前と破棄した後は null */
 let mainWindow = null;
