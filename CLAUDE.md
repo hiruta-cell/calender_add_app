@@ -40,12 +40,12 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 - レンダラー（React）から Node API を直接呼ばない。`preload.js` で `contextBridge.exposeInMainWorld` により必要最小限の関数だけ公開する
 - `ipcRenderer` 自体や汎用 `send` / `invoke` をレンダラーへ公開しない。チャンネルごとに個別の関数にする
 - メインプロセスの IPC ハンドラーは、(1) 送信元フレームの検証 (2) 引数の型・長さ・形式の検証 を必ず行う。検証失敗は拒否してエラー表示
-- Content-Security-Policy を設定する（`default-src 'self'`、`script-src 'self'`、`connect-src 'none'` を基本とする。`unsafe-eval` / `unsafe-inline` は使わない）
+- Content-Security-Policy を設定する（`default-src 'none'` を基本に、`script-src 'self'` などを必要な分だけ許可する。`connect-src 'none'`。`unsafe-eval` / `unsafe-inline` は使わない）。実体は `electron/appProtocol.js` の `CONTENT_SECURITY_POLICY`
 - `setWindowOpenHandler` で新規ウインドウを全て拒否し、`will-navigate` で外部遷移を拒否する
 - `session.setPermissionRequestHandler` で不要な権限要求（カメラ、位置情報、通知など）を全て拒否する
 - 外部URLを開くのは `shell.openExternal` のみ。開く前に必ず URL をパースし、`https:` かつ ホスト `calendar.google.com` かつ パス `/calendar/render` のみ許可する（許可リスト方式）
 - リモートのコード・フォント・画像・CDN を読み込まない。全て同梱する
-- `file://` 以外のスキームでアプリ本体を読み込まない（開発時の Vite は `localhost` のみ。本番ビルドでは無効）
+- アプリの画面は独自プロトコル `app://bundle/` で読み込む（`dist/renderer` の中だけを配信）。`file://` と Vite の開発用サーバー（localhost）は使わない（CSP を緩める必要が出るため）。開発時は `npm run watch` でビルドし直す
 - Electron Fuses は、パッケージ化したバイナリにのみ効く。本プロジェクトは npm 起動（パッケージ化しない）のため対象外。防御は上記の隔離設定・CSP・URL許可リストで担保する
 - `package.json` の `engines` に Node.js の下限を指定し、README に明記する
 - Electron 本体は常にサポート対象の最新安定版に保つ
@@ -73,7 +73,8 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 
 - 依存は最小限にする。追加前に「標準機能で代替できないか」「メンテされているか」を確認し、追加理由を依頼者に示す
 - バージョンは固定する（`^` `~` を使わない）。`package-lock.json` は必ずコミットし、CI・手順書では `npm ci` を使う
-- `npm install` 時の lifecycle script を必要としない依存を選ぶ。必要な場合は理由を明記する
+- 追加・更新するときは、**公開から7日以上たった版**を使う（`npm install --before=<7日前の日付>` で依存の依存まで同じ基準にする）。公開直後の版は乗っ取り被害が見つかる前の可能性があるため。セキュリティ修正で急ぐ場合は理由を示して依頼者の承認を得る
+- `npm install` 時の lifecycle script を必要としない依存を選ぶ。必要な場合は理由を明記する（現在の依存にはない。Electron 本体は初回起動時に GitHub からダウンロードされ、パッケージ同梱のチェックサムで検証される）
 - 追加・更新のたびに `npm audit` を実行し、結果を報告する。high 以上は放置しない
 - 名前の似た偽パッケージ（typosquatting）に注意し、公式名・配布元を確認する
 
@@ -97,6 +98,8 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 - マジックナンバーは名前付き定数にする（例：既定の予定長 `DEFAULT_DURATION_MINUTES = 60`）
 - 1つの関数は1つの責務にする。日時抽出などのロジックは UI から分離し、単体テストできる純粋関数にする
 - Windows と Mac の差異（パス区切り、ホットキー表記、権限）は共通化して分岐を局所化する
+- テストは Node.js 標準の `node:test` で書く（テスト用の依存を増やさない）。Electron を import するファイルは単体テストできないため、ロジックは electron を import しないファイルに分け、session などは引数で受け取る
+- 画面の変更後は `npm run test:smoke`（実機で起動して自動操作）も実行する。新しい画面の機能を追加したら、このスクリプトにも確認を追加する
 
 ## エラー処理（要件 §5.9）
 
@@ -127,11 +130,17 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 - 完了報告では、実行したテスト・コマンドの結果をそのまま報告する。失敗や未実施があればそう書く
 - 日程が厳しい場合の判断基準は §9 に従う（OCRが不十分ならテキスト貼り付けを主機能にする）
 
-## よく使うコマンド（package.json 作成後に更新する）
+## よく使うコマンド
 
 ```
-npm ci          # 依存関係のインストール（lockfile どおり）
-npm run dev     # 開発起動
-npm test        # テスト
-npm audit       # 脆弱性チェック
+npm ci              # 依存関係のインストール（lockfile どおり）
+npm start           # 画面をビルドしてアプリを起動
+npm run watch       # 画面のファイルを保存するたびにビルド（起動中のウインドウで再読み込み）
+npm test            # 単体テスト（node:test）
+npm run test:smoke  # 実機で起動し、画面を自動操作して確認（起動中のアプリは閉じておく）
+npm audit           # 脆弱性チェック
 ```
+
+注意：VSCode の拡張機能などから実行すると環境変数 `ELECTRON_RUN_AS_NODE=1` が設定されていることがあり、
+その状態で `electron .` を実行すると Electron が Node.js として動いて起動しない。
+`npm run test:smoke` はこの変数を外して起動する。手動で起動する場合は `env -u ELECTRON_RUN_AS_NODE npm start`（Mac）。
