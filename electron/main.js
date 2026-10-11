@@ -2,15 +2,16 @@
  * main.js（Electron のメインプロセス）
  * 目的：アプリの起動、確認ウインドウの作成、セキュリティ設定の適用を行う。
  *
- * 1日目の範囲：確認ウインドウを開く。
- * タスクトレイ常駐・ホットキー・範囲キャプチャ・カレンダー登録は、2日目以降に追加する。
+ * 2日目の範囲：確認ウインドウを開き、画面からの登録要求を受けて予定作成画面をブラウザで開く。
+ * タスクトレイ常駐・ホットキー・範囲キャプチャ・設定は、3日目以降に追加する。
  */
 
-import { app, BrowserWindow, dialog, protocol, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APP_ENTRY_URL, APP_SCHEME, APP_SCHEME_PRIVILEGES, handleAppRequest } from './appProtocol.js';
+import { APP_ENTRY_URL, APP_SCHEME, APP_SCHEME_PRIVILEGES, handleAppRequest, isAppUrl } from './appProtocol.js';
+import { OPEN_CALENDAR_EVENTS_CHANNEL, createOpenCalendarEventsHandler } from './calendarIpc.js';
 import { SECURE_WEB_PREFERENCES, applySessionSecurity, hardenWebContents } from './security.js';
 
 /** このファイルがあるフォルダ（electron/） */
@@ -18,6 +19,9 @@ const ELECTRON_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /** Vite がビルドした画面ファイルの置き場所。app:// ではこのフォルダの中だけを配信する */
 const RENDERER_DIST_DIR = path.join(ELECTRON_DIR, '..', 'dist', 'renderer');
+
+/** 画面に関数を公開する preload スクリプト（サンドボックスで動くため CommonJS） */
+const PRELOAD_PATH = path.join(ELECTRON_DIR, 'preload.cjs');
 
 /** 確認ウインドウの大きさ（px） */
 const MAIN_WINDOW_SIZE = Object.freeze({ width: 1120, height: 760, minWidth: 820, minHeight: 560 });
@@ -39,7 +43,7 @@ function createMainWindow() {
   const window = new BrowserWindow({
     ...MAIN_WINDOW_SIZE,
     show: false, // 読み込みが終わってから表示する（白い画面のちらつきを防ぐ）
-    webPreferences: { ...SECURE_WEB_PREFERENCES },
+    webPreferences: { ...SECURE_WEB_PREFERENCES, preload: PRELOAD_PATH },
   });
   window.once('ready-to-show', () => window.show());
   window.on('closed', () => {
@@ -66,6 +70,24 @@ function focusMainWindow() {
 }
 
 /**
+ * IPC の送信元が、確認ウインドウの画面（app://bundle の最上位のフレーム）かを調べる。
+ * iframe や、万一読み込まれた外部ページからの要求は受け付けない（CLAUDE.md）。
+ *
+ * @param {Electron.IpcMainInvokeEvent} event
+ * @returns {boolean}
+ */
+function isTrustedSender(event) {
+  const frame = event.senderFrame;
+  return (
+    mainWindow !== null &&
+    event.sender === mainWindow.webContents &&
+    frame !== null &&
+    frame.parent === null &&
+    isAppUrl(frame.url)
+  );
+}
+
+/**
  * app の準備ができたら、セキュリティ設定を適用してウインドウを開く。
  */
 function startApp() {
@@ -79,6 +101,14 @@ function startApp() {
   }
   applySessionSecurity(session.defaultSession);
   protocol.handle(APP_SCHEME, (request) => handleAppRequest(request, RENDERER_DIST_DIR));
+  ipcMain.handle(
+    OPEN_CALENDAR_EVENTS_CHANNEL,
+    createOpenCalendarEventsHandler({
+      // 呼ぶたびに shell.openExternal を参照する（実機の自動確認で差し替えられるようにするため）
+      openExternal: (url) => shell.openExternal(url),
+      isTrustedSender,
+    }),
+  );
   createMainWindow();
 }
 
