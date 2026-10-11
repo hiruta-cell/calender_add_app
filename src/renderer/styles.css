@@ -492,7 +492,17 @@ body {
 }
 
 .error-banner-message {
+  flex: 1;
   white-space: pre-line; /* 複数のエラーを改行して表示する */
+}
+
+/* エラーの帯のボタンは縮めず、文字を折り返さない（「システム設定を開く」が縦に折り返されないように） */
+.error-banner .button-row {
+  flex-shrink: 0;
+}
+
+.error-banner .button {
+  white-space: nowrap;
 }
 
 /* ---- 登録の確認（開いた予定の一覧） ---- */
