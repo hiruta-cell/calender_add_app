@@ -77,7 +77,7 @@ npm start
 | `npm run build` | 画面をビルドする |
 | `npm run watch` | 画面のファイルを保存するたびにビルドする（別のターミナルで `npx electron .` を起動し、Ctrl+R / Command+R で再読み込み） |
 
-コードの説明は [docs/CODE-REFERENCE.md](docs/CODE-REFERENCE.md)、開発のルールは [CLAUDE.md](CLAUDE.md) にあります。
+コードの説明は [docs/CODE-REFERENCE.md](docs/CODE-REFERENCE.md)、完成の基準と確認の記録は [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)、開発のルールは [CLAUDE.md](CLAUDE.md) にあります。
 
 ## ライセンス
 
