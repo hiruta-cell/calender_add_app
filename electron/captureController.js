@@ -16,6 +16,7 @@ import { OVERLAY_ENTRY_URL, isAppUrl } from './appProtocol.js';
 import { CaptureError, getUpscaleFactor, toImageRect, validateSelection } from './captureGeometry.js';
 import { SCREENSHOT_IMAGE_NAME, SELECTION_IMAGE_NAME } from './captureImageStore.js';
 import { ORIENTATION_AUTO, OcrError, recognizeText } from './ocrEngine.js';
+import { buildScreenPermissionMessage, getScreenPermissionAppName } from './screenPermission.js';
 
 /** 確認ウインドウを隠してから撮影するまでの待ち時間（ミリ秒）。隠した画面が写り込まないようにする */
 const HIDE_SETTLE_MS = 200;
@@ -31,11 +32,6 @@ const SELECTION_IMAGE_URL = 'app://bundle/capture/selection.png';
 
 /** 範囲選択の画面のパス（送信元の確認に使う） */
 const OVERLAY_PATHNAME = '/overlay.html';
-
-/** Mac で画面収録の許可がないときの文 */
-const SCREEN_PERMISSION_MESSAGE =
-  '画面を取り込む許可がありません。Mac の「システム設定」→「プライバシーとセキュリティ」→「画面収録とシステムオーディオ録音」で、' +
-  'このアプリ（ターミナルから起動した場合はターミナル）を許可してから、アプリを起動し直してください。';
 
 /** 画面を撮影できなかったときの文 */
 const CAPTURE_FAILED_MESSAGE = '画面を取り込めませんでした。もう一度お試しください。';
@@ -134,7 +130,8 @@ export function createCaptureController({
     const status = systemPreferences.getMediaAccessStatus('screen');
     const isDenied = stage === 'before' ? status === 'denied' || status === 'restricted' : status !== 'granted';
     if (isDenied) {
-      throw new CaptureError(SCREEN_PERMISSION_MESSAGE);
+      // 起動元のアプリ（ターミナル・VSCode など）の名前を入れて、どれを許可すればよいかを案内する
+      throw new CaptureError(buildScreenPermissionMessage(getScreenPermissionAppName(process.env)));
     }
   }
 

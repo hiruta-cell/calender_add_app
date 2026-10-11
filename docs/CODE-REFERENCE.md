@@ -66,6 +66,7 @@
 | `electron/captureImageStore.js` | 取り込んだ画像をメモリの中だけで持つ（app://bundle/capture/〜 で表示） |
 | `electron/captureIpc.js` | 範囲キャプチャの通信の受け付け（送信元・読み直しの向きの検証） |
 | `electron/overlayPreload.cjs` | 範囲選択の画面に「選んだ範囲を送る」「中止する」の2つだけを公開する |
+| `electron/screenPermission.js` | Mac の画面収録の許可がないとき、起動元のアプリ（ターミナル・VSCode など）の名前を入れて案内する |
 | `electron/preload.cjs` | 確認ウインドウに、登録・確認・範囲キャプチャに必要な関数だけを公開する |
 | `electron/calendarIpc.js` | 画面からの登録要求・確認の要求を検証し、予定作成画面・その日の表示を既定のブラウザで開く |
 | `electron/ocrEngine.js` | 画像から文字を読み取る（Tesseract.js。横書き・縦書き、PC 内の文字データだけを使う） |
@@ -541,7 +542,7 @@
 | `OVERLAY_TIMEOUT_MS` | 定数（内部） | 120000 | 範囲選択の画面を放置したときに自動で中止する |
 | `LOW_CONFIDENCE_THRESHOLD` | 定数（公開） | 40 | これ未満なら「精度が低い可能性」と知らせる |
 | `SELECTION_IMAGE_URL` / `OVERLAY_PATHNAME` | 定数（内部） | 表示する画像の URL／範囲選択の画面のパス | 表示・送信元の確認 |
-| `SCREEN_PERMISSION_MESSAGE` など | 定数（内部） | 画面収録の許可がない・撮影できない・予期しないエラーの文 | 失敗時の案内（要件§5.9） |
+| `CAPTURE_FAILED_MESSAGE` / `UNEXPECTED_ERROR_MESSAGE` | 定数（内部） | 撮影できない・予期しないエラーの文（許可がないときの文は screenPermission.js で作る） | 失敗時の案内（要件§5.9） |
 | `delay(milliseconds)` | 関数（内部） | 指定時間待つ | 撮影前の待ち |
 | `createCaptureController(dependencies)` | 関数（公開） | 範囲キャプチャの処理を作る | main.js から使う |
 | `isOverlaySender(event)` | 関数 | IPC の送信元が範囲選択の画面（最上位のフレーム、/overlay.html）か | 送信元の検証 |
@@ -555,6 +556,15 @@
 | `fail(error, options)` | 関数（内部） | 後始末（画面を閉じる・画像を消す）をしてエラーを送る | 要件§5.9 |
 | `isBusy()` / `startCapture()` / `rereadSelection(orientation)` / `clearCapture()` | 関数（公開） | 途中か／取り込み開始／読み直し／画像を消す | ホットキー・トレイ・画面から呼ぶ |
 | `handleOverlaySelect(event, rawSelection)` / `handleOverlayCancel(event)` | 関数（公開） | 範囲選択の画面から届いた範囲・中止を検証して受け取る | IPC の入口 |
+
+### screenPermission.js（画面収録の許可の案内）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `APP_NAMES_BY_BUNDLE_ID` | 定数（内部） | macOS のアプリの識別子と名前の対応（ターミナル・Visual Studio Code・iTerm・Electron） | 起動元のアプリの判別 |
+| `APP_NAMES_BY_TERM_PROGRAM` | 定数（内部） | TERM_PROGRAM とアプリの名前の対応 | 識別子がないときの判別 |
+| `getScreenPermissionAppName(environment)` | 関数（公開） | 起動元のアプリの名前を環境変数から判別する（判別できなければ null） | どのアプリを許可すればよいかを示す |
+| `buildScreenPermissionMessage(appName)` | 関数（公開） | 許可の手順と、起動し直す対象を案内する文を作る | npm 起動では起動元のアプリに許可が求められるため |
 
 ### overlayPreload.cjs（範囲選択の画面に公開する関数）
 
@@ -635,6 +645,7 @@
 | electronSecurity.test.js | `FIXTURE_ROOT`、`isInsideRoot()`、`createFakeSession()`、`createFakeContents()`、`createFakeEvent()` | セキュリティ設定と app:// の配信を偽物のオブジェクトで確認 | 設定を誤って緩めたら失敗させる |
 | ocrText.test.js | — | OCR の結果の整形の確認 | 空白の除去、整形後に日時を抽出できること |
 | capture.test.js | `VIEWPORT` | 範囲の座標の検証・変換、拡大の判定、画像の置き場所 | Retina・拡大率への対応、小さすぎる範囲、メモリだけで持つこと |
+| screenPermission.test.js | — | 起動元のアプリの判別と案内文の確認 | ターミナル・VSCode・判別できない場合 |
 | captureIpc.test.js | `createTestHandlers()` | 範囲キャプチャの通信の受け付けと preload の確認 | 送信元・向きの検証、重ねて始めない、公開する関数が決めたものだけ |
 | ocrEngine.test.js | `FIXTURE_DIR`、`NOW`、`readFixture()` | 架空の画像で実際に読み取る | 横書き・縦書きの自動判定、PC 内の文字データの使用、ファイルを書き出さない、時間切れ |
 | fixtures/ | — | app:// のテスト用ファイル（`outside-secret.txt` は配信フォルダの外） | パストラバーサル対策の確認 |
