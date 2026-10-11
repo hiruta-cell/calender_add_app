@@ -8,13 +8,11 @@ import { readFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import {
   MAX_EVENTS_PER_REQUEST,
-  OPEN_CALENDAR_DAY_CHANNEL,
   OPEN_CALENDAR_EVENTS_CHANNEL,
   OPEN_INTERVAL_MS,
-  createOpenCalendarDayHandler,
   createOpenCalendarEventsHandler,
 } from '../electron/calendarIpc.js';
-import { isAllowedCalendarUrl, isAllowedDayViewUrl } from '../src/core/calendarUrl.js';
+import { isAllowedCalendarUrl } from '../src/core/calendarUrl.js';
 
 /** 架空の予定 */
 function sampleEvent(day = 15) {
@@ -148,37 +146,6 @@ describe('登録後の確認ウインドウの最小化（依頼者の指示）'
   });
 });
 
-describe('「カレンダーで確認」の要求の処理', () => {
-  /** テスト用の処理を作る。開いた URL を記録する */
-  function createDayHandler({ trusted = true } = {}) {
-    const opened = [];
-    const handler = createOpenCalendarDayHandler({
-      openExternal: async (url) => { opened.push(url); },
-      isTrustedSender: () => trusted,
-    });
-    return { handler, opened };
-  }
-
-  test('正しい日付なら、その日の表示を開く（許可リストを通った URL だけ）', async () => {
-    const { handler, opened } = createDayHandler();
-    assert.deepEqual(await handler({}, { year: 2026, month: 10, day: 15 }), { ok: true });
-    assert.deepEqual(opened, ['https://calendar.google.com/calendar/r/day/2026/10/15']);
-    assert.ok(opened.every(isAllowedDayViewUrl));
-  });
-
-  test('信頼できない送信元・不正な日付は、何も開かずに断る', async () => {
-    const untrusted = createDayHandler({ trusted: false });
-    assert.equal((await untrusted.handler({}, { year: 2026, month: 10, day: 15 })).ok, false);
-    assert.equal(untrusted.opened.length, 0);
-
-    const { handler, opened } = createDayHandler();
-    for (const bad of [null, 'https://evil.example', { year: 2026, month: 13, day: 1 }, { year: 2026, month: 10, day: '15' }]) {
-      assert.equal((await handler({}, bad)).ok, false);
-    }
-    assert.equal(opened.length, 0);
-  });
-});
-
 describe('preload との整合', () => {
   /** preload.cjs の内容 */
   const preloadSource = () => readFile(new URL('../electron/preload.cjs', import.meta.url), 'utf8');
@@ -186,7 +153,12 @@ describe('preload との整合', () => {
   test('preload.cjs のチャンネル名が calendarIpc.js と同じ', async () => {
     const preload = await preloadSource();
     assert.ok(preload.includes(`'${OPEN_CALENDAR_EVENTS_CHANNEL}'`));
-    assert.ok(preload.includes(`'${OPEN_CALENDAR_DAY_CHANNEL}'`));
+  });
+
+  test('削除した「カレンダーで確認」（openCalendarDay・calendar:open-day）は公開していない', async () => {
+    const preload = await preloadSource();
+    assert.equal(preload.includes('openCalendarDay'), false);
+    assert.equal(preload.includes('calendar:open-day'), false);
   });
 
   test('preload.cjs は ipcRenderer そのものを公開せず、送信は決まったチャンネルの invoke だけ', async () => {

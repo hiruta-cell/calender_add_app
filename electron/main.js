@@ -14,12 +14,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP_ENTRY_URL, APP_SCHEME, APP_SCHEME_PRIVILEGES, handleAppRequest, isAppUrl } from './appProtocol.js';
-import {
-  OPEN_CALENDAR_DAY_CHANNEL,
-  OPEN_CALENDAR_EVENTS_CHANNEL,
-  createOpenCalendarDayHandler,
-  createOpenCalendarEventsHandler,
-} from './calendarIpc.js';
+import { OPEN_CALENDAR_EVENTS_CHANNEL, createOpenCalendarEventsHandler } from './calendarIpc.js';
 import { createCaptureController } from './captureController.js';
 import { createCaptureImageStore } from './captureImageStore.js';
 import {
@@ -183,7 +178,6 @@ function registerIpcHandlers() {
     OPEN_CALENDAR_EVENTS_CHANNEL,
     createOpenCalendarEventsHandler({ openExternal, isTrustedSender, onAllOpened: minimizeMainWindow }),
   );
-  ipcMain.handle(OPEN_CALENDAR_DAY_CHANNEL, createOpenCalendarDayHandler({ openExternal, isTrustedSender }));
 
   const captureHandlers = createCaptureHandlers({
     isTrustedSender,

@@ -40,8 +40,9 @@
 | `src/core/candidateFormatter.js` | 候補を「2026年10月15日(木) 14:00〜15:00」のような表示用の文字列にする |
 | `src/core/highlight.js` | 文章の日時部分を色付けするために、文章を分割する |
 | `src/core/detailExtractor.js` | 文章から件名・場所・オンライン会議の URL を取り出して下書きにする |
-| `src/core/calendarUrl.js` | Googleカレンダーの予定作成画面と「その日の表示」の URL を組み立て、内容と URL を検証する |
+| `src/core/calendarUrl.js` | Googleカレンダーの予定作成画面の URL を組み立て、内容と URL を検証する |
 | `src/core/registration.js` | 選んだ候補と入力欄の内容から、登録する予定の一覧を作る（終日／時刻指定、手入力の候補も） |
+| `src/core/autoReset.js` | 登録のあと、60秒操作がなければ表示を初期状態に戻す「自動のクリア」を予約する（操作したら取り消す） |
 | `src/core/ocrText.js` | OCR の結果の文章を整える（日本語の文字の間の余分な空白を除く） |
 | `src/renderer/index.html` | 確認ウインドウの土台となる HTML |
 | `src/renderer/overlay.html` / `overlay.js` / `overlay.css` | 範囲選択の画面（撮影した画面を暗く表示し、ドラッグで範囲を選ぶ。Esc・右クリックで中止） |
@@ -55,8 +56,7 @@
 | `src/renderer/components/TimeChoiceFields.jsx` | 日付だけの候補で「終日／時刻を指定」を選ぶ欄 |
 | `src/renderer/components/ManualDateForm.jsx` | 日時を手入力して候補に追加する欄 |
 | `src/renderer/components/EventDetailsForm.jsx` | 件名・場所・オンライン会議 URL・メモの入力欄 |
-| `src/renderer/components/RegisterSection.jsx` | 「Googleカレンダーで開く」ボタンと登録の確認（右の欄の下端に固定） |
-| `src/renderer/components/RegistrationChecklist.jsx` | 開いた予定の一覧（「保存した」のチェック、「カレンダーで確認」ボタン） |
+| `src/renderer/components/RegisterSection.jsx` | 「Googleカレンダーで開く」ボタンと、開いたあとの案内（右の欄の下端に固定） |
 | `src/renderer/components/NoDateDialog.jsx` | 「日時の情報がありません」のポップアップ（その場で日付・時刻を手入力して「追加する」） |
 | `src/renderer/components/CaptureImagePanel.jsx` | 取り込んだ画像・読み取りの状態・「横書き／縦書きで読み直す」 |
 | `src/renderer/components/ErrorBanner.jsx` | エラーの内容を画面上部に表示する |
@@ -217,7 +217,6 @@
 | `formatTimeLabel(time)` | 関数（公開） | 「14:00」の形にする | 候補の表示 |
 | `formatCandidateLabel(candidate)` | 関数（公開） | 候補を1行の文字列にする（日またぎは終了側にも日付） | 候補の一覧の表示 |
 | `describeWarning(warningCode)` | 関数（公開） | 警告コードを表示文にする | 警告バッジの表示 |
-| `formatEventLabel(event)` | 関数（公開） | 登録した予定の日時を1行にする（終日は「終日」） | 登録の確認の一覧の表示 |
 
 ## src/core/highlight.js（色付け）
 
@@ -264,7 +263,6 @@
 |---|---|---|---|
 | `CALENDAR_BASE_URL` | 定数（公開） | `https://calendar.google.com/calendar/render` | 予定作成画面の URL |
 | `ALLOWED_HOST` / `ALLOWED_PATH` | 定数（内部） | calendar.google.com ／ /calendar/render | 開いてよい URL の許可リスト |
-| `DAY_VIEW_BASE_URL` / `DAY_VIEW_PATH_PATTERN` | 定数（内部） | その日の表示の URL の先頭／パスの形（/calendar/r/day/年/月/日） | 登録の確認用の URL の許可リスト |
 | `MAX_TITLE_LENGTH` | 定数（公開） | 120 | 件名の上限 |
 | `MAX_LOCATION_TEXT_LENGTH` | 定数（公開） | 150 | 場所の入力欄の上限 |
 | `MAX_MEETING_URL_LENGTH` | 定数（公開） | 1000 | 会議 URL の上限（Teams の長い URL も入る） |
@@ -283,8 +281,16 @@
 | `formatCalendarDate(date)` / `formatCalendarDateTime(dateTime)` | 関数（公開） | YYYYMMDD ／ YYYYMMDDTHHMMSS | URL の dates の書式 |
 | `buildCalendarUrl(rawEvent)` | 関数（公開） | 予定作成画面の URL を組み立てる（ctz=Asia/Tokyo、終日は翌日まで） | 要件§5.6・§5.10 |
 | `isAllowedCalendarUrl(url)` | 関数（公開） | 開いてよい URL か（https・ホスト・パス・action を確認） | 許可リスト方式（CLAUDE.md） |
-| `buildDayViewUrl(date)` | 関数（公開） | その日の Googleカレンダーの表示の URL を作る | 「カレンダーで確認」（要件§12） |
-| `isAllowedDayViewUrl(url)` | 関数（公開） | 開いてよい「その日の表示」の URL か（クエリ・フラグメントなし） | 許可リスト方式 |
+
+## src/core/autoReset.js（登録後の自動のクリア）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `MILLISECONDS_PER_SECOND` | 定数（内部） | 1000 | 秒をミリ秒に直す |
+| `AUTO_RESET_DELAY_SECONDS` / `AUTO_RESET_DELAY_MS` | 定数（公開） | 60秒 ／ 60000 | 登録から表示をクリアするまでの時間（依頼者の指示） |
+| `USER_ACTIVITY_EVENTS` | 定数（公開） | pointerdown・keydown・wheel・paste・drop | 「操作した」とみなすイベント（ウインドウを戻すだけでは取り消さない） |
+| `scheduleAutoReset(options)` | 関数（公開） | 時間がたったら onReset、先に操作されたら onCancel を1回だけ呼ぶ。予約をやめる関数を返す | 次の登録に備えて表示を消す。作業中の内容は消さない。タイマーとイベントの相手は引数で受け取り、単体テストできる |
+| `stop()` / `handleActivity()` | 関数（内部） | タイマーと監視を止める（1回目だけ効く）／操作を受けて予約を取り消す | 監視の解除し忘れを防ぐ |
 
 ## src/core/registration.js（登録内容の組み立て）
 
@@ -342,10 +348,12 @@
 | `errorAction` | 状態 | エラーの帯に出す追加の操作（対象のエラーの文が表示されている間だけ有効） | 「システム設定を開く」ボタン |
 | `isNoDateDialogOpen` | 状態 | 「日時の情報がありません」の表示中か | 要件§5.8 |
 | `isRegistering` | 状態 | ブラウザで開く処理の途中か | 二度押しを防ぐ |
-| `openedEvents` | 状態 | 予定作成画面を開いた予定（{id, label, title, date, saved}） | 登録の確認の一覧（要件§12） |
+| `registeredCount` | 状態 | 直前に予定作成画面を開いた件数（0 なら案内を出さない） | 登録ボタンの下の案内 |
+| `autoResetId` / `autoResetSequenceRef` | 状態・参照 | 自動のクリアの予約番号（0 なら予約なし）／その通し番号 | 登録のたびに60秒を数え直す。操作・読み取りで 0 に戻して取り消す |
 | `capture` | 状態 | 範囲キャプチャの状態（EMPTY_CAPTURE の形） | 読み取り中の表示、取り込んだ画像、精度の案内 |
 | `hotkeyLabel` | 状態 | ホットキーの表記 | ボタンに表示する |
 | `captureStatusHandlerRef` | 参照 | 読み取り結果を受け取る最新の処理 | 起動時に1回だけ登録しても最新の処理を呼ぶ |
+| `resetToInitialStateRef` | 参照 | 表示を初期状態に戻す最新の処理 | 自動のクリアから呼ぶ |
 | `allCandidates` | 計算値 | 抽出した候補と手入力の候補 | 候補の一覧・登録に使う |
 | `highlightRanges` | 計算値 | すべての候補の位置をまとめたもの | 色付けに渡す |
 | `isInputChangedAfterExtraction` | 計算値 | 抽出後に文章が書き換えられたか | 再抽出を促すお知らせの表示 |
@@ -356,15 +364,14 @@
 | （画像の貼り付け・ドロップの受け付け） | 処理 | 画像の貼り付け（文章の貼り付けは邪魔しない）・ドロップを受け、PNG にそろえて読み取ってもらう | 画像の取り込み（要件§12） |
 | `handleStartCapture()` / `handleRereadCapture(orientation)` | 関数 | 範囲キャプチャを始めてもらう／向きを指定して読み直してもらう | 「画面から読み取る」「横書き／縦書きで読み直す」 |
 | `resetResults()` | 関数 | 抽出結果・選択・入力欄を初期状態に戻す | エラー時・クリア時の後始末 |
-| `handleClear()` | 関数 | 入力・結果・エラーを消して最初の状態に戻す | 「クリア」ボタン |
+| `resetToInitialState()` | 関数 | 入力・結果・エラー・取り込んだ画像・登録の案内を消し、自動のクリアの予約もやめて最初の状態に戻す | 「クリア」ボタンと、登録して60秒操作がなかったとき |
+| （自動のクリアの予約） | 処理 | 予約番号が 0 でない間、scheduleAutoReset で60秒後のクリアと操作の監視を動かす | 次の登録に備える（依頼者の指示） |
 | `handleToggleCandidate(candidateId)` | 関数 | 候補のチェックを切り替える | 候補の選択 |
 | `handleTimeChoiceChange(candidateId, changes)` | 関数 | 終日／時刻指定・時刻を変える | 要件§5.10 |
 | `handleAddManualDate(date, startTime, endTime)` | 関数 | 手入力した日付（と時刻）を候補に加えてチェックを付ける。時刻があれば「時刻を指定」 | 要件§5.8 |
 | `handleAddFromDialog(entry)` | 関数 | ポップアップで入れた日時を候補に加える | 手入力（依頼者の指摘で、ポップアップの中で完結する形に改善） |
 | `handleDetailChange(field, value)` | 関数 | 予定の内容の入力欄を変える | 追記（要件§5.5） |
-| `handleRegister()` | 関数 | 内容を確かめ、メインプロセスに予定作成画面を開いてもらい、登録の確認の一覧を作る | 登録ボタン（要件§5.6） |
-| `handleToggleSaved(openedEventId)` | 関数 | 「保存した」を切り替える | 登録の確認 |
-| `handleOpenDay(date)` | 関数 | その日の Googleカレンダーの表示を開いてもらう | 「カレンダーで確認」 |
+| `handleRegister()` | 関数 | 内容を確かめ、メインプロセスに予定作成画面を開いてもらう。開けたら件数を案内し、自動のクリアを予約する | 登録ボタン（要件§5.6） |
 
 ### imageImport.js（画像の取り込み）
 
@@ -404,9 +411,7 @@
 | ManualDateForm.jsx | `dateValue` / `date` / `handleAdd()` | 状態・計算値・関数 | 日付欄の値／読み取った日付／候補に追加 | 手入力の候補の追加 |
 | EventDetailsForm.jsx | `EventDetailsForm` | コンポーネント | 件名・場所・会議 URL・メモ・「元の文章をメモに入れる」 | 要件§5.5・§6.2・§12 |
 | EventDetailsForm.jsx | `meetingUrlText` / `meeting` | 計算値 | 入力された会議 URL／検証結果 | 不正な URL・会議サービス以外の URL を知らせる |
-| RegisterSection.jsx | `RegisterSection` | コンポーネント | 登録ボタンと登録の確認。右の欄の下端に固定し、スクロールしなくても押せる | 要件§5.6・使いやすさ（依頼者の指摘） |
-| RegistrationChecklist.jsx | `RegistrationChecklist` | コンポーネント | 開いた予定の一覧。「保存した」のチェックと「カレンダーで確認」ボタン。全件保存で完了を知らせる | 要件§12：登録の確認 |
-| RegistrationChecklist.jsx | `totalCount` / `savedCount` / `isAllSaved` | 計算値 | 開いた件数／保存した件数／全件保存したか | 保存し忘れが分かるようにする |
+| RegisterSection.jsx | `RegisterSection` | コンポーネント | 登録ボタンと、開いたあとの案内（開いた件数、「60秒操作しないとクリア」）。右の欄の下端に固定し、スクロールしなくても押せる | 要件§5.6・使いやすさ（依頼者の指摘） |
 | NoDateDialog.jsx | `SUPPORTED_FORMAT_EXAMPLES` | 定数 | 対応している書き方の例 | 利用者が書き方を確かめられるようにする |
 | NoDateDialog.jsx | `NoDateDialog` | コンポーネント | 「日時の情報がありません」のポップアップ。日付（必須）・開始／終了時刻（任意）を入れて「追加する」 | 要件§5.8 |
 | NoDateDialog.jsx | `dateValue` / `startTimeValue` / `endTimeValue` | 状態 | ポップアップの入力欄の値 | 手入力 |
@@ -455,23 +460,19 @@
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `OPEN_CALENDAR_EVENTS_CHANNEL` | 定数（公開） | 'calendar:open-events' | 画面からの登録要求のチャンネル名（preload.cjs と同じ） |
-| `OPEN_CALENDAR_DAY_CHANNEL` | 定数（公開） | 'calendar:open-day' | 「カレンダーで確認」の要求のチャンネル名 |
 | `OPEN_INTERVAL_MS` | 定数（公開） | 800 | 複数の予定を開くときの間隔 |
 | `MAX_EVENTS_PER_REQUEST` | 定数（公開） | 30 | 1回の要求で開ける予定の上限 |
 | `UNTRUSTED_SENDER_MESSAGE` / `BUSY_MESSAGE` / `UNEXPECTED_ERROR_MESSAGE` | 定数（内部） | 断るときの表示文 | 内容を含めずに知らせる |
 | `wait(milliseconds)` | 関数（内部） | 指定時間待つ | 開く間隔 |
 | `buildCalendarUrls(rawEvents)` | 関数（公開） | 予定の一覧を検証し、許可リストを通った URL の一覧を作る | URL は画面から受け取らず、ここで作る |
 | `createOpenCalendarEventsHandler(dependencies)` | 関数（公開） | 送信元・引数を検証し、URL を順に開く処理を作る（二度押しは断る）。すべて開けたら `onAllOpened`（確認ウインドウの最小化）を呼ぶ | ipcMain.handle に渡す。最小化はブラウザの操作の邪魔にならないように（依頼者の指示）。途中で開けなかったときは呼ばない |
-| `createOpenCalendarDayHandler(dependencies)` | 関数（公開） | 送信元・日付を検証し、その日の表示を開く処理を作る（URL はここで作る） | 「カレンダーで確認」 |
 
 ### preload.cjs（画面に公開する関数）
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `OPEN_CALENDAR_EVENTS_CHANNEL` | 定数 | 'calendar:open-events' | 登録要求のチャンネル名 |
-| `OPEN_CALENDAR_DAY_CHANNEL` | 定数 | 'calendar:open-day' | 「カレンダーで確認」のチャンネル名 |
 | `window.calendarApp.openCalendarEvents(events)` | 関数（画面に公開） | 予定の一覧をメインプロセスに渡す | 登録。ipcRenderer そのものは公開しない |
-| `window.calendarApp.openCalendarDay(date)` | 関数（画面に公開） | 確認する日付をメインプロセスに渡す | 「カレンダーで確認」 |
 | `CAPTURE_START_CHANNEL` などのチャンネル名 | 定数 | captureIpc.js と同じ値 | 範囲キャプチャの通信 |
 | `window.calendarApp.startCapture()` | 関数（画面に公開） | 範囲キャプチャを始めてもらう | 「画面から読み取る」 |
 | `window.calendarApp.importImage(pngBytes)` | 関数（画面に公開） | PNG にそろえた画像を読み取ってもらう | 画像の貼り付け・ドラッグ＆ドロップ |
@@ -615,8 +616,9 @@
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `PROJECT_DIR` | 定数 | プロジェクトのフォルダ | アプリの起動 |
-| `OVERALL_TIMEOUT_MS` / `STEP_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 全体の制限 30秒（正常なら約16秒）／1つの待ちの上限 10秒／確認間隔／画面の更新待ち | 止まったらすぐ知らせる（依頼者の指示） |
+| `OVERALL_TIMEOUT_MS` / `STEP_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 全体の制限 30秒（正常なら約22秒）／1つの待ちの上限 10秒／確認間隔／画面の更新待ち | 止まったらすぐ知らせる（依頼者の指示） |
 | `MINIMIZE_WAIT_MS` | 定数 | 3秒 | 登録のあと確認ウインドウが最小化される（元に戻る）のを待つ上限。Mac は最小化の動きに時間がかかる |
+| `AUTO_RESET_TEST_DELAY_MS` | 定数 | 自動のクリアの確認で、60秒の代わりに待つ時間（1秒） | 確認全体の時間を短くする |
 | `CAPTURE_FIXTURE_PATH` / `IMPORT_FIXTURE_PATH` | 定数 | 範囲キャプチャで「撮影した画面」とする画像／貼り付けに使う画像（架空） | 画面収録の許可なしで確認する |
 | `APP_EXIT_TIMEOUT_MS` / `launchedApp` | 定数・変数 | アプリの終了を待つ上限 5秒／起動したアプリ | 常駐するアプリを必ず閉じる |
 | `DEMO_TITLE` / `DEMO_LOCATION` / `DEMO_MEETING_URL` | 定数 | デモ文面の件名・場所・会議 URL（架空） | 下書き・登録内容の確認 |
@@ -633,17 +635,19 @@
 | `setInputValue(connection, selector, value)` | 関数 | 日付・時刻などの入力欄に値を入れる | 手入力・時刻指定の再現 |
 | `replaceOpenExternal(mainConnection)` | 関数 | メインプロセスの shell.openExternal を、URL を記録するだけの関数に差し替える | 実際のブラウザを開かずに登録を確認する |
 | `getOpenedUrls(mainConnection)` | 関数 | メインプロセスが開こうとした URL の一覧を受け取る | 登録内容の確認 |
-| `clickRegister(connection, mainConnection)` | 関数 | 登録ボタンを押し、処理が終わるまで待つ。最小化されたかを返す | 登録の再現と、登録後の最小化の確認 |
-| `restoreMinimizedMainWindow(mainConnection)` | 関数 | 確認ウインドウが最小化されるのを待って元に戻す | 最小化の確認。戻さないと続く確認・画面の画像が取れないため |
+| `clickRegister(connection)` | 関数 | 登録ボタンを押し、処理が終わるまで待つ | 登録の再現 |
+| `restoreMinimizedMainWindow(mainConnection)` | 関数 | 確認ウインドウが最小化されるのを待って元に戻す | 最初の登録で最小化を確かめる。戻さないと続く確認・画面の画像が取れないため |
+| `replaceMinimize(mainConnection)` / `getMinimizeCount(mainConnection)` | 関数 | 確認ウインドウの最小化を、回数を数えるだけの関数に差し替える／その回数を受け取る | 2回目以降の登録で最小化の動きを待たない。不正な登録要求で最小化しないことの確認 |
 | `saveScreenshot(connection, directory, fileName)` | 関数 | 画面の画像を保存 | 見た目の確認 |
-| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出・下書き・候補・登録・登録の確認・時刻指定・ポップアップでの手入力・エラー表示を確認 | 機能の確認 |
+| `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出・下書き・候補・登録（最小化・開いたあとの案内）・時刻指定・ポップアップでの手入力・エラー表示を確認 | 機能の確認 |
+| `checkAutoReset(connection, mainConnection)` | 関数 | 登録のあと、操作するとクリアせず、操作しないと初期状態に戻ることを確認（画面の setTimeout の60秒だけを短くする） | 自動のクリアの確認（依頼者の指示） |
 | `replaceScreenCapture(mainConnection)` | 関数 | 画面の撮影を、架空の画像を返す関数に差し替える | 利用者の画面を撮影しない |
 | `connectToOverlay(port, connection)` / `waitForOverlayClosed(port)` | 関数 | 範囲選択の画面に接続する／閉じるまで待つ（上限付き） | 範囲選択の確認 |
-| `dragWholeOverlay(overlayConnection)` | 関数 | 範囲選択の画面でドラッグする | 範囲選択の再現 |
+| `dragWholeOverlay(overlayConnection)` | 関数 | 範囲選択の画面でドラッグする。離す操作は、画面がすぐ閉じるため命令の返事を待たない | 範囲選択の再現（返事を待って止まるのを防ぐ） |
 | `waitForWithTimeout(connection, expression, timeoutMs)` | 関数 | 条件を満たすまで待つ（上限付き。満たさなければ false） | 不合格を記録して先に進む |
 | `checkCapture(connection, mainConnection, port, screenshotDir)` | 関数 | ホットキー・撮影・範囲選択・OCR・抽出・読み直し・Esc での中止・小さすぎる範囲を確認 | 範囲キャプチャの確認 |
 | `stopLaunchedApp()` | 関数 | アプリを終了させる（終わらなければ強制終了） | 次の確認が多重起動防止で動かなくならないように |
-| `checkSecurity(connection, mainConnection)` | 関数 | 公開機能が1つだけか、不正な登録要求が断られるか、Node.js 機能・外部通信・インラインスクリプト・新規ウインドウ・外部移動の遮断を確認 | セキュリティの実地確認 |
+| `checkSecurity(connection, mainConnection)` | 関数 | 公開する関数が決めた8つだけか、不正な登録要求が断られ最小化もしないか、Node.js 機能・外部通信・インラインスクリプト・新規ウインドウ・外部移動の遮断を確認 | セキュリティの実地確認 |
 | `main()` | 関数 | 確認全体を実行し、終了コードを返す | 確認の実行 |
 | `timeout` | 変数 | 制限時間のタイマー | 時間切れで失敗終了する |
 
@@ -685,9 +689,10 @@
 | dateUtils.test.js | — | 日付計算と全角→半角の確認 | 繰り上がり・曜日・東京時間 |
 | display.test.js | `NOW`、`firstCandidate()` | 表示文字列と色付けの分割の確認 | 表示の正しさ、HTML を解釈しないこと |
 | detailExtractor.test.js | — | 件名・場所・会議 URL の下書きの確認 | ラベルの書き方、次の行の値、ラベルのない見出し・「会場は〜です」、URL の優先順位・なりすまし対策 |
-| calendarUrl.test.js | `timedEvent()`、`allDayEvent()`、`queryOf()` | 予定作成 URL の組み立て・検証・許可リストの確認 | dates・ctz・エンコード・長さ・危険な文字 |
+| calendarUrl.test.js | `timedEvent()`、`allDayEvent()`、`queryOf()` | 予定作成 URL の組み立て・検証・許可リストの確認 | dates・ctz・エンコード・長さ・危険な文字、予定作成画面以外（日の表示など）を開かない |
+| autoReset.test.js | `countActivityListeners()`、`scheduleWithFakeTimer()` | 自動のクリアの予約の確認（偽のタイマーと EventTarget を使う） | 60秒、時間がたつとクリア、操作で取り消し、監視の解除し忘れがないこと |
 | registration.test.js | `NOW`、`emptyDetails()`、`candidatesOf()` | 登録内容の組み立ての確認 | 終日／時刻指定、手入力、会議 URL の振り分け、元の文章の抜粋 |
-| calendarIpc.test.js | `sampleEvent()`、`createTestHandler()` | 登録要求の処理の確認（偽のブラウザを開く関数を使う） | 送信元・引数の検証、順に開く、二度押し、すべて開けたときだけ最小化、preload との整合 |
+| calendarIpc.test.js | `sampleEvent()`、`createTestHandler()` | 登録要求の処理の確認（偽のブラウザを開く関数を使う） | 送信元・引数の検証、順に開く、二度押し、すべて開けたときだけ最小化、preload との整合（削除した「カレンダーで確認」を公開していない） |
 | electronSecurity.test.js | `FIXTURE_ROOT`、`isInsideRoot()`、`createFakeSession()`、`createFakeContents()`、`createFakeEvent()` | セキュリティ設定と app:// の配信を偽物のオブジェクトで確認 | 設定を誤って緩めたら失敗させる |
 | ocrText.test.js | — | OCR の結果の整形の確認 | 空白の除去、整形後に日時を抽出できること |
 | capture.test.js | `VIEWPORT` | 範囲の座標の検証・変換、拡大の判定、画像の置き場所 | Retina・拡大率への対応、小さすぎる範囲、メモリだけで持つこと |

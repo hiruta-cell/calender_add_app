@@ -11,9 +11,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 /** メインプロセスの登録処理を呼び出すチャンネル名（electron/calendarIpc.js の OPEN_CALENDAR_EVENTS_CHANNEL と同じ値） */
 const OPEN_CALENDAR_EVENTS_CHANNEL = 'calendar:open-events';
 
-/** 「カレンダーで確認」を呼び出すチャンネル名（electron/calendarIpc.js の OPEN_CALENDAR_DAY_CHANNEL と同じ値） */
-const OPEN_CALENDAR_DAY_CHANNEL = 'calendar:open-day';
-
 /** 以下は electron/captureIpc.js の同名の定数と同じ値 */
 /** 範囲キャプチャを始める */
 const CAPTURE_START_CHANNEL = 'capture:start';
@@ -39,15 +36,6 @@ contextBridge.exposeInMainWorld('calendarApp', {
    * @returns {Promise<{ok: boolean, openedCount: number, message?: string}>}
    */
   openCalendarEvents: (events) => ipcRenderer.invoke(OPEN_CALENDAR_EVENTS_CHANNEL, events),
-
-  /**
-   * 登録の確認のために、その日の Googleカレンダーの表示をブラウザで開いてもらう。
-   * URL の組み立てと検証は、メインプロセス側で行う。
-   *
-   * @param {{year: number, month: number, day: number}} date 確認する日付
-   * @returns {Promise<{ok: boolean, message?: string}>}
-   */
-  openCalendarDay: (date) => ipcRenderer.invoke(OPEN_CALENDAR_DAY_CHANNEL, date),
 
   /**
    * 範囲キャプチャを始めてもらう（結果は onCaptureStatus で届く）。

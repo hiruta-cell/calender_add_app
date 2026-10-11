@@ -2,12 +2,12 @@
  * App.jsx
  * 目的：確認ウインドウの画面全体。次の流れを管理する。
  *   文章の貼り付け → 日時の抽出（件名・場所・URL の下書きも）→ 候補の選択・追記 → Googleカレンダーの予定作成画面を開く
- *   → 登録の確認（「保存した」のチェック、「カレンダーで確認」）
+ *   → 60秒操作がなければ、次の登録に備えて表示を初期状態に戻す（依頼者の指示）
  * 文章は、貼り付けのほか、範囲キャプチャ＋OCR（ホットキー・トレイ・「画面から読み取る」ボタン）でも入れられる。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { formatEventLabel } from '../core/candidateFormatter.js';
+import { AUTO_RESET_DELAY_SECONDS, scheduleAutoReset } from '../core/autoReset.js';
 import { CalendarEventError, buildCalendarUrl } from '../core/calendarUrl.js';
 import {
   DEFAULT_DURATION_MINUTES,
@@ -96,14 +96,20 @@ export default function App() {
   const [isNoDateDialogOpen, setIsNoDateDialogOpen] = useState(false);
   /** ブラウザで開く処理の途中かどうか（二度押しを防ぐ） */
   const [isRegistering, setIsRegistering] = useState(false);
-  /** 予定作成画面を開いた予定（登録の確認の一覧）。{id, label, title, date, saved} */
-  const [openedEvents, setOpenedEvents] = useState([]);
+  /** 直前に予定作成画面を開いた件数（登録ボタンの下の案内に使う。0 なら表示しない） */
+  const [registeredCount, setRegisteredCount] = useState(0);
+  /** 自動のクリアの予約番号（0 なら予約なし）。登録のたびに新しい番号にして、60秒を数え直す */
+  const [autoResetId, setAutoResetId] = useState(0);
+  /** 自動のクリアの予約番号の通し番号（番号が重ならないようにする） */
+  const autoResetSequenceRef = useRef(0);
   /** 範囲キャプチャの状態（EMPTY_CAPTURE の説明を参照） */
   const [capture, setCapture] = useState(EMPTY_CAPTURE);
   /** ホットキーの表記（例：Ctrl+Shift+Y）。メインプロセスから受け取る */
   const [hotkeyLabel, setHotkeyLabel] = useState('');
   /** 取り込み・読み取りの結果を受け取る処理（常に最新の処理を呼ぶための参照） */
   const captureStatusHandlerRef = useRef(null);
+  /** 表示を初期状態に戻す処理（自動のクリアから、常に最新の処理を呼ぶための参照） */
+  const resetToInitialStateRef = useRef(null);
 
   /** 表示する候補（抽出した候補の後に手入力の候補） */
   const allCandidates = useMemo(
@@ -135,7 +141,8 @@ export default function App() {
    */
   function extractFromText(text) {
     setErrorMessage('');
-    setOpenedEvents([]);
+    setRegisteredCount(0);
+    setAutoResetId(0); // 新しい内容を、自動のクリアで消さない
     try {
       const result = extractDateCandidates(text, {
         now: new Date(),
@@ -172,19 +179,24 @@ export default function App() {
     setSelectedIds(new Set());
     setTimeChoices({});
     setEventDetails(EMPTY_EVENT_DETAILS);
-    setOpenedEvents([]);
+    setRegisteredCount(0);
   }
 
   /**
-   * 「クリア」：入力欄・結果・エラーを消して、最初の状態に戻す。
+   * 表示を最初の状態に戻す：入力欄・結果・エラー・取り込んだ画像・登録の案内を消し、自動のクリアの予約もやめる。
+   * 「クリア」ボタンと、登録して60秒操作がなかったとき（自動のクリア）に使う。
    */
-  function handleClear() {
+  function resetToInitialState() {
     setInputText('');
     resetResults();
     setErrorMessage('');
+    setErrorAction(null);
+    setIsNoDateDialogOpen(false);
+    setAutoResetId(0);
     setCapture(EMPTY_CAPTURE);
     window.calendarApp?.clearCapture(); // 取り込んだ画像をメインプロセスのメモリからも消す
   }
+  resetToInitialStateRef.current = resetToInitialState;
 
   /**
    * 取り込み・読み取りの進み具合と結果を受け取ったときの処理。
@@ -194,6 +206,10 @@ export default function App() {
    * @param {{state: string, text?: string, orientation?: string, confidence?: number, isLowConfidence?: boolean, imageUrl?: string, message?: string}} status
    */
   function handleCaptureStatus(status) {
+    // 読み取りが始まった・終わったら、自動のクリアは取り消す（ホットキーなどで取り込んだ新しい内容を消さない）
+    if (status?.state !== 'cleared') {
+      setAutoResetId(0);
+    }
     switch (status?.state) {
       case 'reading':
         setErrorMessage('');
@@ -286,6 +302,18 @@ export default function App() {
       window.removeEventListener('drop', handleDrop);
     };
   }, []);
+
+  // 登録のあと：60秒操作がなければ、次の登録に備えて表示を初期状態に戻す（依頼者の指示）。先に操作したら取り消す
+  useEffect(() => {
+    if (autoResetId === 0) {
+      return undefined;
+    }
+    return scheduleAutoReset({
+      activityTarget: window,
+      onReset: () => resetToInitialStateRef.current?.(),
+      onCancel: () => setAutoResetId(0),
+    });
+  }, [autoResetId]);
 
   // 起動時：取り込みの結果の受け取りを登録し、ホットキーが使えるかを確かめる
   useEffect(() => {
@@ -428,7 +456,7 @@ export default function App() {
    */
   async function handleRegister() {
     setErrorMessage('');
-    setOpenedEvents([]);
+    setRegisteredCount(0);
 
     const { events, errors } = buildCalendarEvents({
       candidates: allCandidates,
@@ -461,17 +489,10 @@ export default function App() {
     try {
       const result = await window.calendarApp.openCalendarEvents(events);
       if (result.ok) {
-        // 開いた予定を、登録の確認の一覧にする（すべて「未保存」から始める）
-        const openedAt = Date.now();
-        setOpenedEvents(
-          events.map((event, index) => ({
-            id: `opened-${openedAt}-${index}`,
-            label: formatEventLabel(event),
-            title: event.title,
-            date: { year: event.start.year, month: event.start.month, day: event.start.day },
-            saved: false,
-          })),
-        );
+        // 開いた件数を知らせ、60秒操作がなければ表示を初期状態に戻す予約をする（登録のたびに数え直す）
+        setRegisteredCount(events.length);
+        autoResetSequenceRef.current += 1;
+        setAutoResetId(autoResetSequenceRef.current);
       } else {
         setErrorMessage(result.message);
       }
@@ -480,37 +501,6 @@ export default function App() {
       console.error('登録処理に失敗しました:', error?.name);
     } finally {
       setIsRegistering(false);
-    }
-  }
-
-  /**
-   * 登録の確認の一覧で「保存した」を切り替える。
-   *
-   * @param {string} openedEventId 開いた予定の ID
-   */
-  function handleToggleSaved(openedEventId) {
-    setOpenedEvents((previous) =>
-      previous.map((openedEvent) =>
-        openedEvent.id === openedEventId ? { ...openedEvent, saved: !openedEvent.saved } : openedEvent,
-      ),
-    );
-  }
-
-  /**
-   * 「カレンダーで確認」：その日の Googleカレンダーの表示を、既定のブラウザで開いてもらう。
-   *
-   * @param {{year: number, month: number, day: number}} date 確認する日付
-   */
-  async function handleOpenDay(date) {
-    setErrorMessage('');
-    try {
-      const result = await window.calendarApp.openCalendarDay(date);
-      if (!result.ok) {
-        setErrorMessage(result.message);
-      }
-    } catch (error) {
-      setErrorMessage(REGISTER_ERROR_MESSAGE);
-      console.error('カレンダーの表示を開けませんでした:', error?.name);
     }
   }
 
@@ -552,7 +542,7 @@ export default function App() {
             value={inputText}
             onChange={setInputText}
             onExtract={handleExtract}
-            onClear={handleClear}
+            onClear={resetToInitialState}
           />
           {extraction !== null && (
             <div className="preview">
@@ -598,10 +588,9 @@ export default function App() {
           <RegisterSection
             selectedCount={selectedIds.size}
             isRegistering={isRegistering}
-            openedEvents={openedEvents}
+            registeredCount={registeredCount}
+            autoResetSeconds={autoResetId !== 0 ? AUTO_RESET_DELAY_SECONDS : 0}
             onRegister={handleRegister}
-            onToggleSaved={handleToggleSaved}
-            onOpenDay={handleOpenDay}
           />
         </section>
       </main>

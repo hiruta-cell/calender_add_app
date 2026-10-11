@@ -3,7 +3,6 @@
  * 目的：Googleカレンダーの「予定作成画面」を開く URL（リンク方式。要件§5.6）を組み立て、検証する。
  *
  * - 画面（登録前の確認）とメインプロセス（ブラウザで開く直前の最終確認）の両方で使う。
- * - 登録の確認に使う「その日の表示」の URL も、ここで組み立てて検証する（要件§12）。
  * - リンクの形式は非公式資料に基づく（要件§5.6）：
  *   https://calendar.google.com/calendar/render?action=TEMPLATE&text=件名&dates=開始/終了&details=メモ&location=場所&ctz=Asia/Tokyo
  * - URL は URL / URLSearchParams で組み立て、各値をエンコードする（文字列の連結で作らない：CLAUDE.md）。
@@ -23,12 +22,6 @@ export const CALENDAR_BASE_URL = 'https://calendar.google.com/calendar/render';
 /** 開いてよい URL のホストとパス（許可リスト：CLAUDE.md） */
 const ALLOWED_HOST = 'calendar.google.com';
 const ALLOWED_PATH = '/calendar/render';
-
-/** 登録の確認に使う「その日の表示」の URL の先頭（https://calendar.google.com/calendar/r/day/年/月/日） */
-const DAY_VIEW_BASE_URL = 'https://calendar.google.com/calendar/r/day';
-
-/** 「その日の表示」のパスの形（/calendar/r/day/2026/10/15）。これ以外のパスは開かない */
-const DAY_VIEW_PATH_PATTERN = /^\/calendar\/r\/day\/\d{4}\/\d{1,2}\/\d{1,2}$/;
 
 /** 件名の最大文字数 */
 export const MAX_TITLE_LENGTH = 120;
@@ -261,50 +254,5 @@ export function isAllowedCalendarUrl(url) {
     parsed.pathname === ALLOWED_PATH &&
     parsed.hash === '' &&
     parsed.searchParams.get('action') === 'TEMPLATE'
-  );
-}
-
-/**
- * 登録の確認のために、その日の Google カレンダーの表示を開く URL を組み立てる（要件§12：登録の確認）。
- * 年月日は数値として検証し、URL は文字列の連結ではなく URL オブジェクトで作る。
- *
- * @param {unknown} date {year, month, day}
- * @returns {string} 例：https://calendar.google.com/calendar/r/day/2026/10/15
- * @throws {CalendarEventError} 日付が正しくない場合
- */
-export function buildDayViewUrl(date) {
-  if (date === null || typeof date !== 'object') {
-    throw new CalendarEventError('確認する日付の形式が正しくありません。');
-  }
-  const { year, month, day } = date;
-  if (!isValidDate(year, month, day) || year < MIN_YEAR || year > MAX_YEAR) {
-    throw new CalendarEventError('確認する日付が正しくありません。');
-  }
-  return new URL(`${DAY_VIEW_BASE_URL}/${year}/${month}/${day}`).href;
-}
-
-/**
- * URL が「開いてよい、その日の表示の URL」かを調べる（許可リスト方式：CLAUDE.md）。
- * https・ホスト calendar.google.com・パス /calendar/r/day/年/月/日・クエリやフラグメントなし のものだけを許可する。
- *
- * @param {string} url
- * @returns {boolean}
- */
-export function isAllowedDayViewUrl(url) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  return (
-    parsed.protocol === 'https:' &&
-    parsed.hostname === ALLOWED_HOST &&
-    parsed.port === '' &&
-    parsed.username === '' &&
-    parsed.password === '' &&
-    DAY_VIEW_PATH_PATTERN.test(parsed.pathname) &&
-    parsed.search === '' &&
-    parsed.hash === ''
   );
 }

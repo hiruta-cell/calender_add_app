@@ -10,7 +10,7 @@
  * 仕組み：Electron を --remote-debugging-port（画面用）と --inspect（メインプロセス用）付きで起動し、
  *   Chrome DevTools Protocol で操作する。どちらの接続口も 127.0.0.1（このPCの中）だけで開き、確認が終わると閉じる。
  *   通常の起動（npm start）ではこれらの接続口は開かない。
- *   登録の確認では、メインプロセスの shell.openExternal を「開こうとした URL を記録するだけ」の関数に差し替え、
+ *   登録の流れの確認では、メインプロセスの shell.openExternal を「開こうとした URL を記録するだけ」の関数に差し替え、
  *   実際のブラウザは開かない（アプリ本体に確認用のコードは入れない）。
  *   範囲キャプチャの確認では、画面を撮影する関数（desktopCapturer.getSources）を、架空の画像を返す関数に差し替える。
  *   そのため Mac の画面収録の許可は要らず、利用者の実際の画面も撮影しない。
@@ -24,6 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import electronPath from 'electron';
 import { APP_ENTRY_URL } from '../electron/appProtocol.js';
+import { AUTO_RESET_DELAY_MS, AUTO_RESET_DELAY_SECONDS } from '../src/core/autoReset.js';
 import { formatCalendarDate, formatCalendarDateTime } from '../src/core/calendarUrl.js';
 import { MAX_INPUT_LENGTH, extractDateCandidates } from '../src/core/dateExtractor.js';
 import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
@@ -31,7 +32,7 @@ import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
 /** プロジェクトのフォルダ */
 const PROJECT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 確認全体の制限時間（ミリ秒）。正常なら約16秒で終わる。これを超えたら失敗として終了する（固まったままにしない） */
+/** 確認全体の制限時間（ミリ秒）。正常なら約22秒で終わる。これを超えたら失敗として終了する（固まったままにしない） */
 const OVERALL_TIMEOUT_MS = 30_000;
 
 /** 画面の表示や接続を待つときの確認間隔（ミリ秒） */
@@ -45,6 +46,9 @@ const UI_SETTLE_MS = 300;
 
 /** 登録のあと、確認ウインドウが最小化される（・元に戻る）のを待つ上限（ミリ秒）。Mac は最小化の動きに 0.5 秒ほどかかる */
 const MINIMIZE_WAIT_MS = 3_000;
+
+/** 自動のクリアの確認で、60秒の代わりに待つ時間（ミリ秒）。確認全体の時間を短くするため */
+const AUTO_RESET_TEST_DELAY_MS = 1_000;
 
 /** 画像の貼り付けの確認に使う架空の画像（日本語のメール。10/22 14:00〜15:30） */
 const IMPORT_FIXTURE_PATH = path.join(PROJECT_DIR, 'demo', 'images', '1-mail-ja.png');
@@ -432,7 +436,11 @@ async function dragWholeOverlay(overlayConnection) {
   await overlayConnection.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
   await overlayConnection.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: (start.x + end.x) / 2, y: (start.y + end.y) / 2, button: 'left', buttons: 1 });
   await overlayConnection.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, button: 'left', buttons: 1 });
-  await overlayConnection.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', buttons: 0, clickCount: 1 });
+  // 離すと範囲が決まり、アプリがすぐに範囲選択の画面を閉じる。閉じるのが命令の返事より先になると返事が来ず、
+  // 時間切れまで止まるため、返事は待たない（範囲が決まったことは、画面が閉じることと OCR の結果で確かめる）
+  overlayConnection
+    .send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', buttons: 0, clickCount: 1 })
+    .catch(() => {});
 }
 
 /**
@@ -620,18 +628,47 @@ async function checkCapture(connection, mainConnection, port, screenshotDir) {
 
 /**
  * 登録ボタンを押し、処理が終わるまで待つ。
- * すべて開けると確認ウインドウが最小化されるため、それを確かめてから元に戻す（続く確認と画面の画像のため）。
  *
  * @param {DevToolsConnection} connection 画面への接続
- * @param {DevToolsConnection} mainConnection メインプロセスへの接続
- * @returns {Promise<boolean>} 登録のあとに確認ウインドウが最小化されていたら true
  */
-async function clickRegister(connection, mainConnection) {
+async function clickRegister(connection) {
   await connection.evaluate(`document.querySelector('.register-section button').click()`);
   await waitFor(connection, `!document.querySelector('.register-section button').textContent.includes('開いています')`);
-  const wasMinimized = await restoreMinimizedMainWindow(mainConnection);
   await sleep(UI_SETTLE_MS);
-  return wasMinimized;
+}
+
+/**
+ * 確認ウインドウの最小化（BrowserWindow の minimize）を、呼ばれた回数を数えるだけの関数に差し替える。
+ * 実際に最小化されることは最初の登録で確かめ、以降は最小化・復元の動き（Mac で約1秒）を待たずに確認を進めるため。
+ *
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ */
+async function replaceMinimize(mainConnection) {
+  const response = await mainConnection.send('Runtime.evaluate', {
+    expression: `(() => {
+      const { BrowserWindow } = require('electron');
+      const window = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().startsWith(${JSON.stringify(APP_ENTRY_URL)}));
+      if (window === undefined) return false;
+      globalThis.__smokeTestMinimizeCount = 0;
+      window.minimize = () => { globalThis.__smokeTestMinimizeCount += 1; };
+      return true;
+    })()`,
+    includeCommandLineAPI: true,
+    returnByValue: true,
+  });
+  if (response.exceptionDetails || response.result.value !== true) {
+    throw new Error('確認ウインドウの最小化を差し替えられませんでした');
+  }
+}
+
+/**
+ * 差し替えた最小化が呼ばれた回数を受け取る（replaceMinimize の後で使う）。
+ *
+ * @param {DevToolsConnection} mainConnection
+ * @returns {Promise<number>}
+ */
+async function getMinimizeCount(mainConnection) {
+  return mainConnection.evaluate('globalThis.__smokeTestMinimizeCount');
 }
 
 /**
@@ -751,7 +788,10 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
 
   const expected = extractDateCandidates(DEMO_TEXT, { now: new Date() }).candidates;
   const tomorrow = addDays(getTokyoDateTime(new Date()), 1);
-  const minimizedAfterRegister = await clickRegister(connection, mainConnection);
+  await clickRegister(connection);
+  // 実際に最小化されることを確かめて元に戻し、以降の登録では最小化を数えるだけにする
+  const minimizedAfterRegister = await restoreMinimizedMainWindow(mainConnection);
+  await replaceMinimize(mainConnection);
   const openedUrls = await getOpenedUrls(mainConnection);
   record('選んだ2件の予定作成画面を開く', openedUrls.length === 2, `${openedUrls.length}件`);
   record('すべて開いたら確認ウインドウが最小化される（ブラウザの操作の邪魔にならないように）', minimizedAfterRegister);
@@ -773,37 +813,25 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
     allDayQuery?.get('dates') === `${formatCalendarDate(tomorrow)}/${formatCalendarDate(addDays(tomorrow, 1))}`,
     allDayQuery?.get('dates'),
   );
+  const registeredMessage = await connection.evaluate(`document.querySelector('.register-section .success-message')?.textContent ?? ''`);
   record(
-    '登録の確認：開いた2件が一覧に出て、未保存の件数を知らせる',
-    await connection.evaluate(`document.querySelectorAll('.checklist-item').length === 2 &&
-      document.querySelector('.checklist-guide')?.textContent.includes('保存した：0 / 2 件')`),
+    '登録のあと、開いた件数と「60秒操作しないとクリアする」案内が出る',
+    registeredMessage.includes('予定作成画面を 2 件開きました') && registeredMessage.includes(`${AUTO_RESET_DELAY_SECONDS}秒操作しないと`),
+    registeredMessage,
+  );
+  record(
+    '登録の確認の欄（「保存した」のチェック・「カレンダーで確認」）は表示しない（依頼者の指示で削除）',
+    await connection.evaluate(`document.querySelector('.register-section input[type="checkbox"]') === null &&
+      ![...document.querySelectorAll('button')].some((button) => button.textContent.includes('カレンダーで確認'))`),
   );
   const registeredImage = await saveScreenshot(connection, screenshotDir, '02-registered.png');
-
-  // 「カレンダーで確認」で、1件目の日の表示を開く
-  await connection.evaluate(`document.querySelector('.checklist-item button').click()`);
-  await sleep(UI_SETTLE_MS);
-  const dayViewUrl = (await getOpenedUrls(mainConnection)).at(-1);
-  record(
-    '「カレンダーで確認」でその日の Googleカレンダーの表示を開く',
-    dayViewUrl === `https://calendar.google.com/calendar/r/day/${expected[0].start.year}/${expected[0].start.month}/${expected[0].start.day}`,
-    dayViewUrl,
-  );
-
-  // 「保存した」に2件ともチェックを付ける
-  await connection.evaluate(`document.querySelectorAll('.checklist-saved input').forEach((checkbox) => checkbox.click())`);
-  await sleep(UI_SETTLE_MS);
-  record(
-    '2件とも「保存した」にすると、すべて保存したと知らせる',
-    (await connection.evaluate(`document.querySelector('.registration-checklist .success-message')?.textContent ?? ''`)).includes('すべての予定（2 件）を保存しました'),
-  );
 
   // 5. 日付だけの候補で「時刻を指定」に切り替える（1件目のチェックは外す）
   await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[0].click()`);
   await connection.evaluate(`document.querySelector('.time-choice input[value="specified"]').click()`);
   await sleep(UI_SETTLE_MS);
   await setInputValue(connection, '.time-choice input[type="time"]', '09:00');
-  await clickRegister(connection, mainConnection);
+  await clickRegister(connection);
   const specifiedUrl = (await getOpenedUrls(mainConnection)).at(-1);
   record(
     '「時刻を指定」で9:00を入れると 9:00〜10:00 の予定になる',
@@ -834,7 +862,7 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
     `document.querySelectorAll('.candidate-item').length === 1 && document.querySelector('.candidate-checkbox').checked &&
      document.querySelector('.time-choice input[value="specified"]')?.checked === true`,
   ));
-  await clickRegister(connection, mainConnection);
+  await clickRegister(connection);
   const manualUrl = (await getOpenedUrls(mainConnection)).at(-1);
   record(
     '手入力した 9:30 開始の予定を開く（終了は60分後）',
@@ -866,6 +894,56 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
 }
 
 /**
+ * 自動のクリアの確認：登録のあと操作しなければ表示が初期状態に戻り、先に操作すると戻らないこと（依頼者の指示）。
+ * 本来は60秒待つが、確認では画面の setTimeout のうち60秒のものだけを短くする（アプリ本体に確認用のコードは入れない）。
+ *
+ * @param {DevToolsConnection} connection 画面への接続
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ */
+async function checkAutoReset(connection, mainConnection) {
+  await connection.evaluate(`(() => {
+    const originalSetTimeout = window.setTimeout;
+    window.__smokeTestOriginalSetTimeout = originalSetTimeout;
+    window.setTimeout = (callback, milliseconds, ...rest) =>
+      originalSetTimeout(callback, milliseconds === ${AUTO_RESET_DELAY_MS} ? ${AUTO_RESET_TEST_DELAY_MS} : milliseconds, ...rest);
+    return true;
+  })()`);
+
+  // 1件選んで登録し、すぐに画面を操作する（キー入力）→ 時間がたってもクリアしない
+  await replaceInputText(connection, DEMO_TEXT);
+  await clickButton(connection, '日時を抽出');
+  await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[0].click()`);
+  await sleep(UI_SETTLE_MS);
+  await connection.evaluate(`document.querySelector('.register-section button').click()`);
+  await waitFor(connection, `document.querySelector('.register-section .success-message') !== null`);
+  await sleep(UI_SETTLE_MS); // 自動のクリアの予約（画面の useEffect）が始まるのを待つ
+  await connection.evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift' }))`);
+  await sleep(AUTO_RESET_TEST_DELAY_MS + UI_SETTLE_MS * 2);
+  record(
+    '登録のあと、その間に画面を操作した場合はクリアしない（作業中の内容を消さない）',
+    await connection.evaluate(`document.querySelector('#source-text').value !== '' && document.querySelectorAll('.candidate-item').length === 3 &&
+      !document.querySelector('.register-section .success-message').textContent.includes('秒操作しないと')`),
+  );
+
+  // もう一度登録し、何も操作しない → 時間がたつと表示が初期状態に戻る
+  await clickRegister(connection);
+  const isInputCleared = await waitForWithTimeout(
+    connection,
+    `document.querySelector('#source-text').value === ''`,
+    AUTO_RESET_TEST_DELAY_MS + STEP_TIMEOUT_MS,
+  );
+  record(
+    `登録のあと操作しないと、表示が初期状態に戻る（本来は${AUTO_RESET_DELAY_SECONDS}秒。確認では短くして待つ）`,
+    isInputCleared &&
+      (await connection.evaluate(`document.querySelectorAll('.candidate-item').length === 0 &&
+        document.querySelector('#event-title').value === '' && document.querySelector('#event-location').value === '' &&
+        document.querySelector('.register-section .success-message') === null && document.querySelector('.error-banner') === null`)),
+  );
+
+  await connection.evaluate(`(() => { window.setTimeout = window.__smokeTestOriginalSetTimeout; return true; })()`);
+}
+
+/**
  * セキュリティの実地確認：実際に動いている画面で、危険な操作が止められることを確かめる。
  *
  * @param {DevToolsConnection} connection
@@ -874,12 +952,13 @@ async function checkSecurity(connection, mainConnection) {
   isExpectingErrors = true; // ここで起きるエラーは意図的に起こしたもの
 
   record(
-    '画面に公開されている機能は、決めた関数だけ（登録・確認・取り込み・画像・設定画面の9つ）',
+    '画面に公開されている機能は、決めた関数だけ（登録・取り込み・画像・設定画面の8つ）',
     JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp).sort()`)) ===
-      JSON.stringify(['clearCapture', 'getAppStatus', 'importImage', 'onCaptureStatus', 'openCalendarDay', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'startCapture']) &&
+      JSON.stringify(['clearCapture', 'getAppStatus', 'importImage', 'onCaptureStatus', 'openCalendarEvents', 'openScreenRecordingSettings', 'rereadCapture', 'startCapture']) &&
       (await connection.evaluate(`typeof window.ipcRenderer === 'undefined' && typeof window.electron === 'undefined'`)),
   );
   const openedBefore = (await getOpenedUrls(mainConnection)).length;
+  const minimizeCountBefore = await getMinimizeCount(mainConnection);
   const invalidResults = await connection.evaluate(`Promise.all([
     window.calendarApp.openCalendarEvents('not an array'),
     window.calendarApp.openCalendarEvents([]),
@@ -895,19 +974,11 @@ async function checkSecurity(connection, mainConnection) {
     '不正な画像の取り込み要求（形式違い・PNG でない・空）は断られる',
     JSON.stringify(invalidImportResults) === JSON.stringify([false, false, false]),
   );
-  const invalidDayResults = await connection.evaluate(`Promise.all([
-    window.calendarApp.openCalendarDay('https://evil.example/'),
-    window.calendarApp.openCalendarDay({ year: 2026, month: 2, day: 30 }),
-    window.calendarApp.openCalendarDay(null),
-  ]).then((results) => results.map((result) => result.ok))`);
   record(
-    '不正な「カレンダーで確認」の要求（URL・実在しない日付・空）は断られる',
-    JSON.stringify(invalidDayResults) === JSON.stringify([false, false, false]),
-  );
-  record(
-    '不正な登録要求（形式違い・空・長すぎる件名・31件）はメインプロセスで断られ、何も開かない',
+    '不正な登録要求（形式違い・空・長すぎる件名・31件）はメインプロセスで断られ、何も開かず、最小化もしない',
     JSON.stringify(invalidResults) === JSON.stringify([false, false, false, false]) &&
-      (await getOpenedUrls(mainConnection)).length === openedBefore,
+      (await getOpenedUrls(mainConnection)).length === openedBefore &&
+      (await getMinimizeCount(mainConnection)) === minimizeCountBefore,
   );
 
   record(
@@ -963,6 +1034,7 @@ async function main() {
     await waitFor(connection, `document.querySelector('#source-text') !== null`);
 
     const images = await checkFeatures(connection, mainConnection, screenshotDir);
+    await checkAutoReset(connection, mainConnection);
     images.push(...(await checkCapture(connection, mainConnection, port, screenshotDir)));
     record('機能確認の間に画面のエラーが起きていない', unexpectedErrors.length === 0, unexpectedErrors.join(' | '));
     await checkSecurity(connection, mainConnection);
