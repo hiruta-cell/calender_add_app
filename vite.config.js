@@ -27,5 +27,12 @@ export default defineConfig({
     sourcemap: false,
     // Electron の Chromium は modulepreload に対応しているため、補助コードを入れない
     modulePreload: { polyfill: false },
+    // 画面は2つ：確認ウインドウ（index.html）と範囲選択の画面（overlay.html）
+    rolldownOptions: {
+      input: {
+        index: fileURLToPath(new URL('./src/renderer/index.html', import.meta.url)),
+        overlay: fileURLToPath(new URL('./src/renderer/overlay.html', import.meta.url)),
+      },
+    },
   },
 });

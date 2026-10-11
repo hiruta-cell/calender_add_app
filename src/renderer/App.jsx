@@ -3,9 +3,10 @@
  * 目的：確認ウインドウの画面全体。次の流れを管理する。
  *   文章の貼り付け → 日時の抽出（件名・場所・URL の下書きも）→ 候補の選択・追記 → Googleカレンダーの予定作成画面を開く
  *   → 登録の確認（「保存した」のチェック、「カレンダーで確認」）
+ * 文章は、貼り付けのほか、範囲キャプチャ＋OCR（ホットキー・トレイ・「画面から読み取る」ボタン）でも入れられる。
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatEventLabel } from '../core/candidateFormatter.js';
 import { CalendarEventError, buildCalendarUrl } from '../core/calendarUrl.js';
 import {
@@ -15,8 +16,14 @@ import {
   extractDateCandidates,
 } from '../core/dateExtractor.js';
 import { extractEventDetails } from '../core/detailExtractor.js';
-import { DEFAULT_TIME_CHOICE, buildCalendarEvents, createManualCandidate } from '../core/registration.js';
+import {
+  DEFAULT_TIME_CHOICE,
+  TIME_MODE_SPECIFIED,
+  buildCalendarEvents,
+  createManualCandidate,
+} from '../core/registration.js';
 import CandidateList from './components/CandidateList.jsx';
+import CaptureImagePanel from './components/CaptureImagePanel.jsx';
 import ErrorBanner from './components/ErrorBanner.jsx';
 import EventDetailsForm from './components/EventDetailsForm.jsx';
 import HighlightedText from './components/HighlightedText.jsx';
@@ -30,6 +37,20 @@ const UNEXPECTED_ERROR_MESSAGE = '日時の抽出中にエラーが発生しま�
 
 /** 登録処理で予期しないエラーが起きたときの文 */
 const REGISTER_ERROR_MESSAGE = 'ブラウザを開く処理でエラーが発生しました。もう一度お試しください。';
+
+/** 範囲キャプチャの状態の初期値（取り込んだ画像がない状態） */
+const EMPTY_CAPTURE = Object.freeze({
+  status: 'idle', // 'idle'：待機中　'reading'：文字を読み取り中
+  imageUrl: '', // 取り込んだ画像の URL（app://bundle/capture/〜）
+  orientation: '', // 読み取った向き（'horizontal' / 'vertical'）
+  confidence: null, // 確信度（0〜100）
+  isLowConfidence: false, // 確信度が低いか
+  isEmpty: false, // 文字を読み取れなかったか
+});
+
+/** ホットキーを登録できなかったときの案内 */
+const HOTKEY_UNAVAILABLE_MESSAGE =
+  'ホットキーを登録できませんでした（ほかのアプリが使っている可能性があります）。「画面から読み取る」ボタンか、トレイのメニューを使ってください。';
 
 /** 予定の内容の入力欄の初期値（メモへの元の文章の貼り付けは既定オフ：要件§6.2） */
 const EMPTY_EVENT_DETAILS = Object.freeze({
@@ -68,10 +89,12 @@ export default function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   /** 予定作成画面を開いた予定（登録の確認の一覧）。{id, label, title, date, saved} */
   const [openedEvents, setOpenedEvents] = useState([]);
-  /** 手入力の日付欄（「手入力する」を押したときに選択状態にする） */
-  const manualDateInputRef = useRef(null);
-  /** ダイアログが閉じたら手入力の日付欄に移るか */
-  const shouldFocusManualDateRef = useRef(false);
+  /** 範囲キャプチャの状態（EMPTY_CAPTURE の説明を参照） */
+  const [capture, setCapture] = useState(EMPTY_CAPTURE);
+  /** ホットキーの表記（例：Ctrl+Shift+Y）。メインプロセスから受け取る */
+  const [hotkeyLabel, setHotkeyLabel] = useState('');
+  /** 取り込み・読み取りの結果を受け取る処理（常に最新の処理を呼ぶための参照） */
+  const captureStatusHandlerRef = useRef(null);
 
   /** 表示する候補（抽出した候補の後に手入力の候補） */
   const allCandidates = useMemo(
@@ -89,19 +112,28 @@ export default function App() {
   const isInputChangedAfterExtraction = extraction !== null && extraction.text !== inputText;
 
   /**
-   * 「日時を抽出」：入力欄の文章から日時の候補を抽出し、件名・場所・URL を下書きする。
-   * 候補がなければ「日時の情報がありません」を表示する（要件§5.8）。
+   * 「日時を抽出」：入力欄の文章から日時の候補を抽出する。
    */
   function handleExtract() {
+    extractFromText(inputText);
+  }
+
+  /**
+   * 文章から日時の候補を抽出し、件名・場所・URL を下書きする（貼り付け・OCR の両方で使う）。
+   * 候補がなければ「日時の情報がありません」を表示する（要件§5.8）。
+   *
+   * @param {string} text 抽出する文章
+   */
+  function extractFromText(text) {
     setErrorMessage('');
     setOpenedEvents([]);
     try {
-      const result = extractDateCandidates(inputText, {
+      const result = extractDateCandidates(text, {
         now: new Date(),
         defaultDurationMinutes: DEFAULT_DURATION_MINUTES,
       });
-      const drafts = extractEventDetails(inputText);
-      setExtraction({ text: inputText, candidates: result.candidates, truncated: result.truncated });
+      const drafts = extractEventDetails(text);
+      setExtraction({ text, candidates: result.candidates, truncated: result.truncated });
       // 新しい文章に合わせて、選択・時刻の扱い・手入力・入力欄をすべて置き換える（前の文章の内容を残さない）
       setManualCandidates([]);
       setSelectedIds(new Set()); // 要件§5.3：登録するものは利用者がチェックを付けて選ぶ
@@ -141,6 +173,106 @@ export default function App() {
     setInputText('');
     resetResults();
     setErrorMessage('');
+    setCapture(EMPTY_CAPTURE);
+    window.calendarApp?.clearCapture(); // 取り込んだ画像をメインプロセスのメモリからも消す
+  }
+
+  /**
+   * 取り込み・読み取りの進み具合と結果を受け取ったときの処理。
+   *   reading：読み取り中の表示　done：読み取った文章を入力欄に入れて日時を抽出する
+   *   error：エラーの内容を表示して待機状態に戻る（要件§5.9）　cancelled：何もしない　cleared：画像の表示を消す
+   *
+   * @param {{state: string, text?: string, orientation?: string, confidence?: number, isLowConfidence?: boolean, imageUrl?: string, message?: string}} status
+   */
+  function handleCaptureStatus(status) {
+    switch (status?.state) {
+      case 'reading':
+        setErrorMessage('');
+        setCapture((previous) => ({ ...previous, status: 'reading' }));
+        break;
+      case 'done': {
+        const text = typeof status.text === 'string' ? status.text : '';
+        setCapture({
+          status: 'idle',
+          imageUrl: typeof status.imageUrl === 'string' ? status.imageUrl : '',
+          orientation: typeof status.orientation === 'string' ? status.orientation : '',
+          confidence: Number.isFinite(status.confidence) ? status.confidence : null,
+          isLowConfidence: status.isLowConfidence === true,
+          isEmpty: text.trim() === '',
+        });
+        setInputText(text);
+        if (text.trim() !== '') {
+          extractFromText(text);
+        } else {
+          resetResults();
+        }
+        break;
+      }
+      case 'error':
+        setCapture((previous) => ({ ...previous, status: 'idle' }));
+        setErrorMessage(typeof status.message === 'string' ? status.message : UNEXPECTED_ERROR_MESSAGE);
+        break;
+      case 'cleared':
+        setCapture(EMPTY_CAPTURE);
+        break;
+      default: // cancelled など
+        setCapture((previous) => ({ ...previous, status: 'idle' }));
+        break;
+    }
+  }
+  captureStatusHandlerRef.current = handleCaptureStatus;
+
+  // 起動時：取り込みの結果の受け取りを登録し、ホットキーが使えるかを確かめる
+  useEffect(() => {
+    if (window.calendarApp === undefined) {
+      return undefined;
+    }
+    const unsubscribe = window.calendarApp.onCaptureStatus((status) => captureStatusHandlerRef.current?.(status));
+    window.calendarApp
+      .getAppStatus()
+      .then((appStatus) => {
+        if (!appStatus.ok) return;
+        setHotkeyLabel(appStatus.hotkeyLabel);
+        if (!appStatus.hotkeyRegistered) {
+          setErrorMessage(HOTKEY_UNAVAILABLE_MESSAGE);
+        }
+      })
+      .catch(() => {});
+    return unsubscribe;
+  }, []);
+
+  /**
+   * 「画面から読み取る」：範囲キャプチャを始めてもらう（結果は handleCaptureStatus に届く）。
+   */
+  async function handleStartCapture() {
+    setErrorMessage('');
+    try {
+      const result = await window.calendarApp.startCapture();
+      if (!result.ok) {
+        setErrorMessage(result.message);
+      }
+    } catch (error) {
+      setErrorMessage('画面の取り込みを始められませんでした。もう一度お試しください。');
+      console.error('範囲キャプチャを始められませんでした:', error?.name);
+    }
+  }
+
+  /**
+   * 「横書き／縦書きで読み直す」：取り込んだ画像を、向きを指定して読み直してもらう。
+   *
+   * @param {'horizontal' | 'vertical'} orientation 読み取りの向き
+   */
+  async function handleRereadCapture(orientation) {
+    setErrorMessage('');
+    try {
+      const result = await window.calendarApp.rereadCapture(orientation);
+      if (!result.ok) {
+        setErrorMessage(result.message);
+      }
+    } catch (error) {
+      setErrorMessage('読み直しを始められませんでした。もう一度お試しください。');
+      console.error('読み直しを始められませんでした:', error?.name);
+    }
   }
 
   /**
@@ -174,34 +306,30 @@ export default function App() {
   }
 
   /**
-   * 手入力した日付を候補に追加し、チェックを付ける（要件§5.8）。
+   * 手入力した日付（と時刻）を候補に追加し、チェックを付ける（要件§5.8）。
+   * 開始時刻があれば「時刻を指定」、なければ「終日」の候補になる。
    *
    * @param {{year: number, month: number, day: number}} date 手入力した日付
+   * @param {string} [startTime] 開始時刻（HH:MM。空なら終日）
+   * @param {string} [endTime] 終了時刻（HH:MM。空なら既定の長さ）
    */
-  function handleAddManualDate(date) {
+  function handleAddManualDate(date, startTime = '', endTime = '') {
     manualSequenceRef.current += 1;
     const candidate = createManualCandidate(date, manualSequenceRef.current, new Date());
     setManualCandidates((previous) => [...previous, candidate]);
     setSelectedIds((previousIds) => new Set(previousIds).add(candidate.id));
-  }
-
-  /**
-   * 「日時の情報がありません」から「手入力する」を選んだ。ダイアログが閉じたら手入力の日付欄に移る。
-   */
-  function handleStartManualEntry() {
-    shouldFocusManualDateRef.current = true;
-  }
-
-  /**
-   * 「日時の情報がありません」が閉じた。「手入力する」を選んでいれば、手入力の日付欄に移る。
-   * （ダイアログは閉じるときに元の場所へフォーカスを戻すため、閉じた後に移す）
-   */
-  function handleNoDateDialogClose() {
-    setIsNoDateDialogOpen(false);
-    if (shouldFocusManualDateRef.current) {
-      shouldFocusManualDateRef.current = false;
-      manualDateInputRef.current?.focus();
+    if (startTime !== '') {
+      setTimeChoices((previous) => ({ ...previous, [candidate.id]: { mode: TIME_MODE_SPECIFIED, startTime, endTime } }));
     }
+  }
+
+  /**
+   * 「日時の情報がありません」のポップアップで日時を入れて「追加する」を押した。
+   *
+   * @param {{date: object, startTime: string, endTime: string}} entry 入力した日時
+   */
+  function handleAddFromDialog({ date, startTime, endTime }) {
+    handleAddManualDate(date, startTime, endTime);
   }
 
   /**
@@ -316,6 +444,20 @@ export default function App() {
 
       <main className="app-main">
         <section className="pane" aria-label="文章の入力">
+          <div className="capture-row">
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={handleStartCapture}
+              disabled={capture.status === 'reading'}
+            >
+              画面から読み取る{hotkeyLabel !== '' && `（${hotkeyLabel}）`}
+            </button>
+            <span className="field-note">画面の範囲を選んで、文字を読み取ります</span>
+          </div>
+          {(capture.imageUrl !== '' || capture.status === 'reading') && (
+            <CaptureImagePanel capture={capture} onReread={handleRereadCapture} />
+          )}
           <TextInputPanel
             value={inputText}
             onChange={setInputText}
@@ -351,8 +493,7 @@ export default function App() {
                 defaultDurationMinutes={DEFAULT_DURATION_MINUTES}
               />
               <ManualDateForm
-                inputRef={manualDateInputRef}
-                onAdd={handleAddManualDate}
+                onAdd={(date) => handleAddManualDate(date)}
                 disabled={allCandidates.length >= MAX_CANDIDATES}
               />
             </div>
@@ -377,8 +518,9 @@ export default function App() {
 
       <NoDateDialog
         open={isNoDateDialogOpen}
-        onClose={handleNoDateDialogClose}
-        onManualEntry={handleStartManualEntry}
+        onClose={() => setIsNoDateDialogOpen(false)}
+        onAddManual={handleAddFromDialog}
+        defaultDurationMinutes={DEFAULT_DURATION_MINUTES}
       />
     </div>
   );

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      範囲選択の画面。撮影した画面を暗く表示し、ドラッグで読み取る範囲を選ぶ。
+      Content-Security-Policy は、メインプロセスが app:// の応答ヘッダーとして付けている。インラインスクリプトは書かないこと。
+    -->
+    <title>読み取る範囲を選択</title>
+  </head>
+  <body>
+    <img id="screenshot" alt="" draggable="false" />
+    <div id="mask"></div>
+    <div id="selection" hidden></div>
+    <p id="guide">ドラッグで読み取る範囲を選んでください（Esc または右クリックで中止）</p>
+    <script type="module" src="./overlay.js"></script>
+  </body>
+</html>

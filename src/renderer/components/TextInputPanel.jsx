@@ -37,7 +37,7 @@ export default function TextInputPanel({ value, onChange, onExtract, onClear }) 
   return (
     <div className="text-input-panel">
       <label htmlFor="source-text" className="section-title">
-        メールやメッセージの文章を貼り付けてください
+        メールやメッセージの文章を貼り付けてください（画面から読み取った文章もここに入ります）
       </label>
       <textarea
         id="source-text"

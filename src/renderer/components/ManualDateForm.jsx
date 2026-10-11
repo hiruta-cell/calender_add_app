@@ -12,10 +12,9 @@ import { parseDateInput } from '../../core/registration.js';
  * @param {object} props
  * @param {(date: {year: number, month: number, day: number}) => void} props.onAdd 追加したときの処理
  * @param {boolean} props.disabled 候補が最大件数に達して、これ以上追加できないか
- * @param {React.RefObject<HTMLInputElement>} props.inputRef 日付欄への参照（ポップアップから移るため）
  * @returns {JSX.Element}
  */
-export default function ManualDateForm({ onAdd, disabled, inputRef }) {
+export default function ManualDateForm({ onAdd, disabled }) {
   /** 日付欄の値（YYYY-MM-DD。未入力なら空文字） */
   const [dateValue, setDateValue] = useState('');
   const date = parseDateInput(dateValue);
@@ -37,7 +36,6 @@ export default function ManualDateForm({ onAdd, disabled, inputRef }) {
       <div className="manual-date-row">
         <input
           id="manual-date"
-          ref={inputRef}
           type="date"
           className="text-field manual-date-input"
           value={dateValue}
@@ -48,7 +46,11 @@ export default function ManualDateForm({ onAdd, disabled, inputRef }) {
           追加
         </button>
       </div>
-      {disabled && <p className="field-note">候補が上限に達したため、これ以上追加できません。</p>}
+      <p className="field-note">
+        {disabled
+          ? '候補が上限に達したため、これ以上追加できません。'
+          : '日付を選んで「追加」を押すと、候補に加わります（時刻はそのあと「時刻を指定」で入れられます）。'}
+      </p>
     </div>
   );
 }

@@ -1,0 +1,53 @@
+/*
+ * overlay.css
+ * 目的：範囲選択の画面の見た目。撮影した画面を全体に表示し、選んでいない部分を暗くする。
+ */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000000;
+  cursor: crosshair;
+  user-select: none;
+}
+
+/* 撮影した画面（範囲選択の画面いっぱいに表示する） */
+#screenshot {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+/* ドラッグを始める前は、画面全体を暗くする */
+#mask {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+}
+
+/* 選んだ範囲。外側を大きな影で暗くし、内側だけを明るく見せる */
+#selection {
+  position: fixed;
+  border: 2px solid #4da3ff;
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 45%);
+}
+
+#guide {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  margin: 0;
+  padding: 8px 16px;
+  transform: translateX(-50%);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 75%);
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', sans-serif;
+  font-size: 15px;
+  pointer-events: none;
+}
