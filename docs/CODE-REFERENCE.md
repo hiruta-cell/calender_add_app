@@ -461,7 +461,7 @@
 | `UNTRUSTED_SENDER_MESSAGE` / `BUSY_MESSAGE` / `UNEXPECTED_ERROR_MESSAGE` | 定数（内部） | 断るときの表示文 | 内容を含めずに知らせる |
 | `wait(milliseconds)` | 関数（内部） | 指定時間待つ | 開く間隔 |
 | `buildCalendarUrls(rawEvents)` | 関数（公開） | 予定の一覧を検証し、許可リストを通った URL の一覧を作る | URL は画面から受け取らず、ここで作る |
-| `createOpenCalendarEventsHandler(dependencies)` | 関数（公開） | 送信元・引数を検証し、URL を順に開く処理を作る（二度押しは断る） | ipcMain.handle に渡す |
+| `createOpenCalendarEventsHandler(dependencies)` | 関数（公開） | 送信元・引数を検証し、URL を順に開く処理を作る（二度押しは断る）。すべて開けたら `onAllOpened`（確認ウインドウの最小化）を呼ぶ | ipcMain.handle に渡す。最小化はブラウザの操作の邪魔にならないように（依頼者の指示）。途中で開けなかったときは呼ばない |
 | `createOpenCalendarDayHandler(dependencies)` | 関数（公開） | 送信元・日付を検証し、その日の表示を開く処理を作る（URL はここで作る） | 「カレンダーで確認」 |
 
 ### preload.cjs（画面に公開する関数）
@@ -520,6 +520,7 @@
 | `captureController` | 定数 | 範囲キャプチャから OCR までの処理 | ホットキー・トレイ・ボタンから呼ぶ |
 | `createMainWindow()` | 関数 | 安全な設定でウインドウを作る。閉じるボタンでは隠して画像を消す | 常駐（要件§6.1） |
 | `showMainWindow()` | 関数 | 確認ウインドウを表示して前面に出す（なければ作る） | トレイ・2つ目の起動・読み取り後 |
+| `minimizeMainWindow()` | 関数 | 確認ウインドウを最小化する（ウインドウがなければ何もしない） | 予定作成画面をすべて開いたあと、ブラウザの操作の邪魔にならないように（依頼者の指示） |
 | `isTrustedSender(event)` | 関数 | IPC の送信元が確認ウインドウの最上位のフレーム（app://bundle）か | 送信元の検証（CLAUDE.md） |
 | `registerIpcHandlers()` | 関数 | 登録・確認・範囲キャプチャ・範囲選択の画面の通信の受け付けを登録する | IPC の入口をまとめる |
 | `startApp()` | 関数 | セキュリティ設定、app:// の登録、通信の受け付け、トレイ、ホットキー、ウインドウ作成 | 起動処理 |
@@ -615,6 +616,7 @@
 |---|---|---|---|
 | `PROJECT_DIR` | 定数 | プロジェクトのフォルダ | アプリの起動 |
 | `OVERALL_TIMEOUT_MS` / `STEP_TIMEOUT_MS` / `POLL_INTERVAL_MS` / `UI_SETTLE_MS` | 定数 | 全体の制限 30秒（正常なら約16秒）／1つの待ちの上限 10秒／確認間隔／画面の更新待ち | 止まったらすぐ知らせる（依頼者の指示） |
+| `MINIMIZE_WAIT_MS` | 定数 | 3秒 | 登録のあと確認ウインドウが最小化される（元に戻る）のを待つ上限。Mac は最小化の動きに時間がかかる |
 | `CAPTURE_FIXTURE_PATH` / `IMPORT_FIXTURE_PATH` | 定数 | 範囲キャプチャで「撮影した画面」とする画像／貼り付けに使う画像（架空） | 画面収録の許可なしで確認する |
 | `APP_EXIT_TIMEOUT_MS` / `launchedApp` | 定数・変数 | アプリの終了を待つ上限 5秒／起動したアプリ | 常駐するアプリを必ず閉じる |
 | `DEMO_TITLE` / `DEMO_LOCATION` / `DEMO_MEETING_URL` | 定数 | デモ文面の件名・場所・会議 URL（架空） | 下書き・登録内容の確認 |
@@ -631,7 +633,8 @@
 | `setInputValue(connection, selector, value)` | 関数 | 日付・時刻などの入力欄に値を入れる | 手入力・時刻指定の再現 |
 | `replaceOpenExternal(mainConnection)` | 関数 | メインプロセスの shell.openExternal を、URL を記録するだけの関数に差し替える | 実際のブラウザを開かずに登録を確認する |
 | `getOpenedUrls(mainConnection)` | 関数 | メインプロセスが開こうとした URL の一覧を受け取る | 登録内容の確認 |
-| `clickRegister(connection)` | 関数 | 登録ボタンを押し、処理が終わるまで待つ | 登録の再現 |
+| `clickRegister(connection, mainConnection)` | 関数 | 登録ボタンを押し、処理が終わるまで待つ。最小化されたかを返す | 登録の再現と、登録後の最小化の確認 |
+| `restoreMinimizedMainWindow(mainConnection)` | 関数 | 確認ウインドウが最小化されるのを待って元に戻す | 最小化の確認。戻さないと続く確認・画面の画像が取れないため |
 | `saveScreenshot(connection, directory, fileName)` | 関数 | 画面の画像を保存 | 見た目の確認 |
 | `checkFeatures(connection, mainConnection, screenshotDir)` | 関数 | 抽出・下書き・候補・登録・登録の確認・時刻指定・ポップアップでの手入力・エラー表示を確認 | 機能の確認 |
 | `replaceScreenCapture(mainConnection)` | 関数 | 画面の撮影を、架空の画像を返す関数に差し替える | 利用者の画面を撮影しない |
@@ -684,7 +687,7 @@
 | detailExtractor.test.js | — | 件名・場所・会議 URL の下書きの確認 | ラベルの書き方、次の行の値、ラベルのない見出し・「会場は〜です」、URL の優先順位・なりすまし対策 |
 | calendarUrl.test.js | `timedEvent()`、`allDayEvent()`、`queryOf()` | 予定作成 URL の組み立て・検証・許可リストの確認 | dates・ctz・エンコード・長さ・危険な文字 |
 | registration.test.js | `NOW`、`emptyDetails()`、`candidatesOf()` | 登録内容の組み立ての確認 | 終日／時刻指定、手入力、会議 URL の振り分け、元の文章の抜粋 |
-| calendarIpc.test.js | `sampleEvent()`、`createTestHandler()` | 登録要求の処理の確認（偽のブラウザを開く関数を使う） | 送信元・引数の検証、順に開く、二度押し、preload との整合 |
+| calendarIpc.test.js | `sampleEvent()`、`createTestHandler()` | 登録要求の処理の確認（偽のブラウザを開く関数を使う） | 送信元・引数の検証、順に開く、二度押し、すべて開けたときだけ最小化、preload との整合 |
 | electronSecurity.test.js | `FIXTURE_ROOT`、`isInsideRoot()`、`createFakeSession()`、`createFakeContents()`、`createFakeEvent()` | セキュリティ設定と app:// の配信を偽物のオブジェクトで確認 | 設定を誤って緩めたら失敗させる |
 | ocrText.test.js | — | OCR の結果の整形の確認 | 空白の除去、整形後に日時を抽出できること |
 | capture.test.js | `VIEWPORT` | 範囲の座標の検証・変換、拡大の判定、画像の置き場所 | Retina・拡大率への対応、小さすぎる範囲、メモリだけで持つこと |

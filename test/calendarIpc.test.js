@@ -29,18 +29,20 @@ function sampleEvent(day = 15) {
 }
 
 /**
- * テスト用の処理を作る。開いた URL と待った時間を記録する。
+ * テスト用の処理を作る。開いた URL・待った時間・「すべて開けた」の呼び出し（最小化）の回数を記録する。
  * @param {object} [options]
  */
 function createTestHandler({ trusted = true, openExternal } = {}) {
   const opened = [];
   const delays = [];
+  const allOpened = { count: 0 };
   const handler = createOpenCalendarEventsHandler({
     openExternal: openExternal ?? (async (url) => { opened.push(url); }),
     isTrustedSender: () => trusted,
     delay: async (milliseconds) => { delays.push(milliseconds); },
+    onAllOpened: () => { allOpened.count += 1; },
   });
-  return { handler, opened, delays };
+  return { handler, opened, delays, allOpened };
 }
 
 describe('送信元の検証', () => {
@@ -109,6 +111,40 @@ describe('ブラウザで開く処理', () => {
     const result = await handler({}, [sampleEvent(15), sampleEvent(16)]);
     assert.equal(result.ok, false);
     assert.equal(result.openedCount, 1);
+  });
+});
+
+describe('登録後の確認ウインドウの最小化（依頼者の指示）', () => {
+  test('すべて開けたら、最後に1回だけ最小化を呼ぶ', async () => {
+    const order = [];
+    const handler = createOpenCalendarEventsHandler({
+      openExternal: async () => { order.push('open'); },
+      isTrustedSender: () => true,
+      delay: async () => {},
+      onAllOpened: () => { order.push('minimize'); },
+    });
+    assert.equal((await handler({}, [sampleEvent(15), sampleEvent(16)])).ok, true);
+    assert.deepEqual(order, ['open', 'open', 'minimize']);
+  });
+
+  test('途中で開けなかったとき・断ったときは最小化しない（エラーを見せるため）', async () => {
+    let calls = 0;
+    const failing = createTestHandler({
+      openExternal: async () => {
+        calls += 1;
+        if (calls === 2) throw new Error('failed');
+      },
+    });
+    await failing.handler({}, [sampleEvent(15), sampleEvent(16)]);
+    assert.equal(failing.allOpened.count, 0);
+
+    const untrusted = createTestHandler({ trusted: false });
+    await untrusted.handler({}, [sampleEvent()]);
+    assert.equal(untrusted.allOpened.count, 0);
+
+    const invalid = createTestHandler();
+    await invalid.handler({}, []);
+    assert.equal(invalid.allOpened.count, 0);
   });
 });
 

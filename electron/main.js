@@ -145,6 +145,17 @@ function showMainWindow() {
 }
 
 /**
+ * 確認ウインドウを最小化する。予定作成画面をすべて開いたあと、ブラウザでの操作の邪魔にならないようにするため（依頼者の指示）。
+ * 戻すときは、Dock・タスクバーのアイコンか、トレイの「確認ウインドウを開く」（showMainWindow）を使う。
+ * ウインドウがない・壊れているときは何もしない。
+ */
+function minimizeMainWindow() {
+  if (mainWindow !== null && !mainWindow.isDestroyed()) {
+    mainWindow.minimize();
+  }
+}
+
+/**
  * IPC の送信元が、確認ウインドウの画面（app://bundle の最上位のフレーム）かを調べる。
  * iframe や、万一読み込まれた外部ページからの要求は受け付けない（CLAUDE.md）。
  *
@@ -168,7 +179,10 @@ function isTrustedSender(event) {
 function registerIpcHandlers() {
   // 呼ぶたびに shell.openExternal を参照する（実機の自動確認で差し替えられるようにするため）
   const openExternal = (url) => shell.openExternal(url);
-  ipcMain.handle(OPEN_CALENDAR_EVENTS_CHANNEL, createOpenCalendarEventsHandler({ openExternal, isTrustedSender }));
+  ipcMain.handle(
+    OPEN_CALENDAR_EVENTS_CHANNEL,
+    createOpenCalendarEventsHandler({ openExternal, isTrustedSender, onAllOpened: minimizeMainWindow }),
+  );
   ipcMain.handle(OPEN_CALENDAR_DAY_CHANNEL, createOpenCalendarDayHandler({ openExternal, isTrustedSender }));
 
   const captureHandlers = createCaptureHandlers({

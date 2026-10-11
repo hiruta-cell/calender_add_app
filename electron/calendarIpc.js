@@ -9,6 +9,9 @@
  *   (3) URL は画面から受け取らず、ここで組み立て、許可リストで確かめてから開く
  *   (4) 処理中に重ねて要求されたら断る（二度押しでタブが倍に開くのを防ぐ）
  *
+ * すべての予定を開けたら、確認ウインドウを最小化する（ブラウザでの操作の邪魔にならないように。2026-10-11 依頼者の指示）。
+ * 途中で開けなかったときは最小化せず、画面にエラーを表示させる。
+ *
  * このファイルは electron を import しない。ブラウザを開く関数などは main.js から受け取るため、単体テストできる。
  */
 
@@ -88,9 +91,10 @@ export function buildCalendarUrls(rawEvents) {
  * @param {(url: string) => Promise<void>} dependencies.openExternal 既定のブラウザで URL を開く関数（shell.openExternal）
  * @param {(event: object) => boolean} dependencies.isTrustedSender 送信元が確認ウインドウの画面かを調べる関数
  * @param {(milliseconds: number) => Promise<void>} [dependencies.delay] 待つ関数（テストでは待たない関数を渡す）
+ * @param {() => void} [dependencies.onAllOpened] すべての予定を開けたあとに呼ぶ関数（確認ウインドウを最小化する）
  * @returns {(event: object, rawEvents: unknown) => Promise<{ok: boolean, openedCount: number, message?: string}>}
  */
-export function createOpenCalendarEventsHandler({ openExternal, isTrustedSender, delay = wait }) {
+export function createOpenCalendarEventsHandler({ openExternal, isTrustedSender, delay = wait, onAllOpened = () => {} }) {
   let isOpening = false; // 処理中なら true（重ねての要求を断る）
 
   return async function handleOpenCalendarEvents(event, rawEvents) {
@@ -119,7 +123,6 @@ export function createOpenCalendarEventsHandler({ openExternal, isTrustedSender,
         await openExternal(url);
         openedCount += 1;
       }
-      return { ok: true, openedCount };
     } catch {
       return {
         ok: false,
@@ -129,6 +132,9 @@ export function createOpenCalendarEventsHandler({ openExternal, isTrustedSender,
     } finally {
       isOpening = false;
     }
+    // すべて開けたときだけ、確認ウインドウを最小化する（開けなかったときはエラーを見せるため、上で戻っている）
+    onAllOpened();
+    return { ok: true, openedCount };
   };
 }
 

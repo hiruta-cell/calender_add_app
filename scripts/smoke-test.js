@@ -23,6 +23,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import electronPath from 'electron';
+import { APP_ENTRY_URL } from '../electron/appProtocol.js';
 import { formatCalendarDate, formatCalendarDateTime } from '../src/core/calendarUrl.js';
 import { MAX_INPUT_LENGTH, extractDateCandidates } from '../src/core/dateExtractor.js';
 import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
@@ -41,6 +42,9 @@ const STEP_TIMEOUT_MS = 10_000;
 
 /** 画面の更新を待つ時間（ミリ秒） */
 const UI_SETTLE_MS = 300;
+
+/** 登録のあと、確認ウインドウが最小化される（・元に戻る）のを待つ上限（ミリ秒）。Mac は最小化の動きに 0.5 秒ほどかかる */
+const MINIMIZE_WAIT_MS = 3_000;
 
 /** 画像の貼り付けの確認に使う架空の画像（日本語のメール。10/22 14:00〜15:30） */
 const IMPORT_FIXTURE_PATH = path.join(PROJECT_DIR, 'demo', 'images', '1-mail-ja.png');
@@ -616,13 +620,53 @@ async function checkCapture(connection, mainConnection, port, screenshotDir) {
 
 /**
  * 登録ボタンを押し、処理が終わるまで待つ。
+ * すべて開けると確認ウインドウが最小化されるため、それを確かめてから元に戻す（続く確認と画面の画像のため）。
  *
- * @param {DevToolsConnection} connection
+ * @param {DevToolsConnection} connection 画面への接続
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ * @returns {Promise<boolean>} 登録のあとに確認ウインドウが最小化されていたら true
  */
-async function clickRegister(connection) {
+async function clickRegister(connection, mainConnection) {
   await connection.evaluate(`document.querySelector('.register-section button').click()`);
   await waitFor(connection, `!document.querySelector('.register-section button').textContent.includes('開いています')`);
+  const wasMinimized = await restoreMinimizedMainWindow(mainConnection);
   await sleep(UI_SETTLE_MS);
+  return wasMinimized;
+}
+
+/**
+ * 確認ウインドウが最小化されるのを待ち（Mac は最小化の動きが終わるまで時間がかかる）、元に戻す。
+ *
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ * @returns {Promise<boolean>} 最小化されていたら true（時間内に最小化されなければ false）
+ */
+async function restoreMinimizedMainWindow(mainConnection) {
+  const response = await mainConnection.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const { BrowserWindow } = require('electron');
+      const window = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL().startsWith(${JSON.stringify(APP_ENTRY_URL)}));
+      if (window === undefined) return false;
+      const deadline = Date.now() + ${MINIMIZE_WAIT_MS};
+      while (!window.isMinimized() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      const wasMinimized = window.isMinimized();
+      if (wasMinimized) {
+        window.restore();
+        while (window.isMinimized() && Date.now() < deadline + ${MINIMIZE_WAIT_MS}) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+      return wasMinimized;
+    })()`,
+    includeCommandLineAPI: true,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  if (response.exceptionDetails) {
+    throw new Error('確認ウインドウの状態を調べられませんでした');
+  }
+  return response.result.value === true;
 }
 
 /**
@@ -707,9 +751,10 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
 
   const expected = extractDateCandidates(DEMO_TEXT, { now: new Date() }).candidates;
   const tomorrow = addDays(getTokyoDateTime(new Date()), 1);
-  await clickRegister(connection);
+  const minimizedAfterRegister = await clickRegister(connection, mainConnection);
   const openedUrls = await getOpenedUrls(mainConnection);
   record('選んだ2件の予定作成画面を開く', openedUrls.length === 2, `${openedUrls.length}件`);
+  record('すべて開いたら確認ウインドウが最小化される（ブラウザの操作の邪魔にならないように）', minimizedAfterRegister);
   const [timedQuery, allDayQuery] = openedUrls.map((url) => new URL(url).searchParams);
   record(
     '1件目：日時（開始/終了）とタイムゾーンが正しい',
@@ -758,7 +803,7 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
   await connection.evaluate(`document.querySelector('.time-choice input[value="specified"]').click()`);
   await sleep(UI_SETTLE_MS);
   await setInputValue(connection, '.time-choice input[type="time"]', '09:00');
-  await clickRegister(connection);
+  await clickRegister(connection, mainConnection);
   const specifiedUrl = (await getOpenedUrls(mainConnection)).at(-1);
   record(
     '「時刻を指定」で9:00を入れると 9:00〜10:00 の予定になる',
@@ -789,7 +834,7 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
     `document.querySelectorAll('.candidate-item').length === 1 && document.querySelector('.candidate-checkbox').checked &&
      document.querySelector('.time-choice input[value="specified"]')?.checked === true`,
   ));
-  await clickRegister(connection);
+  await clickRegister(connection, mainConnection);
   const manualUrl = (await getOpenedUrls(mainConnection)).at(-1);
   record(
     '手入力した 9:30 開始の予定を開く（終了は60分後）',
