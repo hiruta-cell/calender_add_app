@@ -48,8 +48,56 @@ describe('場所', () => {
     assert.equal(extractEventDetails('場所：\n件名：定例会').location, '');
   });
 
-  test('署名の「住所」は場所にしない', () => {
-    assert.equal(extractEventDetails('住所：架空県架空市1-1').location, '');
+  test('「住所：」「所在地：」の行は、場所の見出しがないときに使う', () => {
+    assert.equal(extractEventDetails('秋の観察会\n住所：宮城県架空市中央1-2-3').location, '宮城県架空市中央1-2-3');
+    assert.equal(extractEventDetails('所在地：架空市中央1-1 架空公民館').location, '架空市中央1-1 架空公民館');
+    assert.equal(extractEventDetails('会場：架空ホール\n住所：宮城県架空市中央1-2-3').location, '架空ホール');
+  });
+
+  test('署名のまとまり（メールアドレス、または会社名と TEL）の「住所」は場所にしない', () => {
+    const mail = ['10月20日(火) 14時にお伺いします。', '', '架空商事株式会社 例田', '住所：宮城県架空市中央1-1', 'TEL：000-0000-0000'].join('\n');
+    assert.equal(extractEventDetails(mail).location, '');
+    const withEmail = ['10月20日(火) 14時', '', '例田 太郎', '宮城県架空市中央1-1', 'taro@example.com'].join('\n');
+    assert.equal(extractEventDetails(withEmail).location, '');
+    const afterSeparator = ['10月20日(火) 14時', '--', '例田 太郎', '宮城県架空市中央1-1'].join('\n');
+    assert.equal(extractEventDetails(afterSeparator).location, '');
+  });
+});
+
+describe('場所：見出しのない住所（催しの一覧のページ・OCR）', () => {
+  test('都道府県＋市区町村で始まる行を使う。「 / 分類」は除く', () => {
+    const text = ['架空の音楽祭2026', '宮城県登米市 / 芸術鑑賞・自然観賞', '開催中', '2026年10月11日(日)'].join('\n');
+    assert.equal(extractEventDetails(text).location, '宮城県登米市');
+  });
+
+  test('番地のある住所を、地域だけの行より優先する', () => {
+    const text = ['こども探偵事務所', '宮城県塩竈市 / 芸術鑑賞・自然観賞 , ものづくり・学び体験', '2026年10月11日(日)', '宮城県塩竈市本町8-1講習室'].join('\n');
+    assert.equal(extractEventDetails(text).location, '宮城県塩竈市本町8-1講習室');
+  });
+
+  test('OCR でアイコンが化けた文字（Q・暫・9）や郵便番号を読み飛ばし、画面の別の欄（2つ以上の空白の後）は除く', () => {
+    assert.equal(extractEventDetails('Q宮城県登米市/芸術鑑賞・自然観賞て大人気!').location, '宮城県登米市');
+    assert.equal(extractEventDetails('暫宮城県塩竈市本町8-1講習室').location, '宮城県塩竈市本町8-1講習室');
+    assert.equal(extractEventDetails('〒980-0000 宮城県仙台市青葉区架空町1-1').location, '宮城県仙台市青葉区架空町1-1');
+    assert.equal(extractEventDetails('宮城県仙台市若林区架空1-1    屋内で遊ぼう').location, '宮城県仙台市若林区架空1-1');
+  });
+
+  test('文の途中の都道府県名や、市区町村が続かないものは使わない', () => {
+    assert.equal(extractEventDetails('この音楽祭は宮城県登米市にある能舞台で開催します').location, '');
+    assert.equal(extractEventDetails('宮城県子ども・親子おでかけ情報').location, '');
+    assert.equal(extractEventDetails('10月20日(火) 14時 定例会').location, '');
+  });
+
+  test('「場所：」「会場は〜です」があればそちらを優先する', () => {
+    assert.equal(extractEventDetails('場所：架空ホール\n宮城県架空市中央1-1').location, '架空ホール');
+    assert.equal(extractEventDetails('会場は架空公民館です。\n宮城県架空市中央1-1').location, '架空公民館');
+  });
+
+  test('長い文章でも処理が重くならない', () => {
+    const text = `${'宮城県'.repeat(3000)}\n${'Q'.repeat(10000)}`;
+    const startedAt = performance.now();
+    extractEventDetails(text);
+    assert.ok(performance.now() - startedAt < 500);
   });
 
   test('場所に書かれた URL は会議 URL の欄に任せ、場所からは除く', () => {

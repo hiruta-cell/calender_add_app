@@ -263,7 +263,14 @@
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
 | `TITLE_LABELS` | 定数（内部） | 件名のラベル（件名、題名、タイトル、会議名、イベント名、Subject、Title） | 件名の行を見つける |
-| `LOCATION_LABELS` | 定数（内部） | 場所のラベル（開催場所、集合場所、開催地、場所、会場、Location、Place、Venue） | 場所の行を見つける。署名に多い「住所」は含めない |
+| `LOCATION_LABELS` | 定数（内部） | 場所のラベル（開催場所、集合場所、開催地、場所、会場、Location、Place、Venue） | 場所の行を見つける。署名に多い「住所」は ADDRESS_LABELS で別に扱う |
+| `ADDRESS_LABELS` / `ADDRESS_LABEL_LINE_PATTERN` | 定数（内部） | 住所のラベル（住所、所在地、Address）／その行の正規表現 | 場所のラベル・文がないとき、署名を除いた行から住所を取り出す |
+| `PREFECTURES` | 定数（内部） | 47都道府県の名前 | 住所らしい行を見つける |
+| `ADDRESS_LINE_PATTERN` | 定数（内部） | 都道府県＋市区町村で始まる行（行頭の化けた文字2文字・郵便番号は読み飛ばす） | 見出しのない住所（催しの一覧のページ・OCR）を取り出す（依頼者の指示） |
+| `ADDRESS_TRAILING_PATTERN` | 定数（内部） | 住所の後ろの「 / 分類」、2つ以上の空白の後ろ | 「宮城県登米市 / 芸術鑑賞」→「宮城県登米市」、OCR で隣の欄が混ざった部分を除く |
+| `HAS_STREET_NUMBER_PATTERN` | 定数（内部） | 数字を含むか | 番地のある住所を、地域だけの行より優先する |
+| `EMAIL_ADDRESS_PATTERN` / `COMPANY_PATTERN` / `PHONE_LABEL_PATTERN` | 定数（内部） | メールアドレス／会社名（株式会社など）／TEL・FAX・電話 | 署名らしいまとまり（メールアドレス、または会社名と電話の両方）を見分ける |
+| `SIGNATURE_SEPARATOR_PATTERN` | 定数（内部） | 署名の区切りの行「-- 」 | それより後を署名とみなす |
 | `MEETING_HOSTS` | 定数（内部） | 会議サービスのホスト（zoom.us、meet.google.com、teams.microsoft.com など） | 会議 URL を優先する |
 | `MAX_HEADING_LINES` | 定数（内部） | 5 | 見出し（件名の代わり）を探す、先頭からの行数 |
 | `MAX_HEADING_LENGTH` | 定数（内部） | 40 | 見出しとみなす行の最大文字数（長い文は見出しにしない） |
@@ -280,7 +287,9 @@
 | `findLabeledValue(lines, pattern)` | 関数（内部） | ラベルの行の値（なければ次の行）を返す | 件名・場所の取り出し |
 | `findHeadingTitle(lines)` | 関数（内部） | 先頭の5行から「〜のお知らせ」などの短い見出しを探す | 件名のラベルがないときの件名 |
 | `findLocationSentence(lines)` | 関数（内部） | 「会場は〜です」のような文から場所を取り出す | 場所のラベルがないときの場所 |
-| `isAnyLabelLine(line)` | 関数（内部） | 件名・場所のラベルの行か | 次の行を値とみなしてよいかの判定 |
+| `blankOutSignatureLines(lines)` | 関数（内部） | 署名らしい行を空行にする（「-- 」より後、署名らしいまとまり） | 署名の会社の住所を場所にしない |
+| `findAddressLine(lines)` | 関数（内部） | 都道府県＋市区町村で始まる行から住所を取り出す（番地のあるものを優先） | 見出しのない住所の取り出し |
+| `isAnyLabelLine(line)` | 関数（内部） | 件名・場所・住所のラベルの行か | 次の行を値とみなしてよいかの判定 |
 | `findMeetingUrl(text)` | 関数（内部） | 会議サービスの URL、なければ最初の https の URL を選ぶ | 会議 URL の取り出し |
 | `parseMeetingUrl(text)` | 関数（公開） | URL を検証し、会議サービスかを判定する（xn-- の形に直す）。`{href, hostname, isKnownMeetingService}` を返す（hostname はフィッシングの注意でサイト名として見せる） | なりすまし URL・https 以外を弾く。入力欄の検証にも使う |
 | `isMeetingHost(hostname)` | 関数（内部） | ホスト名が会議サービスか（末尾で判定） | 「zoom.us.偽サイト」を会議サービスとみなさない |
@@ -830,7 +839,7 @@
 | japaneseNumber.test.js | — | 漢字の数字の変換の確認 | 位を使う書き方・1桁ずつの書き方・不正な書き方 |
 | dateUtils.test.js | — | 日付計算と全角→半角の確認 | 繰り上がり・曜日・東京時間 |
 | display.test.js | `NOW`、`firstCandidate()` | 表示文字列と色付けの分割の確認 | 表示の正しさ、HTML を解釈しないこと |
-| detailExtractor.test.js | — | 件名・場所・会議 URL の下書きの確認 | ラベルの書き方、次の行の値、ラベルのない見出し・「会場は〜です」、URL の優先順位・なりすまし対策 |
+| detailExtractor.test.js | — | 件名・場所・会議 URL の下書きの確認 | ラベルの書き方、次の行の値、ラベルのない見出し・「会場は〜です」、住所の行（見出しあり・なし・OCR）と署名の除外、URL の優先順位・なりすまし対策 |
 | calendarUrl.test.js | `timedEvent()`、`allDayEvent()`、`queryOf()` | 予定作成 URL の組み立て・検証・許可リストの確認 | dates・ctz・エンコード・長さ・危険な文字、予定作成画面以外（日の表示など）を開かない |
 | autoReset.test.js | `countActivityListeners()`、`scheduleWithFakeTimer()` | 自動のクリアの予約の確認（偽のタイマーと EventTarget を使う） | 60秒、時間がたつとクリア、操作で取り消し、監視の解除し忘れがないこと |
 | registration.test.js | `NOW`、`emptyDetails()`、`candidatesOf()` | 登録内容の組み立ての確認 | 終日／時刻指定、手入力、会議 URL の振り分け、元の文章の抜粋 |

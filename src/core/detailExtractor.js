@@ -6,7 +6,10 @@
  * - 件名・場所は、ラベル付きの行（「件名：」「【会場】」など）から取り出す。
  *   ラベルがなければ、簡単な規則で補う（依頼者の指摘。凝りすぎない）：
  *     件名：最初の数行のうち「〜のお知らせ」「〜のご案内」「〜のご連絡」「〜開催決定！」で終わる短い行
- *     場所：「会場は〜です」「場所は〜で行います」のように「です」などで終わる文
+ *     場所：「会場は〜です」「場所は〜で行います」のように「です」などで終わる文。
+ *           それもなければ「住所：」「所在地：」の行、さらになければ「宮城県塩竈市本町8-1」のように
+ *           都道府県＋市区町村で始まる行（催しの一覧のページなど。依頼者の指示 2026-10-11）。
+ *           署名らしいまとまり（メールアドレス、または会社名と TEL・FAX を含む）と「--」より後の住所は使わない
  * - URL は https:// の部分から取り出す。Zoom・Google Meet・Teams・Webex を優先する。
  * - 取り出した内容は下書きであり、利用者が確認・修正してから登録する。
  */
@@ -18,9 +21,51 @@ import { normalizeWidth } from './textNormalizer.js';
 const TITLE_LABELS = ['件名', '題名', 'タイトル', '会議名', 'イベント名', 'Subject', 'Title'];
 
 /**
- * 場所のラベル。署名に多い「住所」は、相手の会社の住所を誤って入れないよう含めない。
+ * 場所のラベル。署名に多い「住所」は、ここには含めず ADDRESS_LABELS で扱う（署名の住所を除いてから使う）。
  */
 const LOCATION_LABELS = ['開催場所', '集合場所', '開催地', '場所', '会場', 'Location', 'Place', 'Venue'];
+
+/** 住所のラベル（場所のラベル・場所の文がないときに使う。署名のまとまりの中のものは使わない） */
+const ADDRESS_LABELS = ['住所', '所在地', 'Address'];
+
+/** 都道府県名（住所らしい行を見つけるため） */
+const PREFECTURES = [
+  '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県', '茨城県', '栃木県', '群馬県',
+  '埼玉県', '千葉県', '東京都', '神奈川県', '新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県',
+  '岐阜県', '静岡県', '愛知県', '三重県', '滋賀県', '京都府', '大阪府', '兵庫県', '奈良県', '和歌山県',
+  '鳥取県', '島根県', '岡山県', '広島県', '山口県', '徳島県', '香川県', '愛媛県', '高知県', '福岡県',
+  '佐賀県', '長崎県', '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県',
+];
+
+/**
+ * 都道府県＋市区町村で始まる行（住所らしい行）。
+ *   - 行頭の空白・記号と、OCR でアイコン（地図のピンなど）が化けた文字（「Q」「暫」「9」など）を2文字まで読み飛ばす
+ *   - 郵便番号（〒980-0000）があれば読み飛ばす（住所には含めない）
+ *   - 都道府県の後に、市・区・町・村・郡で終わる名前（10文字まで）が必要（「宮城県子ども」のような文を除く）
+ *   - value：住所から行末まで
+ */
+const ADDRESS_LINE_PATTERN = new RegExp(
+  String.raw`^[ \t]{0,8}(?:[^ \t]{1,2}[ \t]{0,2})??(?:〒?[ \t]?\d{3}-?\d{4}[ \t]{0,2})?(?<value>(?:${PREFECTURES.join('|')})[^ \t/|]{1,10}?(?:市|区|町|村|郡).*)$`,
+  'u',
+);
+
+/** 住所の後ろの「 / 芸術鑑賞」のような分類、または2つ以上の空白の後ろ（画面の別の欄）を切り捨てる */
+const ADDRESS_TRAILING_PATTERN = /[ \t]*[/|｜／].*$|[ \t]{2,}.*$/u;
+
+/** 番地（数字）を含むか。含む住所は、市町村だけのもの（催しの一覧の地域の表示）より優先する */
+const HAS_STREET_NUMBER_PATTERN = /\d/;
+
+/** 署名らしいまとまりの印1：メールアドレス（これがあるまとまりは署名とみなす） */
+const EMAIL_ADDRESS_PATTERN = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}\.[A-Za-z0-9.-]{1,190}/;
+
+/** 署名らしいまとまりの印2：会社名（電話・FAX と両方あるまとまりを署名とみなす。催しの案内の「TEL」だけでは除かない） */
+const COMPANY_PATTERN = /株式会社|有限会社|合同会社|\(株\)|\(有\)|Co\.,?[ \t]?Ltd|Inc\.|Corporation/i;
+
+/** 署名らしいまとまりの印3：電話・FAX の見出し */
+const PHONE_LABEL_PATTERN = /TEL|FAX|電話|携帯/i;
+
+/** 署名の区切りの行（メールの慣習の「-- 」） */
+const SIGNATURE_SEPARATOR_PATTERN = /^--[ \t]?$/;
 
 /** 会議サービスのホスト名（このホスト、またはそのサブドメインの URL を優先する） */
 const MEETING_HOSTS = ['zoom.us', 'zoom.com', 'meet.google.com', 'teams.microsoft.com', 'teams.live.com', 'webex.com'];
@@ -88,6 +133,9 @@ const TITLE_LINE_PATTERN = buildLabelPattern(TITLE_LABELS);
 /** 場所のラベルの行に一致する正規表現 */
 const LOCATION_LINE_PATTERN = buildLabelPattern(LOCATION_LABELS);
 
+/** 住所のラベルの行に一致する正規表現 */
+const ADDRESS_LABEL_LINE_PATTERN = buildLabelPattern(ADDRESS_LABELS);
+
 /**
  * 文章から件名・場所・オンライン会議の URL を取り出す（このファイルの中心となる関数）。
  *
@@ -106,6 +154,11 @@ export function extractEventDetails(text) {
   );
   const labeledLocation = findLabeledValue(lines, LOCATION_LINE_PATTERN);
   let location = labeledLocation !== '' ? labeledLocation : findLocationSentence(lines);
+  if (location === '') {
+    // 場所の見出し・文がなければ、署名のまとまりを除いた行から住所を探す
+    const linesWithoutSignature = blankOutSignatureLines(lines);
+    location = findLabeledValue(linesWithoutSignature, ADDRESS_LABEL_LINE_PATTERN) || findAddressLine(linesWithoutSignature);
+  }
 
   // 「場所：オンライン https://zoom.us/...」のように場所に URL が書かれていたら、URL は会議 URL の欄に任せる
   if (meeting !== null) {
@@ -178,13 +231,61 @@ function findLocationSentence(lines) {
 }
 
 /**
+ * 署名らしい行を空行に置き換える（行の数は変えない）。
+ *   - 「-- 」の行より後はすべて署名とみなす
+ *   - 空行で区切られたまとまりに、メールアドレスがある、または会社名と電話・FAX の両方があれば、そのまとまりを署名とみなす
+ *
+ * @param {string[]} lines 文章の各行
+ * @returns {string[]} 署名の行を空にした各行
+ */
+function blankOutSignatureLines(lines) {
+  const result = [...lines];
+  const separatorIndex = lines.findIndex((line) => SIGNATURE_SEPARATOR_PATTERN.test(line));
+  if (separatorIndex !== -1) {
+    result.fill('', separatorIndex);
+  }
+  let blockStart = 0;
+  for (let index = 0; index <= result.length; index += 1) {
+    if (index < result.length && result[index].trim() !== '') {
+      continue;
+    }
+    const block = result.slice(blockStart, index).join('\n');
+    const isSignature =
+      EMAIL_ADDRESS_PATTERN.test(block) || (COMPANY_PATTERN.test(block) && PHONE_LABEL_PATTERN.test(block));
+    if (isSignature) {
+      result.fill('', blockStart, index);
+    }
+    blockStart = index + 1;
+  }
+  return result;
+}
+
+/**
+ * 都道府県＋市区町村で始まる行から住所を取り出す。番地（数字）を含むものを優先し、なければ最初のもの。
+ * 例：「宮城県登米市 / 芸術鑑賞・自然観賞」→「宮城県登米市」、「Q宮城県塩竈市本町8-1講習室」（OCR）→「宮城県塩竈市本町8-1講習室」
+ *
+ * @param {string[]} lines 文章の各行（署名の行は空にしたもの）
+ * @returns {string} 住所（見つからなければ空文字）
+ */
+function findAddressLine(lines) {
+  const addresses = [];
+  for (const line of lines) {
+    const match = sanitizeSingleLine(line).match(ADDRESS_LINE_PATTERN);
+    if (match !== null) {
+      addresses.push(match.groups.value.replace(ADDRESS_TRAILING_PATTERN, '').trim());
+    }
+  }
+  return addresses.find((address) => HAS_STREET_NUMBER_PATTERN.test(address)) ?? addresses[0] ?? '';
+}
+
+/**
  * 行が件名・場所のラベルの行かどうか（次の行を値とみなしてよいかの判定に使う）。
  *
  * @param {string} line
  * @returns {boolean}
  */
 function isAnyLabelLine(line) {
-  return TITLE_LINE_PATTERN.test(line) || LOCATION_LINE_PATTERN.test(line);
+  return TITLE_LINE_PATTERN.test(line) || LOCATION_LINE_PATTERN.test(line) || ADDRESS_LABEL_LINE_PATTERN.test(line);
 }
 
 /**
