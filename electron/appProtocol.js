@@ -11,6 +11,7 @@
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { getCaptureImageName } from './captureImageStore.js';
 
 /** 独自プロトコルの名前（app://） */
 export const APP_SCHEME = 'app';
@@ -20,6 +21,9 @@ export const APP_HOST = 'bundle';
 
 /** 画面の起点の URL */
 export const APP_ENTRY_URL = `${APP_SCHEME}://${APP_HOST}/index.html`;
+
+/** 範囲選択の画面の URL */
+export const OVERLAY_ENTRY_URL = `${APP_SCHEME}://${APP_HOST}/overlay.html`;
 
 /**
  * 独自プロトコルに与える特権（protocol.registerSchemesAsPrivileged に渡す）。
@@ -139,17 +143,38 @@ function createEmptyResponse(status) {
 
 /**
  * app:// への要求に応答する（protocol.handle に渡す処理）。
+ * app://bundle/capture/〜 は、取り込んだ画像（メモリの中だけにある）を返す。
  *
  * @param {{url: string, method: string}} request 要求（Electron から渡される Request）
  * @param {string} rootDir 配信してよいフォルダ（dist/renderer の絶対パス）
+ * @param {(name: string) => Buffer | null} [getCaptureImage] 取り込んだ画像を名前で取り出す関数
  * @returns {Promise<Response>}
  *   200：ファイルの内容（CSP などのセキュリティ用ヘッダー付き）
  *   404：rootDir の外・存在しない・フォルダ　／　405：GET 以外　／　500：読み込みに失敗
  */
-export async function handleAppRequest(request, rootDir) {
+export async function handleAppRequest(request, rootDir, getCaptureImage = () => null) {
   if (request.method !== 'GET') {
     return createEmptyResponse(405);
   }
+
+  // 取り込んだ画像（決めた名前のものだけ。ファイルには保存していない）
+  const captureImageName = isAppUrl(request.url) ? getCaptureImageName(request.url) : null;
+  if (captureImageName !== null) {
+    const image = getCaptureImage(captureImageName);
+    if (image === null) {
+      return createEmptyResponse(404);
+    }
+    return new Response(image, {
+      status: 200,
+      headers: {
+        'Content-Type': CONTENT_TYPES['.png'],
+        'Content-Security-Policy': CONTENT_SECURITY_POLICY,
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+
   const filePath = resolveAssetPath(request.url, rootDir);
   if (filePath === null) {
     return createEmptyResponse(404);

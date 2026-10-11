@@ -11,6 +11,7 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  OCR_TIMEOUT_MS,
   ORIENTATION_HORIZONTAL,
   ORIENTATION_VERTICAL,
   OcrError,
@@ -65,9 +66,10 @@ describe('chooseBetterResult：確信度の高い方を選ぶ', () => {
 });
 
 describe('recognizeText：実際に読み取る（架空の画像）', { timeout: RECOGNITION_TEST_TIMEOUT_MS * 4 }, () => {
-  test('横書きのメール：横書きと判定し、日時・件名・場所・URL を取り出せる', { timeout: RECOGNITION_TEST_TIMEOUT_MS }, async () => {
+  test('横書きのメール：横書きと判定し（確信度が高いので縦書きは省く）、日時・件名・場所・URL を取り出せる', { timeout: RECOGNITION_TEST_TIMEOUT_MS }, async () => {
     const result = await recognizeText(await readFixture('horizontal-email-2x.png'));
     assert.equal(result.orientation, ORIENTATION_HORIZONTAL);
+    assert.deepEqual(result.triedOrientations, [ORIENTATION_HORIZONTAL]);
     const [candidate] = extractDateCandidates(result.text, { now: NOW }).candidates;
     assert.deepEqual(candidate.start, { year: 2026, month: 10, day: 15, hour: 14, minute: 0 });
     assert.deepEqual(candidate.end, { year: 2026, month: 10, day: 15, hour: 15, minute: 0 });
@@ -77,9 +79,10 @@ describe('recognizeText：実際に読み取る（架空の画像）', { timeout
     assert.equal(details.meetingUrl, 'https://zoom.us/j/0000000000');
   });
 
-  test('縦書きのお知らせ：縦書きと判定し、漢字の日時を取り出せる', { timeout: RECOGNITION_TEST_TIMEOUT_MS }, async () => {
+  test('縦書きのお知らせ：横書き・縦書きの両方で読み、縦書きと判定し、漢字の日時を取り出せる', { timeout: RECOGNITION_TEST_TIMEOUT_MS }, async () => {
     const result = await recognizeText(await readFixture('vertical-notice-2x.png'));
     assert.equal(result.orientation, ORIENTATION_VERTICAL);
+    assert.deepEqual(result.triedOrientations, [ORIENTATION_HORIZONTAL, ORIENTATION_VERTICAL]);
     const [candidate] = extractDateCandidates(result.text, { now: NOW }).candidates;
     assert.deepEqual(candidate.start, { year: 2026, month: 10, day: 15, hour: 14, minute: 0 });
   });
@@ -110,8 +113,16 @@ describe('recognizeText：異常な入力・時間切れ', () => {
     await assert.rejects(recognizeText(Buffer.from('これは画像ではありません'), { orientation: ORIENTATION_HORIZONTAL }), OcrError);
   });
 
-  test('制限時間を過ぎたら OcrError で中断する（固まらない）', { timeout: RECOGNITION_TEST_TIMEOUT_MS }, async () => {
+  test('制限時間を過ぎたら、手入力を案内する OcrError で中断する（固まらない）', { timeout: RECOGNITION_TEST_TIMEOUT_MS }, async () => {
     const image = await readFixture('horizontal-email-2x.png');
-    await assert.rejects(recognizeText(image, { orientation: ORIENTATION_HORIZONTAL, timeoutMs: 1 }), OcrError);
+    await assert.rejects(recognizeText(image, { orientation: ORIENTATION_HORIZONTAL, timeoutMs: 1 }), (error) => {
+      assert.ok(error instanceof OcrError);
+      assert.match(error.message, /手入力/);
+      return true;
+    });
+  });
+
+  test('制限時間の既定は15秒（両方の向きで読む場合も合計）', () => {
+    assert.equal(OCR_TIMEOUT_MS, 15_000);
   });
 });

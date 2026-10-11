@@ -8,9 +8,11 @@
  *   - 読み込んだデータや画像をファイルに保存しない（cacheMethod: 'none'）
  * 動作（要件§5.9）：
  *   - 1回読み取るごとに処理を終了し、CPU・メモリを使い続けない
- *   - 時間がかかりすぎたら中断する
+ *   - 合計15秒を超えたら中断する（読み取れないなら手入力の方が早いため。依頼者の指示）
  * 縦書き（要件§12）：
  *   - 横書き用（jpn）と縦書き用（jpn_vert）の両方で読み、確信度の高い方を採用する（自動）
+ *   - ただし横書きで確信度 80 以上なら、縦書きは省く（待ち時間を半分にするため。縦書きの文章を横書きとして読むと
+ *     確信度は 30 程度にとどまることを確認済み）
  *
  * このファイルは electron を import しないため、Node.js だけで実際に読み取るテストができる。
  */
@@ -32,8 +34,15 @@ export const ORIENTATION_VERTICAL = 'vertical';
 /** 受け付ける向きの一覧（画面から届く値の検証に使う） */
 export const ORIENTATIONS = Object.freeze([ORIENTATION_AUTO, ORIENTATION_HORIZONTAL, ORIENTATION_VERTICAL]);
 
-/** 1回の読み取り（横書き・縦書きのそれぞれ）の制限時間（ミリ秒） */
-export const OCR_TIMEOUT_MS = 60_000;
+/** 読み取りの制限時間（ミリ秒）。横書き・縦書きの両方で読む場合も合計でこの時間まで（依頼者の指示：15秒） */
+export const OCR_TIMEOUT_MS = 15_000;
+
+/** 自動のとき、横書きの確信度がこれ以上なら縦書きでの読み取りを省く（0〜100） */
+export const SKIP_VERTICAL_CONFIDENCE = 80;
+
+/** 時間切れのときの文（手入力を案内する） */
+const TIMEOUT_MESSAGE =
+  '文字の読み取りに時間がかかりすぎたため、中断しました。日時を手入力するか、範囲を小さくして選び直してください。';
 
 /** 受け付ける画像の最大サイズ（バイト）。極端に大きい画像で固まらないようにする */
 export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -121,9 +130,9 @@ export function buildWorkerOptions(setting) {
  * @param {Buffer} image PNG などの画像
  * @param {object} [options]
  * @param {string} [options.orientation] 'auto'（既定）／'horizontal'／'vertical'
- * @param {number} [options.timeoutMs] 1回の読み取りの制限時間
- * @returns {Promise<{text: string, confidence: number, orientation: string}>}
- *   text：整えた文章　confidence：確信度（0〜100）　orientation：採用した向き
+ * @param {number} [options.timeoutMs] 読み取りの制限時間（両方の向きで読む場合も合計）
+ * @returns {Promise<{text: string, confidence: number, orientation: string, triedOrientations: string[]}>}
+ *   text：整えた文章　confidence：確信度（0〜100）　orientation：採用した向き　triedOrientations：実際に読んだ向き
  * @throws {OcrError} 画像が不正・時間切れ・読み取りに失敗した場合
  */
 export async function recognizeText(image, { orientation = ORIENTATION_AUTO, timeoutMs = OCR_TIMEOUT_MS } = {}) {
@@ -137,13 +146,24 @@ export async function recognizeText(image, { orientation = ORIENTATION_AUTO, tim
     throw new OcrError('読み取りの向きの指定が正しくありません。');
   }
 
+  const deadline = Date.now() + timeoutMs; // 両方の向きで読む場合も、合計でこの時刻まで
   if (orientation !== ORIENTATION_AUTO) {
-    return recognizeWithOrientation(image, orientation, timeoutMs);
+    const result = await recognizeWithOrientation(image, orientation, timeoutMs);
+    return { ...result, triedOrientations: [orientation] };
   }
-  // 自動：横書き・縦書きの順に読み（同時に動かすと CPU を使いすぎるため順番に）、確信度の高い方を採用する
+
+  // 自動：まず横書きで読む。確信度が十分高ければ、縦書きは省く
   const horizontal = await recognizeWithOrientation(image, ORIENTATION_HORIZONTAL, timeoutMs);
-  const vertical = await recognizeWithOrientation(image, ORIENTATION_VERTICAL, timeoutMs);
-  return chooseBetterResult(horizontal, vertical);
+  if (horizontal.confidence >= SKIP_VERTICAL_CONFIDENCE) {
+    return { ...horizontal, triedOrientations: [ORIENTATION_HORIZONTAL] };
+  }
+  // 続けて縦書きで読み（同時に動かすと CPU を使いすぎるため順番に）、確信度の高い方を採用する
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    throw new OcrError(TIMEOUT_MESSAGE);
+  }
+  const vertical = await recognizeWithOrientation(image, ORIENTATION_VERTICAL, remainingMs);
+  return { ...chooseBetterResult(horizontal, vertical), triedOrientations: [ORIENTATION_HORIZONTAL, ORIENTATION_VERTICAL] };
 }
 
 /**
@@ -175,7 +195,7 @@ async function recognizeWithOrientation(image, orientation, timeoutMs) {
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       isCancelled = true;
-      reject(new OcrError('文字の読み取りに時間がかかりすぎたため、中断しました。範囲を小さくして選び直してください。'));
+      reject(new OcrError(TIMEOUT_MESSAGE));
     }, timeoutMs);
   });
 

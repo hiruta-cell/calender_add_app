@@ -194,6 +194,20 @@ describe('handleAppRequest：app:// の応答', () => {
     assert.equal((await handleAppRequest({ url: APP_ENTRY_URL, method: 'POST' }, FIXTURE_ROOT)).status, 405);
   });
 
+  test('取り込んだ画像（メモリの中）は app://bundle/capture/〜 で返す。なければ 404、決めた名前以外は配信しない', async () => {
+    const image = Buffer.from('fake-png');
+    const getCaptureImage = (name) => (name === 'selection.png' ? image : null);
+    const found = await handleAppRequest({ url: 'app://bundle/capture/selection.png?v=2', method: 'GET' }, FIXTURE_ROOT, getCaptureImage);
+    assert.equal(found.status, 200);
+    assert.equal(found.headers.get('Content-Type'), 'image/png');
+    assert.equal(found.headers.get('Cache-Control'), 'no-store');
+    assert.equal(found.headers.get('Content-Security-Policy'), CONTENT_SECURITY_POLICY);
+    assert.equal(Buffer.from(await found.arrayBuffer()).toString(), 'fake-png');
+    assert.equal((await handleAppRequest({ url: 'app://bundle/capture/screenshot.png', method: 'GET' }, FIXTURE_ROOT, getCaptureImage)).status, 404);
+    assert.equal((await handleAppRequest({ url: 'app://bundle/capture/other.png', method: 'GET' }, FIXTURE_ROOT, getCaptureImage)).status, 404);
+    assert.equal((await handleAppRequest({ url: 'app://evil/capture/selection.png', method: 'GET' }, FIXTURE_ROOT, getCaptureImage)).status, 404);
+  });
+
   test('拡張子が不明なファイルは、中身を推測させない形式にする', () => {
     assert.equal(getContentType('/x/file.unknown'), 'application/octet-stream');
     assert.equal(getContentType('/x/FILE.JS'), 'text/javascript; charset=utf-8');
