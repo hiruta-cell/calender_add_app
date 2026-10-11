@@ -21,6 +21,8 @@
   --color-warning-text: #a3251b;
   --color-notice-background: #fff8e1;
   --color-notice-text: #6b4e00;
+  --color-success-background: #e6f4ea;
+  --color-success-text: #1e6b34;
   --radius: 8px;
   --font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN',
     'Yu Gothic UI', 'Meiryo', sans-serif;
@@ -46,6 +48,8 @@
     --color-warning-text: #ffb4ab;
     --color-notice-background: #3d3214;
     --color-notice-text: #ffe08a;
+    --color-success-background: #1d3a26;
+    --color-success-text: #a8dab5;
   }
 }
 
@@ -347,4 +351,117 @@ body {
 .dialog-note {
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+/* ---- 予定の内容・手入力・時刻の選択・登録 ---- */
+.field-label {
+  display: block;
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+
+.text-field {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-background);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.text-field:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.memo-field {
+  resize: vertical;
+}
+
+.field-note {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.field-note-error {
+  color: var(--color-warning-text);
+  font-weight: 600;
+}
+
+.checkbox-label,
+.radio-label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.manual-date-form {
+  margin-top: 12px;
+}
+
+.manual-date-row {
+  display: flex;
+  gap: 8px;
+}
+
+.manual-date-input {
+  width: auto;
+}
+
+.time-choice {
+  margin: 4px 0 0 38px;
+}
+
+.radio-row {
+  display: flex;
+  gap: 16px;
+}
+
+.radio-label {
+  margin-top: 4px;
+}
+
+.time-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.time-label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.time-input {
+  width: auto;
+}
+
+.register-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.button-large {
+  width: 100%;
+  padding: 10px 16px;
+  font-weight: 600;
+}
+
+.success-message {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--color-success-background);
+  color: var(--color-success-text);
+}
+
+.error-banner-message {
+  white-space: pre-line; /* 複数のエラーを改行して表示する */
 }

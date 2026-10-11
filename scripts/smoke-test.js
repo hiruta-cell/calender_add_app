@@ -7,9 +7,11 @@
  *   - すでにアプリを起動している場合は、閉じてから実行する（多重起動防止のため）
  *   - --screenshot-dir <フォルダ> で画面の画像を保存する先を指定できる（既定：test-results/）
  *
- * 仕組み：Electron を --remote-debugging-port 付きで起動し、Chrome DevTools Protocol で画面を操作する。
- *   この接続口は 127.0.0.1（このPCの中）だけで開き、確認が終わるとアプリと一緒に閉じる。
- *   通常の起動（npm start）ではこの接続口は開かない。
+ * 仕組み：Electron を --remote-debugging-port（画面用）と --inspect（メインプロセス用）付きで起動し、
+ *   Chrome DevTools Protocol で操作する。どちらの接続口も 127.0.0.1（このPCの中）だけで開き、確認が終わると閉じる。
+ *   通常の起動（npm start）ではこれらの接続口は開かない。
+ *   登録の確認では、メインプロセスの shell.openExternal を「開こうとした URL を記録するだけ」の関数に差し替え、
+ *   実際のブラウザは開かない（アプリ本体に確認用のコードは入れない）。
  *
  * 入力に使う文面はすべて架空のもの（CLAUDE.md：実際のメールを使わない）。
  */
@@ -19,7 +21,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import electronPath from 'electron';
-import { MAX_INPUT_LENGTH } from '../src/core/dateExtractor.js';
+import { formatCalendarDate, formatCalendarDateTime } from '../src/core/calendarUrl.js';
+import { MAX_INPUT_LENGTH, extractDateCandidates } from '../src/core/dateExtractor.js';
+import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
 
 /** プロジェクトのフォルダ */
 const PROJECT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -33,10 +37,15 @@ const POLL_INTERVAL_MS = 200;
 /** 画面の更新を待つ時間（ミリ秒） */
 const UI_SETTLE_MS = 300;
 
-/** 架空のデモ文面（日時が3つ） */
+/** 架空のデモ文面（日時が3つ。件名・場所・会議 URL 付き） */
+const DEMO_TITLE = '【架空】第3回 定例会のご案内';
+const DEMO_LOCATION = 'オンライン(Zoom)';
+const DEMO_MEETING_URL = 'https://zoom.us/j/0000000000?pwd=example';
 const DEMO_TEXT = [
-  '【架空のデモ】次回定例会のご案内',
+  `件名：${DEMO_TITLE}`,
   '日時：10月15日(木)14時〜15時',
+  '場所：オンライン（Zoom）',
+  `参加URL：${DEMO_MEETING_URL}`,
   '予備日：来週火曜 午後3時半から',
   '資料の締切は明日です。',
 ].join('\n');
@@ -159,14 +168,14 @@ class DevToolsConnection {
 /**
  * Electron を、確認用の接続口（DevTools）付きで起動する。
  *
- * @returns {Promise<{child: import('node:child_process').ChildProcess, port: number}>}
+ * @returns {Promise<{child: import('node:child_process').ChildProcess, port: number, mainInspectorUrl: string}>}
  */
 function launchApp() {
   // ELECTRON_RUN_AS_NODE が設定されていると Electron が Node.js として動いてしまうため外す
   const environment = { ...process.env };
   delete environment.ELECTRON_RUN_AS_NODE;
 
-  const child = spawn(electronPath, [PROJECT_DIR, '--remote-debugging-port=0'], {
+  const child = spawn(electronPath, ['--inspect=0', '--remote-debugging-port=0', PROJECT_DIR], {
     cwd: PROJECT_DIR,
     env: environment,
     stdio: ['ignore', 'ignore', 'pipe'],
@@ -177,10 +186,12 @@ function launchApp() {
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk) => {
       stderrText += chunk;
-      // 起動すると「DevTools listening on ws://127.0.0.1:ポート番号/...」と出力される
-      const match = stderrText.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//);
-      if (match) {
-        resolve({ child, port: Number(match[1]) });
+      // 起動すると、画面用は「DevTools listening on ws://127.0.0.1:ポート番号/...」、
+      // メインプロセス用は「Debugger listening on ws://127.0.0.1:ポート番号/...」と出力される
+      const pageMatch = stderrText.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//);
+      const mainMatch = stderrText.match(/Debugger listening on (ws:\/\/127\.0\.0\.1:\d+\/\S+)/);
+      if (pageMatch && mainMatch) {
+        resolve({ child, port: Number(pageMatch[1]), mainInspectorUrl: mainMatch[1] });
       }
     });
     child.once('exit', (code) => {
@@ -255,6 +266,66 @@ async function clickButton(connection, label) {
 }
 
 /**
+ * React が管理する入力欄（日付・時刻など）に値を入れる（実際の入力と同じイベントを起こす）。
+ *
+ * @param {DevToolsConnection} connection
+ * @param {string} selector 入力欄の CSS セレクター
+ * @param {string} value 入れる値
+ */
+async function setInputValue(connection, selector, value) {
+  await connection.evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    if (!input) throw new Error('入力欄が見つかりません');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await sleep(UI_SETTLE_MS);
+}
+
+/**
+ * メインプロセスの shell.openExternal を、開こうとした URL を記録するだけの関数に差し替える。
+ *
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ */
+async function replaceOpenExternal(mainConnection) {
+  const response = await mainConnection.send('Runtime.evaluate', {
+    expression: `(() => {
+      const { shell } = require('electron');
+      globalThis.__smokeTestOpenedUrls = [];
+      shell.openExternal = async (url) => { globalThis.__smokeTestOpenedUrls.push(url); };
+      return true;
+    })()`,
+    includeCommandLineAPI: true,
+    returnByValue: true,
+  });
+  if (response.exceptionDetails || response.result.value !== true) {
+    throw new Error('メインプロセスの shell.openExternal を差し替えられませんでした');
+  }
+}
+
+/**
+ * メインプロセスが開こうとした URL の一覧を受け取る。
+ *
+ * @param {DevToolsConnection} mainConnection
+ * @returns {Promise<string[]>}
+ */
+async function getOpenedUrls(mainConnection) {
+  return mainConnection.evaluate('globalThis.__smokeTestOpenedUrls');
+}
+
+/**
+ * 登録ボタンを押し、処理が終わるまで待つ。
+ *
+ * @param {DevToolsConnection} connection
+ */
+async function clickRegister(connection) {
+  await connection.evaluate(`document.querySelector('.register-section button').click()`);
+  await waitFor(connection, `!document.querySelector('.register-section button').textContent.includes('開いています')`);
+  await sleep(UI_SETTLE_MS);
+}
+
+/**
  * 画面の画像を保存する。
  *
  * @param {DevToolsConnection} connection
@@ -271,12 +342,13 @@ async function saveScreenshot(connection, directory, fileName) {
 }
 
 /**
- * 機能の確認：抽出・候補・チェック・ポップアップ・エラー表示。
+ * 機能の確認：抽出・下書き・候補・登録・ポップアップ・手入力・エラー表示。
  *
- * @param {DevToolsConnection} connection
+ * @param {DevToolsConnection} connection 画面への接続
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続（開こうとした URL の確認に使う）
  * @param {string} screenshotDir 画像の保存先
  */
-async function checkFeatures(connection, screenshotDir) {
+async function checkFeatures(connection, mainConnection, screenshotDir) {
   // 1. 起動直後の画面
   record('画面が表示される', (await connection.evaluate(`document.querySelector('h1')?.textContent`)) === 'カレンダー登録ツール');
 
@@ -301,20 +373,93 @@ async function checkFeatures(connection, screenshotDir) {
   const marks = await connection.evaluate(`[...document.querySelectorAll('.highlighted-text mark')].map((mark) => mark.textContent)`);
   record('文章の日時部分が3か所色付けされる', marks.length === 3, marks.join(' / '));
 
-  // 3. 候補にチェックを付ける
-  await connection.evaluate(`document.querySelector('.candidate-checkbox').click()`);
+  // 3. 件名・場所・会議 URL の下書き
+  const drafts = await connection.evaluate(`({
+    title: document.querySelector('#event-title').value,
+    location: document.querySelector('#event-location').value,
+    meetingUrl: document.querySelector('#event-meeting-url').value,
+    memo: document.querySelector('#event-memo').value,
+  })`);
+  record('件名が下書きされる', drafts.title === DEMO_TITLE, drafts.title);
+  record('場所が下書きされる', drafts.location === DEMO_LOCATION, drafts.location);
+  record('会議 URL が下書きされる', drafts.meetingUrl === DEMO_MEETING_URL, drafts.meetingUrl);
+  record('メモは空のまま（元の文章を自動で入れない）', drafts.memo === '');
+
+  // 4. 1件目（時刻あり）と3件目（明日・日付だけ）にチェックを付けて登録する
+  await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[0].click()`);
+  await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[2].click()`);
   await sleep(UI_SETTLE_MS);
-  record('チェックを付けると選択件数が1件になる', (await connection.evaluate(`document.querySelector('.hint').textContent`)).includes('選択中：1 件'));
+  record('選択件数が2件になる', (await connection.evaluate(`document.querySelector('.candidate-panel .hint').textContent`)).includes('選択中：2 件'));
+  record(
+    '日付だけの候補は「終日」が選ばれている',
+    await connection.evaluate(`document.querySelector('.time-choice input[value="allDay"]')?.checked === true`),
+  );
   const candidatesImage = await saveScreenshot(connection, screenshotDir, '01-candidates.png');
 
-  // 4. 日時のない文面 → 「日時の情報がありません」
+  const expected = extractDateCandidates(DEMO_TEXT, { now: new Date() }).candidates;
+  const tomorrow = addDays(getTokyoDateTime(new Date()), 1);
+  await clickRegister(connection);
+  const openedUrls = await getOpenedUrls(mainConnection);
+  record('選んだ2件の予定作成画面を開く', openedUrls.length === 2, `${openedUrls.length}件`);
+  const [timedQuery, allDayQuery] = openedUrls.map((url) => new URL(url).searchParams);
+  record(
+    '1件目：日時（開始/終了）とタイムゾーンが正しい',
+    timedQuery?.get('dates') === `${formatCalendarDateTime(expected[0].start)}/${formatCalendarDateTime(expected[0].end)}` &&
+      timedQuery?.get('ctz') === 'Asia/Tokyo',
+    timedQuery?.get('dates'),
+  );
+  record(
+    '1件目：件名・場所・メモ（会議 URL）が入る',
+    timedQuery?.get('text') === DEMO_TITLE &&
+      timedQuery?.get('location') === DEMO_LOCATION &&
+      timedQuery?.get('details') === `オンライン会議：${DEMO_MEETING_URL}`,
+  );
+  record(
+    '2件目：明日の終日の予定（終了日は翌日）',
+    allDayQuery?.get('dates') === `${formatCalendarDate(tomorrow)}/${formatCalendarDate(addDays(tomorrow, 1))}`,
+    allDayQuery?.get('dates'),
+  );
+  record(
+    '登録の結果を知らせる',
+    (await connection.evaluate(`document.querySelector('.success-message')?.textContent ?? ''`)).includes('2 件の予定作成画面'),
+  );
+  const registeredImage = await saveScreenshot(connection, screenshotDir, '02-registered.png');
+
+  // 5. 日付だけの候補で「時刻を指定」に切り替える（1件目のチェックは外す）
+  await connection.evaluate(`document.querySelectorAll('.candidate-checkbox')[0].click()`);
+  await connection.evaluate(`document.querySelector('.time-choice input[value="specified"]').click()`);
+  await sleep(UI_SETTLE_MS);
+  await setInputValue(connection, '.time-choice input[type="time"]', '09:00');
+  await clickRegister(connection);
+  const specifiedUrl = (await getOpenedUrls(mainConnection)).at(-1);
+  record(
+    '「時刻を指定」で9:00を入れると 9:00〜10:00 の予定になる',
+    new URL(specifiedUrl).searchParams.get('dates') ===
+      `${formatCalendarDate(tomorrow)}T090000/${formatCalendarDate(tomorrow)}T100000`,
+  );
+
+  // 6. 日時のない文面 → 「日時の情報がありません」→ 手入力
   await replaceInputText(connection, NO_DATE_TEXT);
   await clickButton(connection, '日時を抽出');
   record('日時がないとポップアップが開く', await connection.evaluate(`document.querySelector('dialog').open`));
   record('ポップアップの文言', (await connection.evaluate(`document.querySelector('#no-date-dialog-title').textContent`)) === '日時の情報がありません');
-  const dialogImage = await saveScreenshot(connection, screenshotDir, '02-no-date-dialog.png');
-  await clickButton(connection, 'OK');
-  record('OK でポップアップが閉じる', (await connection.evaluate(`document.querySelector('dialog').open`)) === false);
+  const dialogImage = await saveScreenshot(connection, screenshotDir, '03-no-date-dialog.png');
+  await clickButton(connection, '手入力する');
+  record('「手入力する」でポップアップが閉じる', (await connection.evaluate(`document.querySelector('dialog').open`)) === false);
+  record('手入力の日付欄に移る', await connection.evaluate(`document.activeElement?.id === 'manual-date'`));
+  const manualDate = addDays(tomorrow, 6);
+  const manualDateText = `${manualDate.year}-${String(manualDate.month).padStart(2, '0')}-${String(manualDate.day).padStart(2, '0')}`;
+  await setInputValue(connection, '#manual-date', manualDateText);
+  await clickButton(connection, '追加');
+  record('手入力した日付が候補に追加され、チェックが付く', await connection.evaluate(
+    `document.querySelectorAll('.candidate-item').length === 1 && document.querySelector('.candidate-checkbox').checked`,
+  ));
+  await clickRegister(connection);
+  const manualUrl = (await getOpenedUrls(mainConnection)).at(-1);
+  record(
+    '手入力した日付を終日の予定として開く',
+    new URL(manualUrl).searchParams.get('dates') === `${formatCalendarDate(manualDate)}/${formatCalendarDate(addDays(manualDate, 1))}`,
+  );
 
   // 5. 長すぎる文章 → エラーを表示して待機状態に戻る
   await replaceInputText(connection, 'あ'.repeat(MAX_INPUT_LENGTH + 1));
@@ -328,7 +473,7 @@ async function checkFeatures(connection, screenshotDir) {
     await connection.evaluate(`document.querySelector('#source-text').value === '' && document.querySelector('.error-banner') === null`),
   );
 
-  return [candidatesImage, dialogImage];
+  return [candidatesImage, registeredImage, dialogImage];
 }
 
 /**
@@ -336,8 +481,26 @@ async function checkFeatures(connection, screenshotDir) {
  *
  * @param {DevToolsConnection} connection
  */
-async function checkSecurity(connection) {
+async function checkSecurity(connection, mainConnection) {
   isExpectingErrors = true; // ここで起きるエラーは意図的に起こしたもの
+
+  record(
+    '画面に公開されている機能は openCalendarEvents だけ',
+    JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp)`)) === JSON.stringify(['openCalendarEvents']) &&
+      (await connection.evaluate(`typeof window.ipcRenderer === 'undefined' && typeof window.electron === 'undefined'`)),
+  );
+  const openedBefore = (await getOpenedUrls(mainConnection)).length;
+  const invalidResults = await connection.evaluate(`Promise.all([
+    window.calendarApp.openCalendarEvents('not an array'),
+    window.calendarApp.openCalendarEvents([]),
+    window.calendarApp.openCalendarEvents([{ title: 'x'.repeat(100000), location: '', details: '', allDay: true, start: { year: 2026, month: 10, day: 15 }, end: null }]),
+    window.calendarApp.openCalendarEvents(Array.from({ length: 31 }, () => ({ title: '', location: '', details: '', allDay: true, start: { year: 2026, month: 10, day: 15 }, end: null }))),
+  ]).then((results) => results.map((result) => result.ok))`);
+  record(
+    '不正な登録要求（形式違い・空・長すぎる件名・31件）はメインプロセスで断られ、何も開かない',
+    JSON.stringify(invalidResults) === JSON.stringify([false, false, false, false]) &&
+      (await getOpenedUrls(mainConnection)).length === openedBefore,
+  );
 
   record(
     '画面から Node.js の機能（require / process）が使えない',
@@ -369,9 +532,13 @@ async function main() {
   const screenshotDir =
     screenshotDirIndex !== -1 ? path.resolve(process.argv[screenshotDirIndex + 1]) : path.join(PROJECT_DIR, 'test-results');
 
-  const { child, port } = await launchApp();
+  const { child, port, mainInspectorUrl } = await launchApp();
   let connection = null;
+  let mainConnection = null;
   try {
+    mainConnection = new DevToolsConnection(mainInspectorUrl);
+    await mainConnection.open();
+    await replaceOpenExternal(mainConnection);
     connection = await connectToMainWindow(port);
     // 画面のエラー（例外・console.error・CSP 違反などのログ）を集める
     connection.eventListeners.push((message) => {
@@ -387,13 +554,14 @@ async function main() {
     await connection.send('Log.enable');
     await waitFor(connection, `document.querySelector('#source-text') !== null`);
 
-    const images = await checkFeatures(connection, screenshotDir);
+    const images = await checkFeatures(connection, mainConnection, screenshotDir);
     record('機能確認の間に画面のエラーが起きていない', unexpectedErrors.length === 0, unexpectedErrors.join(' | '));
-    await checkSecurity(connection);
+    await checkSecurity(connection, mainConnection);
 
     console.log(`\n画面の画像：\n  ${images.join('\n  ')}`);
   } finally {
     connection?.close();
+    mainConnection?.close();
     child.kill();
   }
 

@@ -1,10 +1,13 @@
 /**
  * CandidateList.jsx
- * 目的：抽出した日時の候補を、チェックボックス付きの一覧で表示する（要件§5.3）。
+ * 目的：日時の候補を、チェックボックス付きの一覧で表示する（要件§5.3）。
+ * 日付だけの候補は、チェックを付けると「終日／時刻を指定」を選べる（要件§5.10）。
  */
 
 import { describeWarning, formatCandidateLabel } from '../../core/candidateFormatter.js';
 import { MAX_CANDIDATES } from '../../core/dateExtractor.js';
+import { DEFAULT_TIME_CHOICE } from '../../core/registration.js';
+import TimeChoiceFields from './TimeChoiceFields.jsx';
 
 /**
  * 候補の一覧。
@@ -15,6 +18,8 @@ import { MAX_CANDIDATES } from '../../core/dateExtractor.js';
  * @param {boolean} props.truncated 候補が多すぎて省いたか
  * @param {Set<string>} props.selectedIds チェックを付けた候補の ID
  * @param {(candidateId: string) => void} props.onToggle チェックを切り替えたときの処理
+ * @param {Record<string, object>} props.timeChoices 日付だけの候補の時刻の扱い（候補の ID → 選択）
+ * @param {(candidateId: string, changes: object) => void} props.onTimeChoiceChange 時刻の扱いを変えたときの処理
  * @param {number} props.defaultDurationMinutes 終了時刻がないときの予定の長さ（分）
  * @returns {JSX.Element}
  */
@@ -24,12 +29,15 @@ export default function CandidateList({
   truncated,
   selectedIds,
   onToggle,
+  timeChoices,
+  onTimeChoiceChange,
   defaultDurationMinutes,
 }) {
   if (!hasExtracted) {
     return (
       <p className="placeholder">
         左の欄に文章を貼り付けて「日時を抽出」を押すと、ここに日時の候補が表示されます。
+        日時を手入力で追加することもできます。
       </p>
     );
   }
@@ -54,9 +62,11 @@ export default function CandidateList({
               />
               <span className="candidate-body">
                 <span className="candidate-date">{formatCandidateLabel(candidate)}</span>
-                <span className="candidate-source">元の表記：「{candidate.sourceText}」</span>
+                <span className="candidate-source">
+                  {candidate.isManual ? '手入力した日付' : `元の表記：「${candidate.sourceText}」`}
+                </span>
                 <span className="badge-row">
-                  {!candidate.hasTime && <span className="badge badge-info">時刻の記載なし</span>}
+                  {!candidate.hasTime && !candidate.isManual && <span className="badge badge-info">時刻の記載なし</span>}
                   {candidate.endInferred && (
                     <span className="badge badge-info">
                       終了時刻の記載なし（{defaultDurationMinutes}分で設定）
@@ -70,6 +80,14 @@ export default function CandidateList({
                 </span>
               </span>
             </label>
+            {!candidate.hasTime && selectedIds.has(candidate.id) && (
+              <TimeChoiceFields
+                candidateId={candidate.id}
+                choice={timeChoices[candidate.id] ?? DEFAULT_TIME_CHOICE}
+                onChange={(changes) => onTimeChoiceChange(candidate.id, changes)}
+                defaultDurationMinutes={defaultDurationMinutes}
+              />
+            )}
           </li>
         ))}
       </ul>
