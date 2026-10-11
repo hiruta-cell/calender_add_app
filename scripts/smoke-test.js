@@ -12,6 +12,8 @@
  *   通常の起動（npm start）ではこれらの接続口は開かない。
  *   登録の確認では、メインプロセスの shell.openExternal を「開こうとした URL を記録するだけ」の関数に差し替え、
  *   実際のブラウザは開かない（アプリ本体に確認用のコードは入れない）。
+ *   範囲キャプチャの確認では、画面を撮影する関数（desktopCapturer.getSources）を、架空の画像を返す関数に差し替える。
+ *   そのため Mac の画面収録の許可は要らず、利用者の実際の画面も撮影しない。
  *
  * 入力に使う文面はすべて架空のもの（CLAUDE.md：実際のメールを使わない）。
  */
@@ -28,14 +30,22 @@ import { addDays, getTokyoDateTime } from '../src/core/dateUtils.js';
 /** プロジェクトのフォルダ */
 const PROJECT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 確認全体の制限時間（ミリ秒）。これを超えたら失敗として終了する（固まったままにしない） */
-const OVERALL_TIMEOUT_MS = 60_000;
+/** 確認全体の制限時間（ミリ秒）。正常なら約16秒で終わる。これを超えたら失敗として終了する（固まったままにしない） */
+const OVERALL_TIMEOUT_MS = 30_000;
 
 /** 画面の表示や接続を待つときの確認間隔（ミリ秒） */
 const POLL_INTERVAL_MS = 200;
 
+/** 1つの待ち（画面が開く・表示が変わる・OCR が終わるなど）の上限（ミリ秒）。通常はどれも3秒以内に終わる */
+const STEP_TIMEOUT_MS = 10_000;
+
 /** 画面の更新を待つ時間（ミリ秒） */
 const UI_SETTLE_MS = 300;
+
+/** 範囲キャプチャの確認で「撮影した画面」として使う架空の画像（等倍。拡大の処理も通る） */
+const CAPTURE_FIXTURE_PATH = path.join(PROJECT_DIR, 'test', 'fixtures', 'ocr', 'horizontal-email-1x.png');
+
+
 
 /** 架空のデモ文面（日時が3つ。件名・場所・会議 URL 付き） */
 const DEMO_TITLE = '【架空】第3回 定例会のご案内';
@@ -61,6 +71,9 @@ const unexpectedErrors = [];
 
 /** true の間に起きたエラーは「意図的に起こしたもの」として数えない（セキュリティの実地確認中） */
 let isExpectingErrors = false;
+
+/** 起動したアプリのプロセス。時間切れ・中断のときも必ず終了させるために保持する（常駐するため自分では終わらない） */
+let launchedApp = null;
 
 /**
  * 確認結果を記録して表示する。
@@ -117,7 +130,17 @@ class DevToolsConnection {
     const id = this.nextId;
     this.nextId += 1;
     this.socket.send(JSON.stringify({ id, method, params }));
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    return new Promise((resolve, reject) => {
+      // 返事が来ないまま止まらないよう、上限時間を過ぎたら失敗させる
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`${STEP_TIMEOUT_MS / 1000} 秒待っても返事がありませんでした：${method}`));
+      }, STEP_TIMEOUT_MS);
+      this.pending.set(id, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
+    });
   }
 
   /**
@@ -154,7 +177,8 @@ class DevToolsConnection {
       returnByValue: true,
     });
     if (response.exceptionDetails) {
-      throw new Error(`画面での実行に失敗: ${response.exceptionDetails.text}`);
+      const detail = response.exceptionDetails.exception?.description ?? response.exceptionDetails.text;
+      throw new Error(`画面での実行に失敗: ${detail}`);
     }
     return response.result.value;
   }
@@ -180,6 +204,7 @@ function launchApp() {
     env: environment,
     stdio: ['ignore', 'ignore', 'pipe'],
   });
+  launchedApp = child;
 
   return new Promise((resolve, reject) => {
     let stderrText = '';
@@ -207,9 +232,10 @@ function launchApp() {
  * @returns {Promise<DevToolsConnection>}
  */
 async function connectToMainWindow(port) {
-  for (;;) {
+  const deadline = Date.now() + STEP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
     const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
-    const page = targets.find((target) => target.type === 'page' && target.url.startsWith('app://bundle/'));
+    const page = targets.find((target) => target.type === 'page' && target.url.startsWith('app://bundle/index.html'));
     if (page) {
       const connection = new DevToolsConnection(page.webSocketDebuggerUrl);
       await connection.open();
@@ -217,21 +243,24 @@ async function connectToMainWindow(port) {
     }
     await sleep(POLL_INTERVAL_MS);
   }
+  throw new Error(`${STEP_TIMEOUT_MS / 1000} 秒待っても確認ウインドウが開きませんでした`);
 }
 
 /**
- * 画面の中で、条件の式が true になるまで待つ。
+ * 画面の中で、条件の式が true になるまで待つ。STEP_TIMEOUT_MS を過ぎたら、待っていた条件を示して失敗させる。
  *
  * @param {DevToolsConnection} connection
  * @param {string} conditionExpression 条件の式
  */
 async function waitFor(connection, conditionExpression) {
-  for (;;) {
+  const deadline = Date.now() + STEP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
     if (await connection.evaluate(conditionExpression)) {
       return;
     }
     await sleep(POLL_INTERVAL_MS);
   }
+  throw new Error(`${STEP_TIMEOUT_MS / 1000} 秒待っても次の状態になりませんでした：${conditionExpression.slice(0, 80)}`);
 }
 
 /**
@@ -312,6 +341,218 @@ async function replaceOpenExternal(mainConnection) {
  */
 async function getOpenedUrls(mainConnection) {
   return mainConnection.evaluate('globalThis.__smokeTestOpenedUrls');
+}
+
+/**
+ * メインプロセスの画面の撮影（desktopCapturer.getSources）を、架空の画像を返す関数に差し替える。
+ * Mac の画面収録の許可の確認（systemPreferences.getMediaAccessStatus）も「許可済み」を返すようにする。
+ *
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ */
+async function replaceScreenCapture(mainConnection) {
+  const response = await mainConnection.send('Runtime.evaluate', {
+    expression: `(() => {
+      const { desktopCapturer, nativeImage, screen, systemPreferences } = require('electron');
+      desktopCapturer.getSources = async () => {
+        const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+        const thumbnail = nativeImage.createFromPath(${JSON.stringify(CAPTURE_FIXTURE_PATH)});
+        return [{ id: 'screen:smoke-test', name: 'smoke-test', display_id: String(display.id), thumbnail, appIcon: null }];
+      };
+      systemPreferences.getMediaAccessStatus = () => 'granted';
+      return true;
+    })()`,
+    includeCommandLineAPI: true,
+    returnByValue: true,
+  });
+  if (response.exceptionDetails || response.result.value !== true) {
+    throw new Error('メインプロセスの画面の撮影を差し替えられませんでした');
+  }
+}
+
+
+/**
+ * 範囲選択の画面が開くまで待ち、接続する。開かなければ、確認ウインドウのエラー表示とともに失敗させる。
+ *
+ * @param {number} port DevTools の接続口の番号
+ * @param {DevToolsConnection} [mainWindowConnection] 確認ウインドウへの接続（開かなかった理由の表示に使う）
+ * @returns {Promise<DevToolsConnection>}
+ */
+async function connectToOverlay(port, mainWindowConnection) {
+  const deadline = Date.now() + STEP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
+    const page = targets.find((target) => target.type === 'page' && target.url.startsWith('app://bundle/overlay.html'));
+    if (page) {
+      const connection = new DevToolsConnection(page.webSocketDebuggerUrl);
+      await connection.open();
+      return connection;
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  const banner = mainWindowConnection
+    ? await mainWindowConnection.evaluate(`document.querySelector('.error-banner')?.textContent ?? '（エラー表示なし）'`)
+    : '';
+  throw new Error(`範囲選択の画面が開きませんでした ${banner}`);
+}
+
+/**
+ * 範囲選択の画面が閉じるまで待つ（上限 STEP_TIMEOUT_MS）。
+ *
+ * @param {number} port DevTools の接続口の番号
+ * @returns {Promise<boolean>} 閉じたら true
+ */
+async function waitForOverlayClosed(port) {
+  const deadline = Date.now() + STEP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
+    if (!targets.some((target) => target.url.startsWith('app://bundle/overlay.html'))) {
+      return true;
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  return false; // 閉じなかった（呼び出し側で不合格として記録する）
+}
+
+/**
+ * 範囲選択の画面で、左上から右下までドラッグする（実際のマウス操作と同じイベントを起こす）。
+ *
+ * @param {DevToolsConnection} overlayConnection 範囲選択の画面への接続
+ */
+async function dragWholeOverlay(overlayConnection) {
+  const { width, height } = await overlayConnection.evaluate('({ width: window.innerWidth, height: window.innerHeight })');
+  const start = { x: 2, y: 2 };
+  const end = { x: width - 2, y: height - 2 };
+  await overlayConnection.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
+  await overlayConnection.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: (start.x + end.x) / 2, y: (start.y + end.y) / 2, button: 'left', buttons: 1 });
+  await overlayConnection.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, button: 'left', buttons: 1 });
+  await overlayConnection.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', buttons: 0, clickCount: 1 });
+}
+
+/**
+ * 画面の中で、条件の式が true になるまで待つ（上限時間付き）。
+ *
+ * @param {DevToolsConnection} connection
+ * @param {string} conditionExpression 条件の式
+ * @param {number} timeoutMs 待つ上限（ミリ秒）
+ * @returns {Promise<boolean>} 条件を満たしたら true、時間切れなら false
+ */
+async function waitForWithTimeout(connection, conditionExpression, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await connection.evaluate(conditionExpression)) {
+      return true;
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  return false;
+}
+
+/**
+ * 範囲キャプチャの確認：取り込み → 範囲選択 → OCR → 日時の抽出、読み直し、中止、小さすぎる範囲。
+ *
+ * @param {DevToolsConnection} connection 確認ウインドウへの接続
+ * @param {DevToolsConnection} mainConnection メインプロセスへの接続
+ * @param {number} port DevTools の接続口の番号
+ * @param {string} screenshotDir 画像の保存先
+ * @returns {Promise<string[]>} 保存した画像のパス
+ */
+async function checkCapture(connection, mainConnection, port, screenshotDir) {
+  await replaceScreenCapture(mainConnection);
+  await clickButton(connection, 'クリア');
+
+  const hotkeyResponse = await mainConnection.send('Runtime.evaluate', {
+    expression: `require('electron').globalShortcut.isRegistered('CommandOrControl+Shift+Y')`,
+    includeCommandLineAPI: true,
+    returnByValue: true,
+  });
+  record('ホットキー（Ctrl/Cmd+Shift+Y）が登録されている', hotkeyResponse.result?.value === true);
+
+  // 1. 取り込み → 範囲選択 → OCR → 日時の抽出
+  await connection.evaluate(`[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る')).click()`);
+  const overlay = await connectToOverlay(port, connection);
+  const isScreenshotShown = await waitForWithTimeout(
+    overlay,
+    `document.querySelector('#screenshot')?.complete === true && document.querySelector('#screenshot').naturalWidth > 0`,
+    STEP_TIMEOUT_MS,
+  );
+  const overlayState = await overlay.evaluate(`(() => {
+    const image = document.querySelector('#screenshot');
+    return JSON.stringify({ readyState: document.readyState, url: location.href, src: image?.src, complete: image?.complete, width: image?.naturalWidth });
+  })()`);
+  record('範囲選択の画面に、撮影した画面が表示される', isScreenshotShown, isScreenshotShown ? '' : overlayState);
+  record(
+    '範囲選択の画面に公開されている機能は select と cancel だけ',
+    JSON.stringify(await overlay.evaluate('Object.keys(window.captureOverlay).sort()')) === JSON.stringify(['cancel', 'select']) &&
+      (await overlay.evaluate(`typeof require === 'undefined' && typeof process === 'undefined'`)),
+  );
+  const overlayImage = await saveScreenshot(overlay, screenshotDir, '04-overlay.png');
+  await dragWholeOverlay(overlay);
+  overlay.close();
+  record('範囲を選ぶと範囲選択の画面が閉じる', await waitForOverlayClosed(port));
+
+  const isRead = await waitForWithTimeout(
+    connection,
+    `document.querySelector('#source-text').value.includes('10月15日') && document.querySelectorAll('.candidate-item').length > 0`,
+    STEP_TIMEOUT_MS,
+  );
+  record('OCR で読み取った文章が入力欄に入り、日時が抽出される', isRead);
+  const firstCandidate = await connection.evaluate(`document.querySelector('.candidate-date')?.textContent ?? ''`);
+  record('1件目は「10月15日 14:00〜15:00」（等倍の画面を拡大して読み取り）', firstCandidate.includes('10月15日') && firstCandidate.endsWith('14:00〜15:00'), firstCandidate);
+  record(
+    '取り込んだ画像が表示され、横書きとして読み取った',
+    await connection.evaluate(`(() => {
+      const image = document.querySelector('.capture-image');
+      return image !== null && image.complete && image.naturalWidth > 0 &&
+        document.querySelector('.capture-panel').textContent.includes('横書きとして読み取りました');
+    })()`),
+  );
+  record('件名が下書きされる（OCR の文章から）', (await connection.evaluate(`document.querySelector('#event-title').value`)).includes('定例会'));
+  const captureImage = await saveScreenshot(connection, screenshotDir, '05-captured.png');
+
+  // 2. 縦書きで読み直す
+  await clickButton(connection, '縦書きで読み直す');
+  const isReread = await waitForWithTimeout(
+    connection,
+    `document.querySelector('.capture-panel').textContent.includes('縦書きとして読み取りました')`,
+    STEP_TIMEOUT_MS,
+  );
+  record('「縦書きで読み直す」で、縦書きとして読み直せる', isReread);
+
+  // 3. Esc で中止 → 範囲選択の画面が閉じ、エラーも出ない
+  await connection.evaluate(`[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る')).click()`);
+  const overlayForCancel = await connectToOverlay(port, connection);
+  await waitFor(overlayForCancel, `document.readyState === 'complete'`);
+  // 確認の実行中は範囲選択の画面が OS 上で選択されておらず、キー入力の命令（Input.dispatchKeyEvent）が届かないため、
+  // 画面の中で Esc キーのイベントを起こす（「Esc を受けて中止する」処理の流れを確かめる。実際のキーボードの確認は手動で行う）
+  // アプリが範囲選択の画面をすぐ閉じるため、命令の返事を先に返してからイベントを起こす
+  await overlayForCancel.evaluate(`setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), 50)`);
+  overlayForCancel.close();
+  const isClosedByEscape = await waitForOverlayClosed(port);
+  await sleep(UI_SETTLE_MS);
+  record(
+    'Esc で中止すると範囲選択の画面が閉じ、エラーも出ない（暗い画面を残さない）',
+    isClosedByEscape && (await connection.evaluate(`document.querySelector('.error-banner') === null`)),
+  );
+
+  // 4. 小さすぎる範囲 → メインプロセスで断られ、エラーを表示して待機状態に戻る
+  await connection.evaluate(`[...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る')).click()`);
+  const overlayForSmall = await connectToOverlay(port, connection);
+  await waitFor(overlayForSmall, `document.readyState === 'complete'`);
+  await overlayForSmall.evaluate(`setTimeout(() => window.captureOverlay.select({ x: 0, y: 0, width: 2, height: 2 }), 50)`);
+  overlayForSmall.close();
+  await waitForOverlayClosed(port);
+  const isSmallRejected = await waitForWithTimeout(
+    connection,
+    `(document.querySelector('.error-banner')?.textContent ?? '').includes('範囲が小さすぎます')`,
+    STEP_TIMEOUT_MS,
+  );
+  record('小さすぎる範囲はメインプロセスで断られ、エラーを表示して待機状態に戻る', isSmallRejected);
+  record(
+    'エラーのあとも、もう一度「画面から読み取る」を押せる（固まらない）',
+    await connection.evaluate(`![...document.querySelectorAll('button')].find((button) => button.textContent.startsWith('画面から読み取る')).disabled`),
+  );
+  await clickButton(connection, '閉じる');
+  return [overlayImage, captureImage];
 }
 
 /**
@@ -466,28 +707,44 @@ async function checkFeatures(connection, mainConnection, screenshotDir) {
       `${formatCalendarDate(tomorrow)}T090000/${formatCalendarDate(tomorrow)}T100000`,
   );
 
-  // 6. 日時のない文面 → 「日時の情報がありません」→ 手入力
+  // 6. 日時のない文面 → 「日時の情報がありません」→ ポップアップの中で日時を手入力
   await replaceInputText(connection, NO_DATE_TEXT);
   await clickButton(connection, '日時を抽出');
   record('日時がないとポップアップが開く', await connection.evaluate(`document.querySelector('dialog').open`));
   record('ポップアップの文言', (await connection.evaluate(`document.querySelector('#no-date-dialog-title').textContent`)) === '日時の情報がありません');
-  const dialogImage = await saveScreenshot(connection, screenshotDir, '03-no-date-dialog.png');
-  await clickButton(connection, '手入力する');
-  record('「手入力する」でポップアップが閉じる', (await connection.evaluate(`document.querySelector('dialog').open`)) === false);
-  record('手入力の日付欄に移る', await connection.evaluate(`document.activeElement?.id === 'manual-date'`));
+  record(
+    'ポップアップに、手入力の欄と次にすること（「追加する」）の説明がある',
+    await connection.evaluate(`document.querySelector('#dialog-manual-date') !== null && document.querySelector('.dialog-step').textContent.includes('追加する')`),
+  );
+  record('日付を入れるまで「追加する」は押せない', await connection.evaluate(
+    `[...document.querySelectorAll('dialog button')].find((button) => button.textContent.trim() === '追加する').disabled`,
+  ));
   const manualDate = addDays(tomorrow, 6);
-  const manualDateText = `${manualDate.year}-${String(manualDate.month).padStart(2, '0')}-${String(manualDate.day).padStart(2, '0')}`;
-  await setInputValue(connection, '#manual-date', manualDateText);
-  await clickButton(connection, '追加');
-  record('手入力した日付が候補に追加され、チェックが付く', await connection.evaluate(
-    `document.querySelectorAll('.candidate-item').length === 1 && document.querySelector('.candidate-checkbox').checked`,
+  const toDateInput = (date) => `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
+  await setInputValue(connection, '#dialog-manual-date', toDateInput(manualDate));
+  await setInputValue(connection, '#dialog-manual-start', '09:30');
+  const dialogImage = await saveScreenshot(connection, screenshotDir, '03-no-date-dialog.png');
+  await clickButton(connection, '追加する');
+  record('「追加する」でポップアップが閉じる', (await connection.evaluate(`document.querySelector('dialog').open`)) === false);
+  record('入力した日時が、チェック付き・「時刻を指定」の候補として加わる', await connection.evaluate(
+    `document.querySelectorAll('.candidate-item').length === 1 && document.querySelector('.candidate-checkbox').checked &&
+     document.querySelector('.time-choice input[value="specified"]')?.checked === true`,
   ));
   await clickRegister(connection);
   const manualUrl = (await getOpenedUrls(mainConnection)).at(-1);
   record(
-    '手入力した日付を終日の予定として開く',
-    new URL(manualUrl).searchParams.get('dates') === `${formatCalendarDate(manualDate)}/${formatCalendarDate(addDays(manualDate, 1))}`,
+    '手入力した 9:30 開始の予定を開く（終了は60分後）',
+    new URL(manualUrl).searchParams.get('dates') === `${formatCalendarDate(manualDate)}T093000/${formatCalendarDate(manualDate)}T103000`,
   );
+
+  // 7. 右の欄の「日時を手入力で追加」（日付だけ → 終日の候補）
+  const extraDate = addDays(manualDate, 1);
+  await setInputValue(connection, '#manual-date', toDateInput(extraDate));
+  await clickButton(connection, '追加');
+  record('右の欄から追加した日付は、チェック付き・「終日」の候補になる', await connection.evaluate(
+    `document.querySelectorAll('.candidate-item').length === 2 && document.querySelectorAll('.candidate-checkbox')[1].checked &&
+     document.querySelectorAll('.candidate-item')[1].querySelector('.time-choice input[value="allDay"]')?.checked === true`,
+  ));
 
   // 5. 長すぎる文章 → エラーを表示して待機状態に戻る
   await replaceInputText(connection, 'あ'.repeat(MAX_INPUT_LENGTH + 1));
@@ -513,8 +770,9 @@ async function checkSecurity(connection, mainConnection) {
   isExpectingErrors = true; // ここで起きるエラーは意図的に起こしたもの
 
   record(
-    '画面に公開されている機能は、決めた関数だけ（openCalendarEvents・openCalendarDay）',
-    JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp).sort()`)) === JSON.stringify(['openCalendarDay', 'openCalendarEvents']) &&
+    '画面に公開されている機能は、決めた関数だけ（登録・確認・取り込みの7つ）',
+    JSON.stringify(await connection.evaluate(`Object.keys(window.calendarApp).sort()`)) ===
+      JSON.stringify(['clearCapture', 'getAppStatus', 'onCaptureStatus', 'openCalendarDay', 'openCalendarEvents', 'rereadCapture', 'startCapture']) &&
       (await connection.evaluate(`typeof window.ipcRenderer === 'undefined' && typeof window.electron === 'undefined'`)),
   );
   const openedBefore = (await getOpenedUrls(mainConnection)).length;
@@ -592,6 +850,7 @@ async function main() {
     await waitFor(connection, `document.querySelector('#source-text') !== null`);
 
     const images = await checkFeatures(connection, mainConnection, screenshotDir);
+    images.push(...(await checkCapture(connection, mainConnection, port, screenshotDir)));
     record('機能確認の間に画面のエラーが起きていない', unexpectedErrors.length === 0, unexpectedErrors.join(' | '));
     await checkSecurity(connection, mainConnection);
 
@@ -599,7 +858,7 @@ async function main() {
   } finally {
     connection?.close();
     mainConnection?.close();
-    child.kill();
+    await stopLaunchedApp();
   }
 
   const failedCount = results.filter((result) => !result.passed).length;
@@ -607,11 +866,42 @@ async function main() {
   return failedCount === 0 ? 0 : 1;
 }
 
-// 制限時間を超えたら失敗として終了する（確認が固まったままにならないように）
+/** アプリの終了を待つ上限（ミリ秒）。過ぎたら強制終了する */
+const APP_EXIT_TIMEOUT_MS = 5_000;
+
+/**
+ * 起動したアプリを終了させる（アプリは常駐するため、閉じないと残り続け、次の確認が多重起動防止で動かなくなる）。
+ * 終了の合図を送り、終わらなければ APP_EXIT_TIMEOUT_MS 後に強制終了する。
+ *
+ * @returns {Promise<void>} アプリが終わったら解決する
+ */
+function stopLaunchedApp() {
+  const child = launchedApp;
+  if (child === null || child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const forceTimer = setTimeout(() => child.kill('SIGKILL'), APP_EXIT_TIMEOUT_MS);
+    child.once('exit', () => {
+      clearTimeout(forceTimer);
+      resolve();
+    });
+    child.kill();
+  });
+}
+
+// 制限時間を超えたら、アプリを終了させてから失敗として終了する（確認が固まったままにならないように）
 const timeout = setTimeout(() => {
-  console.error(`✖ ${OVERALL_TIMEOUT_MS / 1000} 秒以内に終わりませんでした`);
+  console.error(`✖ ${OVERALL_TIMEOUT_MS / 1000} 秒以内に終わりませんでした（最後に合格した確認の次で止まっています）`);
+  launchedApp?.kill('SIGKILL'); // すぐに終了するため、強制終了する
   process.exit(1);
 }, OVERALL_TIMEOUT_MS);
+
+// Ctrl+C で中断したときも、アプリを終了させる
+process.on('SIGINT', () => {
+  launchedApp?.kill('SIGKILL');
+  process.exit(130);
+});
 
 main()
   .then((exitCode) => {
