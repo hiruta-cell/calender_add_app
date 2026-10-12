@@ -86,6 +86,7 @@
 | `scripts/smoke-test.js` | アプリを実際に起動し、画面を自動操作して機能とセキュリティを確認する |
 | `scripts/generate-ocr-fixtures.js` | OCR のテスト用の画像（架空の文章）を作る（開発者が一度だけ実行） |
 | `scripts/ocr-diagnose.js` | OCR の診断（`npm run ocr:diagnose`）。PC の環境・文字データの指紋と、デモの架空の画像2枚を2種類の部品で読んだ結果を表示する（PC による違いの原因の切り分け） |
+| `scripts/ocr-diagnose-canvas.js` | OCR の診断（`npm run ocr:diagnose:canvas`）。縦書きのデモ画像をアプリと同じ方法で画面で PNG に変換し、変換前後の画素の違いと、Electron の本体の中で読んだ結果を表示する |
 | `scripts/ocr-diagnose-simd-worker.cjs` | 診断の作業スレッド。Tesseract の部品を relaxed SIMD を使わない版に差し替えて読ませる |
 | `scripts/generate-icons.js` | トレイとアプリのアイコンをコードで描いて作る（開発者がアイコンを作り直すときだけ実行） |
 | `scripts/generate-demo-images.js` | デモ用の架空の文面の画像を作る（開発者がデモ画像を作り直すときだけ実行） |
@@ -891,3 +892,16 @@
 |---|---|---|---|
 | `RELAXED_SIMD_CORE_PREFIX` | 定数 | `tesseract.js-core/tesseract-core-relaxedsimd` | 差し替える部品の名前 |
 | `resolveWithoutRelaxedSimd(request, ...rest)` | 関数 | 部品の名前を解決するときに relaxed SIMD 版を普通の SIMD 版に置き換える | relaxed SIMD を使わずに読ませる |
+
+## scripts/ocr-diagnose-canvas.js（画面での変換の診断）
+
+2026-10-12：Windows でだけ縦書きが文字化けする件で、Node.js・Electron の中の読み取りは正しいと分かったため、残る「画面での変換」を確かめる。見えないウインドウ（中身のない data: のページ）を1つ開くだけで、外部の内容は読み込まない。
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `PROJECT_DIR` / `IMAGE_PATH` / `IMAGE_IMPORT_SOURCE_PATH` | 定数 | リポジトリ／縦書きのデモ画像／アプリの変換の処理のファイル | 読むものを架空の画像に限る。処理を書き写さない |
+| `TEXT_PREVIEW_LENGTH` / `DIAGNOSE_NOW` | 定数 | 読んだ文章を表示する長さ／候補を数える基準日時 | 表示を短くし、結果を日によって変えない |
+| `convertLikeApp(original)` | 関数 | imageImport.js の処理を見えない画面の中で動かし、変換後の PNG を受け取る | アプリと同じ変換を再現する |
+| `comparePixels(before, after)` | 関数 | 変換前後の画素を比べ、違う割合と最大の差を返す | 変換で画像が変わったかを見る |
+| `printRecognition(label, image)` | 関数 | 画像を自動・縦書きで読み、結果を表示する | 変換の前後で読み取りの結果を比べる |
+| `main()` | 関数 | 診断の全体。終わったら Electron を終了する | 入口 |
