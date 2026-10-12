@@ -126,19 +126,33 @@ export function escapeXml(value) {
 }
 
 /**
- * Windows のコマンドラインの引数として、パスを二重引用符で囲む。
+ * Windows のコマンドラインの引数に使えるパスかを確かめる（囲まない）。
  * Windows のパスには二重引用符を使えないため、含まれていたら断る。末尾の \ は閉じる引用符を壊すため断る。
+ * app.setLoginItemSettings の args のように、Electron 自身が引用符で囲む場所ではこちらを使う（二重に囲まないため）。
  *
  * @param {string} value 絶対パス
- * @returns {string} 例："C:\Users\me\calender_add_app"
- * @throws {DesktopIntegrationError} 囲めないパスの場合
+ * @returns {string} 検査を通った同じパス（囲まない）
+ * @throws {DesktopIntegrationError} 使えないパスの場合
  */
-export function quoteWindowsArgument(value) {
+export function assertWindowsArgumentPath(value) {
   assertSafeAbsolutePath(value, 'win32');
   if (value.includes('"') || value.endsWith('\\')) {
     throw new DesktopIntegrationError('アプリの場所を確認できませんでした。');
   }
-  return `"${value}"`;
+  return value;
+}
+
+/**
+ * Windows のコマンドラインの引数として、パスを二重引用符で囲む（ショートカットの args 用）。
+ * 検査は assertWindowsArgumentPath と同じ。囲むのはショートカットの args が生のコマンド行だからで、
+ * 自動起動の args では使わない（Electron が囲むため、二重になりログイン時に起動できなくなる）。
+ *
+ * @param {string} value 絶対パス
+ * @returns {string} 例："C:\Users\me\calender_add_app" を囲んだもの
+ * @throws {DesktopIntegrationError} 囲めないパスの場合
+ */
+export function quoteWindowsArgument(value) {
+  return `"${assertWindowsArgumentPath(value)}"`;
 }
 
 /**
@@ -345,6 +359,8 @@ export function isReplaceableWindowsShortcut(existingShortcut) {
 /**
  * Windows のログイン時の自動起動の設定を作る（app.setLoginItemSettings・getLoginItemSettings に渡す）。
  * 確かめるときも、登録したときと同じ path・args を渡す必要がある。
+ * args のパスは囲まない。Electron が登録の値を作るときに囲むため、ここで囲むと「"\"…\""」と二重になり、
+ * ログイン時に「Unable to find Electron app」で起動できなくなる（2026-10-12 の Windows での確認）。
  *
  * @param {{electronPath: string, appPath: string, openAtLogin?: boolean}} options
  * @returns {{path: string, args: string[], openAtLogin?: boolean}}
@@ -352,7 +368,7 @@ export function isReplaceableWindowsShortcut(existingShortcut) {
 export function buildWindowsLoginItemSettings({ electronPath, appPath, openAtLogin }) {
   const settings = {
     path: assertSafeAbsolutePath(electronPath, 'win32'),
-    args: [quoteWindowsArgument(appPath), HIDDEN_START_ARGUMENT],
+    args: [assertWindowsArgumentPath(appPath), HIDDEN_START_ARGUMENT],
   };
   return openAtLogin === undefined ? settings : { ...settings, openAtLogin };
 }

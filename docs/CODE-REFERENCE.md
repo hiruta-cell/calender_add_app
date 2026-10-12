@@ -658,7 +658,8 @@
 | `CONTROL_CHARACTER_PATTERN` / `WINDOWS_FULL_PATH_PATTERN` | 定数（内部） | 改行などの制御文字／Windows の完全なパス（ドライブ名か、ネットワークの場所から始まる） | スクリプト・plist の行を壊すパスや、場所が定まらないパスを断る |
 | `DesktopIntegrationError` | クラス（公開） | 利用者向けの文付きのエラー（パスは文に含めない） | 個人の情報を表示しない |
 | `assertSafeAbsolutePath(value, style)` | 関数（公開） | 制御文字のない絶対パスか確かめる（Windows は完全なパスに限る） | 書き込む内容の検証 |
-| `quoteForPosixShell(value)` / `escapeXml(value)` / `quoteWindowsArgument(value)` | 関数（公開） | sh 用に囲む／XML 用に置き換える／Windows のコマンドの引数として囲む（二重引用符や末尾の円記号は断る） | パスに空白・記号があっても別の命令にならないようにする |
+| `quoteForPosixShell(value)` / `escapeXml(value)` / `quoteWindowsArgument(value)` | 関数（公開） | sh 用に囲む／XML 用に置き換える／Windows のショートカットの引数として二重引用符で囲む（二重引用符や末尾の円記号は断る） | パスに空白・記号があっても別の命令にならないようにする |
+| `assertWindowsArgumentPath(value)` | 関数（公開） | Windows の引数に使えるパスかを確かめ、同じパスを返す（囲まない。二重引用符・末尾の円記号は断る） | 自動起動の args を Electron に囲ませ、二重引用符にしないため |
 | `buildMacLauncherScript({electronPath, appPath})` | 関数（公開） | 起動用のスクリプト（ELECTRON_RUN_AS_NODE を外し、Electron にプロジェクトの場所を渡して exec） | アイコンから起動する |
 | `buildMacInfoPlist()` / `buildMacLaunchAgentPlist({launcherPath})` / `buildPlist(dictBody)` | 関数 | .app の Info.plist／自動起動の plist（open -a 起動用の .app --args --hidden。ログイン時に実行）／plist の共通部分 | Mac のアイコン・自動起動 |
 | `writeMacLauncher(options)` | 関数（公開） | launcher/ に起動用の .app を書く（スクリプト・Info.plist・アイコン。消すことはしない） | Mac のアイコン |
@@ -666,7 +667,7 @@
 | `enableMacAutoStart` / `disableMacAutoStart` / `isMacAutoStartEnabled` | 関数（公開） | LaunchAgent の plist を置く／消す／今の場所の起動用 .app を指しているか確かめる | Mac の自動起動（ゴール G8）。フォルダを移動したらオフと表示し、オンにして保存すれば今の場所で作り直す |
 | `isReplaceableWindowsShortcut(existingShortcut)` | 関数（公開） | 同じ名前のショートカットが、このアプリが前に作ったもの（説明が同じ）か | 利用者のショートカットを上書きしない |
 | `buildWindowsShortcutOptions(options)` | 関数（公開） | `shell.writeShortcutLink` に渡す内容（Electron・引用符で囲んだプロジェクトの場所・アイコン） | Windows のアイコン（ゴール G7） |
-| `buildWindowsLoginItemSettings(options)` | 関数（公開） | `app.setLoginItemSettings` に渡す内容（引用符で囲んだプロジェクトの場所と --hidden） | Windows の自動起動（ゴール G8） |
+| `buildWindowsLoginItemSettings(options)` | 関数（公開） | `app.setLoginItemSettings` に渡す内容（引用符で囲まないプロジェクトの場所と --hidden。囲むのは Electron） | Windows の自動起動（ゴール G8）。2026-10-12 の確認で、二重に囲むとログイン時に起動できなかったため変更 |
 
 ### captureGeometry.js（範囲の座標）
 

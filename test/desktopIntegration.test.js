@@ -21,6 +21,7 @@ import {
   MAC_LAUNCHER_BUNDLE_NAME,
   MAC_LAUNCH_AGENT_FILE_NAME,
   assertSafeAbsolutePath,
+  assertWindowsArgumentPath,
   buildMacLaunchAgentPlist,
   buildMacLauncherScript,
   buildWindowsLoginItemSettings,
@@ -90,6 +91,12 @@ describe('パスの確認とエスケープ', () => {
 
   test('XML の特別な文字を置き換える', () => {
     assert.equal(escapeXml(`<a href="x">&'</a>`), '&lt;a href=&quot;x&quot;&gt;&amp;&apos;&lt;/a&gt;');
+  });
+
+  test('Windows の引数の検査：囲まず、同じパスを返す。二重引用符・末尾の \\ は断る', () => {
+    assert.equal(assertWindowsArgumentPath('C:\\Users\\架空 さん\\calender_add_app'), 'C:\\Users\\架空 さん\\calender_add_app');
+    assert.throws(() => assertWindowsArgumentPath('C:\\Users\\a"b'), DesktopIntegrationError);
+    assert.throws(() => assertWindowsArgumentPath('C:\\Users\\app\\'), DesktopIntegrationError);
   });
 
   test('Windows の引数：空白を含んでも二重引用符で囲む。二重引用符・末尾の \\ は断る', () => {
@@ -231,15 +238,22 @@ describe('Windows のデスクトップのショートカットとログイン�
   test('ログイン時の起動：--hidden を付ける。確かめるときも同じ path・args を使う', () => {
     assert.deepEqual(buildWindowsLoginItemSettings({ electronPath, appPath, openAtLogin: true }), {
       path: electronPath,
-      args: [`"${appPath}"`, HIDDEN_START_ARGUMENT],
+      args: [appPath, HIDDEN_START_ARGUMENT],
       openAtLogin: true,
     });
-    assert.deepEqual(buildWindowsLoginItemSettings({ electronPath, appPath }), { path: electronPath, args: [`"${appPath}"`, HIDDEN_START_ARGUMENT] });
+    assert.deepEqual(buildWindowsLoginItemSettings({ electronPath, appPath }), { path: electronPath, args: [appPath, HIDDEN_START_ARGUMENT] });
+  });
+
+  test('ログイン時の起動の args は二重引用符で囲まない（Electron が囲むため。囲むと登録の値が「\"…\"」になり起動できない）', () => {
+    const { args } = buildWindowsLoginItemSettings({ electronPath, appPath });
+    assert.equal(args[0].includes('"'), false);
+    assert.equal(args[0], appPath);
   });
 
   test('使えないパスは断る', () => {
     assert.throws(() => buildWindowsShortcutOptions({ electronPath: 'electron.exe', appPath, iconPath }), DesktopIntegrationError);
     assert.throws(() => buildWindowsLoginItemSettings({ electronPath, appPath: 'C:\\a"b' }), DesktopIntegrationError);
+    assert.throws(() => buildWindowsLoginItemSettings({ electronPath, appPath: 'C:\\a\\' }), DesktopIntegrationError);
   });
 });
 
