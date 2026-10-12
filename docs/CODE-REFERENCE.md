@@ -22,6 +22,7 @@
 | `test/fixtures/` | テスト用の小さなファイル（app:// の配信テスト、OCR のテスト用の架空の画像） |
 | `demo/texts/` | README の「まず試す」で貼り付ける架空の文面3通（日本語のメール・チャット・英語のメール） |
 | `docs/` | 説明ファイル（このファイル、受け入れ基準） |
+| `docs/reports/` | Windows などで行った確認・調査の報告（Windows の Claude Code が書いて push し、Mac 側が読む。2026-10-12 依頼者の指示。ユーザー名・フォルダのパスは書かない） |
 | `dist/` | ビルド結果（`npm run build` で作られる。Git には含めない） |
 | `node_modules/` | インストールした部品（`npm ci` で作られる。Git には含めない） |
 | `test-results/` | 実機の自動確認で保存した画面の画像（Git には含めない） |
