@@ -85,6 +85,8 @@
 | `electron/security.js` | セキュリティ設定（隔離、外部通信の遮断、権限要求の拒否、外部への移動の禁止） |
 | `scripts/smoke-test.js` | アプリを実際に起動し、画面を自動操作して機能とセキュリティを確認する |
 | `scripts/generate-ocr-fixtures.js` | OCR のテスト用の画像（架空の文章）を作る（開発者が一度だけ実行） |
+| `scripts/ocr-diagnose.js` | OCR の診断（`npm run ocr:diagnose`）。PC の環境・文字データの指紋と、デモの架空の画像2枚を2種類の部品で読んだ結果を表示する（PC による違いの原因の切り分け） |
+| `scripts/ocr-diagnose-simd-worker.cjs` | 診断の作業スレッド。Tesseract の部品を relaxed SIMD を使わない版に差し替えて読ませる |
 | `scripts/generate-icons.js` | トレイとアプリのアイコンをコードで描いて作る（開発者がアイコンを作り直すときだけ実行） |
 | `scripts/generate-demo-images.js` | デモ用の架空の文面の画像を作る（開発者がデモ画像を作り直すときだけ実行） |
 | `test/*.test.js` | 各ファイルの単体テスト（詳しくは末尾の「test/」の表） |
@@ -864,3 +866,25 @@
 | desktopIntegration.test.js | — | アイコン・自動起動の中身の確認（一時フォルダ、空白や引用符を含む名前を使う） | 起動用スクリプトを偽の Electron で実際に動かす、plist の検証（Mac は plutil）、利用者のファイルを上書きしない、Windows の引数 |
 | fixtures/ | — | app:// のテスト用ファイル（`outside-secret.txt` は配信フォルダの外） | パストラバーサル対策の確認 |
 | fixtures/ocr/ | — | OCR のテスト用の架空の画像（横書きのメール 等倍・2倍、チャット、縦書きのお知らせ） | 文字の読み取りの確認 |
+
+## scripts/ocr-diagnose.js（OCR の診断）
+
+2026-10-12：Windows でだけ縦書きのデモ画像が文字化けする件の切り分けのため。読むのは demo/images の架空の画像だけで、引数で画像を受け取らない。
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `PROJECT_DIR` | 定数 | リポジトリのフォルダ | 画像・作業スレッドのスクリプトの場所 |
+| `DIAGNOSE_IMAGES` | 定数 | 読む画像と向き（1-mail-ja.png 横書き・3-notice-vertical.png 縦書き） | 架空の画像だけを読む |
+| `CORE_VARIANTS` | 定数 | 部品の種類（標準／relaxed SIMD を使わない） | CPU による計算の違いを比べる |
+| `TEXT_PREVIEW_LENGTH` / `DIAGNOSE_NOW` | 定数 | 読んだ文章を表示する長さ（60文字）／候補を数える基準日時 | 表示を短くし、結果を日によって変えない |
+| `describeFile(filePath)` | 関数 | ファイルの大きさと SHA-256 の先頭16文字を返す | PC の間で文字データが同じかを比べる |
+| `printEnvironment()` | 関数 | OS・CPU・Node.js・tesseract.js の版、SIMD・relaxed SIMD の対応、文字データの情報を表示 | 環境の違いを見る |
+| `diagnoseOne(target, variant)` | 関数 | 1枚の画像を1つの部品で読み、確信度・時間・読んだ文章の先頭・日時の候補の数を表示 | 結果の比較 |
+| `main()` | 関数 | 診断の全体 | 入口 |
+
+## scripts/ocr-diagnose-simd-worker.cjs（診断の作業スレッド）
+
+| 名前 | 種別 | 機能 | 目的 |
+|---|---|---|---|
+| `RELAXED_SIMD_CORE_PREFIX` | 定数 | `tesseract.js-core/tesseract-core-relaxedsimd` | 差し替える部品の名前 |
+| `resolveWithoutRelaxedSimd(request, ...rest)` | 関数 | 部品の名前を解決するときに relaxed SIMD 版を普通の SIMD 版に置き換える | relaxed SIMD を使わずに読ませる |

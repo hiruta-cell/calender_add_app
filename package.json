@@ -15,7 +15,8 @@
     "watch": "vite build --watch",
     "start": "npm run build && electron .",
     "test": "node --test \"test/**/*.test.js\"",
-    "test:smoke": "npm run build && node scripts/smoke-test.js"
+    "test:smoke": "npm run build && node scripts/smoke-test.js",
+    "ocr:diagnose": "node scripts/ocr-diagnose.js"
   },
   "dependencies": {
     "@tesseract.js-data/jpn": "1.0.0",
