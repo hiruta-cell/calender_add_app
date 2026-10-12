@@ -8,12 +8,14 @@
  * 個人情報（CLAUDE.md）：読むのは demo/images の架空の縦書きの画像だけ。ファイルには何も書かない。
  * 見えないウインドウを1つ開くだけで、外部のページ・ファイルは読み込まない（中身のない data: のページ）。
  * アプリの設定・常駐には関係しない（アプリとは別に起動し、終わったらすぐ終了する）。
+ * 画面の設定（拡大率・色の情報）と GPU の使われ方も表示する（10/12：PC を直接操作したときだけ失敗し、
+ * リモートデスクトップでは読めたため。画面の状態の違いを比べる）。
  */
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, nativeImage } from 'electron';
+import { app, BrowserWindow, nativeImage, screen } from 'electron';
 import { ORIENTATION_AUTO, ORIENTATION_VERTICAL, recognizeText } from '../electron/ocrEngine.js';
 import { extractDateCandidates } from '../src/core/dateExtractor.js';
 
@@ -92,6 +94,20 @@ function comparePixels(before, after) {
 }
 
 /**
+ * 画面の設定（解像度・拡大率・色の情報）と、GPU の使われ方を表示する。
+ */
+function printDisplayAndGpu() {
+  for (const display of screen.getAllDisplays()) {
+    console.log(
+      `画面：${display.size.width}×${display.size.height}、拡大率 ${display.scaleFactor}、色の情報 ${display.colorSpace ?? '不明'}、` +
+        `色の深さ ${display.colorDepth}bit（1色 ${display.depthPerComponent}bit）${display.internal ? '、内蔵の画面' : ''}`,
+    );
+  }
+  const gpu = app.getGPUFeatureStatus();
+  console.log(`GPU：2D の描画 ${gpu['2d_canvas']}、GPU による描画 ${gpu.gpu_compositing}、WebGL ${gpu.webgl}`);
+}
+
+/**
  * 画像を読み取り、結果を表示する。
  *
  * @param {string} label 表示の見出し
@@ -116,6 +132,7 @@ async function printRecognition(label, image) {
 async function main() {
   try {
     console.log(`== 環境：${process.platform} ${process.arch}　Electron ${process.versions.electron}　Chrome ${process.versions.chrome}`);
+    printDisplayAndGpu();
     const original = await readFile(IMAGE_PATH);
     const converted = await convertLikeApp(original);
     console.log(`== 画面での変換：元 ${original.length} バイト → 変換後 ${converted.length} バイト`);

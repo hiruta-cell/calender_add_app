@@ -903,5 +903,6 @@
 | `TEXT_PREVIEW_LENGTH` / `DIAGNOSE_NOW` | 定数 | 読んだ文章を表示する長さ／候補を数える基準日時 | 表示を短くし、結果を日によって変えない |
 | `convertLikeApp(original)` | 関数 | imageImport.js の処理を見えない画面の中で動かし、変換後の PNG を受け取る | アプリと同じ変換を再現する |
 | `comparePixels(before, after)` | 関数 | 変換前後の画素を比べ、違う割合と最大の差を返す | 変換で画像が変わったかを見る |
+| `printDisplayAndGpu()` | 関数 | 画面の解像度・拡大率・色の情報と、GPU の使われ方（2D の描画など）を表示する | PC を直接操作したときとリモートデスクトップのときの違いを比べる |
 | `printRecognition(label, image)` | 関数 | 画像を自動・縦書きで読み、結果を表示する | 変換の前後で読み取りの結果を比べる |
 | `main()` | 関数 | 診断の全体。終わったら Electron を終了する | 入口 |
