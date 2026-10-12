@@ -876,10 +876,13 @@
 | `PROJECT_DIR` | 定数 | リポジトリのフォルダ | 画像・作業スレッドのスクリプトの場所 |
 | `DIAGNOSE_IMAGES` | 定数 | 読む画像と向き（1-mail-ja.png 横書き・3-notice-vertical.png 縦書き） | 架空の画像だけを読む |
 | `CORE_VARIANTS` | 定数 | 部品の種類（標準／relaxed SIMD を使わない） | CPU による計算の違いを比べる |
+| `ELECTRON_OPTION` | 定数 | `--electron` | 同じ診断を Electron の中で動かす指定 |
 | `TEXT_PREVIEW_LENGTH` / `DIAGNOSE_NOW` | 定数 | 読んだ文章を表示する長さ（60文字）／候補を数える基準日時 | 表示を短くし、結果を日によって変えない |
 | `describeFile(filePath)` | 関数 | ファイルの大きさと SHA-256 の先頭16文字を返す | PC の間で文字データが同じかを比べる |
-| `printEnvironment()` | 関数 | OS・CPU・Node.js・tesseract.js の版、SIMD・relaxed SIMD の対応、文字データの情報を表示 | 環境の違いを見る |
+| `printEnvironment()` | 関数 | OS・CPU・Node.js・Electron・V8・tesseract.js の版、SIMD・relaxed SIMD の対応、文字データの情報を表示 | 環境の違いを見る |
 | `diagnoseOne(target, variant)` | 関数 | 1枚の画像を1つの部品で読み、確信度・時間・読んだ文章の先頭・日時の候補の数を表示 | 結果の比較 |
+| `diagnoseAppFunction()` | 関数 | アプリと同じ読み取りの関数（recognizeText。自動・縦書き）で縦書きの画像を読み、結果を表示 | アプリの読み取りの流れでの違いを見る |
+| `rerunInElectronIfRequested()` | 関数 | `--electron` のとき、このスクリプトを Electron の中（ELECTRON_RUN_AS_NODE=1）で動かし直す | Electron の新しい V8 での違いを見る |
 | `main()` | 関数 | 診断の全体 | 入口 |
 
 ## scripts/ocr-diagnose-simd-worker.cjs（診断の作業スレッド）

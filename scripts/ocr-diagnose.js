@@ -8,19 +8,31 @@
  *   2. 文字データ（jpn・jpn_vert）のファイルの大きさと指紋（SHA-256。PC の間で同じファイルかを比べる）
  *   3. デモの架空の画像2枚（横書き・縦書き）を、Tesseract の「標準の部品」と「relaxed SIMD を使わない部品」で読んだ結果
  *      （確信度・時間・読んだ文章の先頭・日時の候補の数）
+ *   4. アプリと同じ読み取りの関数（recognizeText。自動・縦書き）で縦書きの画像を読んだ結果
+ *
+ * --electron を付けると（npm run ocr:diagnose -- --electron）、同じ診断をアプリと同じ Electron の中で動かす
+ * （ELECTRON_RUN_AS_NODE=1。Electron は Node.js より新しい V8 を使うため、その違いを確かめる）。
  *
  * 個人情報（CLAUDE.md）：読むのはリポジトリの demo/images の架空の画像だけ（引数で画像を受け取らない）。
  * 読んだ文章を画面に出すのは、架空の文面だからできること。利用者の画像では使わない。ファイルには何も書かない。
- * アプリ本体（Electron）ではなく Node.js で動かす。文字データは PC 内のものを使い、外部から取得しない。
+ * アプリの画面は開かない。文字データは PC 内のものを使い、外部から取得しない。
  */
 
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildWorkerOptions, getLanguageSettings, ORIENTATION_HORIZONTAL, ORIENTATION_VERTICAL } from '../electron/ocrEngine.js';
+import {
+  buildWorkerOptions,
+  getLanguageSettings,
+  ORIENTATION_AUTO,
+  ORIENTATION_HORIZONTAL,
+  ORIENTATION_VERTICAL,
+  recognizeText,
+} from '../electron/ocrEngine.js';
 import { extractDateCandidates } from '../src/core/dateExtractor.js';
 import { cleanOcrText } from '../src/core/ocrText.js';
 
@@ -47,6 +59,9 @@ const CORE_VARIANTS = Object.freeze([
 /** 読んだ文章を表示する長さ（文字数） */
 const TEXT_PREVIEW_LENGTH = 60;
 
+/** Electron の中で動かす指定 */
+const ELECTRON_OPTION = '--electron';
+
 /** 日時の候補を数えるときの基準日時（結果が日によって変わらないよう固定する） */
 const DIAGNOSE_NOW = new Date('2026-10-12T01:00:00Z');
 
@@ -71,7 +86,8 @@ async function describeFile(filePath) {
 async function printEnvironment() {
   console.log('== PC の環境');
   console.log(`OS：${process.platform} ${os.release()}　CPU：${process.arch}（${os.cpus()[0]?.model ?? '不明'}）`);
-  console.log(`Node.js：${process.version}　tesseract.js：${require('tesseract.js/package.json').version}`);
+  console.log(`Node.js：${process.version}　Electron：${process.versions.electron ?? '（使っていない）'}　V8：${process.versions.v8}`);
+  console.log(`tesseract.js：${require('tesseract.js/package.json').version}`);
   console.log(`SIMD：${await simd()}　relaxed SIMD：${await relaxedSimd()}`);
   console.log('== 文字データ');
   for (const setting of Object.values(getLanguageSettings())) {
@@ -109,9 +125,50 @@ async function diagnoseOne(target, variant) {
 }
 
 /**
- * 診断の全体（環境の表示 → 画像ごと・部品ごとの読み取り）。
+ * アプリと同じ読み取りの関数（recognizeText）で縦書きの画像を読み、結果を表示する。
+ */
+async function diagnoseAppFunction() {
+  const image = await readFile(path.join(PROJECT_DIR, 'demo', 'images', '3-notice-vertical.png'));
+  for (const orientation of [ORIENTATION_AUTO, ORIENTATION_VERTICAL]) {
+    try {
+      const result = await recognizeText(image, { orientation });
+      const candidateCount = extractDateCandidates(result.text, { now: DIAGNOSE_NOW }).candidates.length;
+      console.log(
+        `3-notice-vertical.png／アプリの関数（${orientation}）：採用 ${result.orientation}、確信度 ${Math.round(result.confidence)}、` +
+          `読んだ向き ${result.triedOrientations.join('→')}、日時の候補 ${candidateCount} 件`,
+      );
+      console.log(`  読んだ文章：${result.text.replace(/\s+/g, ' ').slice(0, TEXT_PREVIEW_LENGTH)}`);
+    } catch (error) {
+      console.log(`3-notice-vertical.png／アプリの関数（${orientation}）：読み取りに失敗（${error?.message ?? '不明'}）`);
+    }
+  }
+}
+
+/**
+ * --electron のとき、このスクリプトを Electron の中（Node.js として動かす設定）で動かし直す。
+ *
+ * @returns {boolean} 動かし直した（このあと何もしない）なら true
+ */
+function rerunInElectronIfRequested() {
+  if (!process.argv.includes(ELECTRON_OPTION) || process.versions.electron !== undefined) {
+    return false;
+  }
+  const electronPath = require('electron'); // Node.js から読むと、Electron の実行ファイルの場所が返る
+  const result = spawnSync(electronPath, [fileURLToPath(import.meta.url)], {
+    stdio: 'inherit',
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  });
+  process.exitCode = result.status ?? 1;
+  return true;
+}
+
+/**
+ * 診断の全体（環境の表示 → 画像ごと・部品ごとの読み取り → アプリの関数での読み取り）。
  */
 async function main() {
+  if (rerunInElectronIfRequested()) {
+    return;
+  }
   await printEnvironment();
   console.log('== 読み取りの結果');
   for (const target of DIAGNOSE_IMAGES) {
@@ -119,6 +176,7 @@ async function main() {
       await diagnoseOne(target, variant);
     }
   }
+  await diagnoseAppFunction();
   console.log('== 終わり（この表示をそのまま貼り付けてください）');
 }
 
