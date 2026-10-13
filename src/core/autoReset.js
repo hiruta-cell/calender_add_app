@@ -62,9 +62,8 @@ export function scheduleAutoReset({
   };
 
   /** 操作されたら、予約を取り消す */
-  function handleActivity(event) {
+  function handleActivity() {
     if (stop()) {
-      console.log(`[自動クリア診断] 操作で取り消し：${event?.type}（${new Date().toISOString()}）`); // 一時的な診断（コミットしない）
       onCancel();
     }
   }
@@ -73,9 +72,7 @@ export function scheduleAutoReset({
     // capture：画面の部品がイベントを止めても気付けるように。passive：スクロールなどの動きを遅らせない
     activityTarget.addEventListener(type, handleActivity, { capture: true, passive: true });
   }
-  console.log(`[自動クリア診断] 予約：${delayMs} ms 後（${new Date().toISOString()}）`); // 一時的な診断（コミットしない）
   timerId = setTimer(() => {
-    console.log(`[自動クリア診断] 時間切れ（${new Date().toISOString()}）、予約が残っている：${isScheduled}`); // 一時的な診断（コミットしない）
     if (stop()) {
       onReset();
     }

@@ -179,12 +179,6 @@ function createMainWindow({ show = true } = {}) {
   if (show) {
     window.once('ready-to-show', () => window.show());
   }
-  // 一時的な診断（コミットしない）：画面の console.log を、起動したターミナルにも出す
-  window.webContents.on('console-message', (event) => {
-    if (event.message.startsWith('[自動クリア診断]')) {
-      console.log(event.message);
-    }
-  });
   // 閉じるボタンでは終了せず隠す（常駐）。取り込んだ画像はこのときに消す
   window.on('close', (event) => {
     if (!isQuitting) {
