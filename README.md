@@ -67,6 +67,15 @@ Mac では初回に画面収録の許可が必要です（[Mac での画面取�
 
 ---
 
+## 案内ページ（GitHub Pages）
+
+紹介と起動手順をまとめた案内ページを、GitHub Pages で公開できるように準備しています（[site/](site/) フォルダ）。
+公開されるのは `site/` の中だけです。ソースコードや `docs/` の中身は公開しません。
+
+- 公開先（公開を有効にしたあと）：https://hiruta-cell.github.io/calender_add_app/
+- 公開の手順：リポジトリの Settings → Pages → Build and deployment の Source を「GitHub Actions」にします。以降は `main` の `site/` を変えて push すると自動で公開されます（[.github/workflows/pages.yml](.github/workflows/pages.yml)）。
+- アプリ本体は GitHub Pages では動きません。アプリは、上の「起動手順」のとおり `npm start` で起動します。
+
 ## 必要なもの
 
 - **Node.js 22.12 以上**（`node -v` で確認できます）

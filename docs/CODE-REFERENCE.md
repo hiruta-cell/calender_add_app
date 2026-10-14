@@ -2,7 +2,7 @@
 
 コードを追加・改名・削除したら、同じ変更の中でこの一覧も更新する（[CLAUDE.md](../CLAUDE.md) 参照）。
 
-- 最終更新：2026-10-11（4日目：設定画面・デスクトップのアイコン・ログイン時の自動起動）
+- 最終更新：2026-10-14（GitHub Pages で公開する案内ページ `site/` と、公開の手順 `.github/workflows/pages.yml` を追加。前回：2026-10-11 の4日目 設定画面・デスクトップのアイコン・ログイン時の自動起動）
 - 「公開」は他のファイルから使えるもの（export）、「内部」はそのファイルの中だけで使うもの
 
 ## フォルダの意味
@@ -21,6 +21,8 @@
 | `test/` | 単体テスト（Node.js 標準の `node:test`） |
 | `test/fixtures/` | テスト用の小さなファイル（app:// の配信テスト、OCR のテスト用の架空の画像） |
 | `demo/texts/` | README の「まず試す」で貼り付ける架空の文面3通（日本語のメール・チャット・英語のメール） |
+| `site/` | GitHub Pages で公開する案内ページ（静的な HTML と CSS と画像）。公開されるのはこのフォルダの中だけ。外部のスクリプト・フォント・CDN は使わない |
+| `.github/workflows/` | GitHub Actions の手順。`pages.yml` は `site/` を GitHub Pages へ公開する（`main` への push で動く） |
 | `docs/` | 説明ファイル（このファイル、受け入れ基準） |
 | `docs/reports/` | Windows などで行った確認・調査の報告（Windows の Claude Code が書いて push し、Mac 側が読む。2026-10-12 依頼者の指示。ユーザー名・フォルダのパスは書かない） |
 | `dist/` | ビルド結果（`npm run build` で作られる。Git には含めない） |
@@ -92,6 +94,10 @@
 | `scripts/generate-icons.js` | トレイとアプリのアイコンをコードで描いて作る（開発者がアイコンを作り直すときだけ実行） |
 | `scripts/generate-demo-images.js` | デモ用の架空の文面の画像を作る（開発者がデモ画像を作り直すときだけ実行） |
 | `test/*.test.js` | 各ファイルの単体テスト（詳しくは末尾の「test/」の表） |
+| `site/index.html` | 案内ページ本体。紹介・プライバシー・はじめかた・注意を書く。CSP（外部通信とスクリプトの禁止）を meta で設定する |
+| `site/styles.css` | 案内ページの見た目。色は `:root` の変数で決め、ダークモードの色も持つ |
+| `site/app.png` | 案内ページのアイコン（`assets/icons/app.png` の複製。アイコンを変えたら両方を更新する） |
+| `.github/workflows/pages.yml` | `site/` だけを GitHub Pages に公開する手順。公式アクションはコミット SHA で固定する。公開先：https://hiruta-cell.github.io/calender_add_app/ |
 | `README.md` | 利用者向けの説明（起動手順、使い方、対応する書き方） |
 | `CLAUDE.md` | 開発のルール（セキュリティ方針、コーディング規約など） |
 | `requirements-memo.md` | 要件の一次資料（決定事項と追加決定事項 §12） |
@@ -867,6 +873,7 @@
 | settingsIpc.test.js | — | 設定の通信の確認（偽のホットキー・自動起動・保存先を使う） | 送信元・内容の検証、失敗したら元に戻す、重ねた保存を断る、preload と一致 |
 | clipboardImport.test.js | — | コピーした文章の読み取りの確認（クリップボードを読む関数を差し替える） | 空・長すぎる・読めないときの案内、送信元の検証、preload と一致 |
 | desktopIntegration.test.js | — | アイコン・自動起動の中身の確認（一時フォルダ、空白や引用符を含む名前を使う） | 起動用スクリプトを偽の Electron で実際に動かす、plist の検証（Mac は plutil）、利用者のファイルを上書きしない、Windows の引数 |
+| site.test.js | `INDEX_HTML`、`STYLES_CSS`、`collectUrlAttributes()` | 案内ページに外部スクリプト・インラインのスタイル・外部の URL がなく、CSP が設定されていることを確かめる（ネットワークには接続しない） | 外部リソースの混入を防ぐ（CLAUDE.md のセキュリティ方針）。参照先のファイルがあるかも確認 |
 | fixtures/ | — | app:// のテスト用ファイル（`outside-secret.txt` は配信フォルダの外） | パストラバーサル対策の確認 |
 | fixtures/ocr/ | — | OCR のテスト用の架空の画像（横書きのメール 等倍・2倍、チャット、縦書きのお知らせ） | 文字の読み取りの確認 |
 

@@ -1,0 +1,76 @@
+<!doctype html>
+<!--
+  ページの目的：GitHub Pages で公開する案内ページ（カレンダー登録ツールの紹介と起動手順）。
+  注意：
+  - スクリプト・フォント・画像・CDN は使わない（すべて同梱し、外部から読み込まない）。
+  - 外部への通信を禁止する CSP を設定する（script を許可しない、接続しない）。
+  - 外部サイトへのリンクは GitHub のリポジトリだけにし、rel="noopener noreferrer" を付ける。
+  - リンクは相対パスにして、GitHub Pages のフォルダ名（/calender_add_app/）が変わっても動くようにする。
+-->
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- CSP：読み込めるものを自分のファイル（style-src 'self'）だけに限る。スクリプトと外部通信は禁止 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="description" content="メールやメッセージの文章から日時を見つけ、Googleカレンダーの予定作成画面を開くデスクトップツールの案内ページです。">
+  <title>カレンダー登録ツール</title>
+  <link rel="icon" href="app.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <img class="app-icon" src="app.png" width="64" height="64" alt="">
+    <h1>カレンダー登録ツール</h1>
+    <p class="lead">メールやメッセージの文章から日付・時刻を見つけ出し、Googleカレンダーの予定作成画面を開くデスクトップツールです。</p>
+  </header>
+
+  <main>
+    <section aria-labelledby="features-title">
+      <h2 id="features-title">できること</h2>
+      <ul>
+        <li>文章を貼り付けて、日時の候補を一覧で確かめられます。</li>
+        <li>件名・場所・メモを自動で入れ、Googleカレンダーの予定作成画面を開きます。</li>
+        <li>コピーした文章は、ショートカットキーひとつで読み取れます。</li>
+        <li>画面の範囲や画像からの読み取りは実験機能です（読み間違いがあるため、必ず内容を確かめてください）。</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="privacy-title">
+      <h2 id="privacy-title">プライバシー</h2>
+      <p>日時の解析はすべて、お使いの PC の中で行います。文章や画像を外部のサービスへ送ることはありません。</p>
+      <p>外部へ送られるのは、「保存」を押して登録した予定の内容だけです（Googleカレンダーの画面で行います）。</p>
+    </section>
+
+    <section aria-labelledby="start-title">
+      <h2 id="start-title">はじめかた</h2>
+      <p>動作には <strong>Node.js 22.12 以上</strong> と <strong>Git</strong> が必要です。Windows と Mac で使えます。</p>
+      <p>ターミナル（Windows は「コマンド プロンプト」か「PowerShell」）で、次の順に実行します。</p>
+      <pre><code>git clone https://github.com/hiruta-cell/calender_add_app.git
+cd calender_add_app
+npm ci
+npm start</code></pre>
+      <p>「カレンダー登録ツール」のウインドウが開けば成功です。手順の詳細と試し方は README にあります。</p>
+      <p><a class="button" href="https://github.com/hiruta-cell/calender_add_app#まず試すデモの文面で約5分" rel="noopener noreferrer" target="_blank">README（まず試す）を開く</a></p>
+    </section>
+
+    <section aria-labelledby="notes-title">
+      <h2 id="notes-title">注意</h2>
+      <ul>
+        <li>インストーラーはありません。上の手順でプロジェクトのフォルダから起動します。</li>
+        <li>ウインドウを閉じてもアプリは終了せず、タスクトレイ（Mac はメニューバー）に残ります。</li>
+        <li>Mac で画面の範囲を読み取るには、初回に画面収録の許可が必要です。</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      ソースコードと詳しい説明は
+      <a href="https://github.com/hiruta-cell/calender_add_app" rel="noopener noreferrer" target="_blank">GitHub のリポジトリ</a>
+      にあります（MIT ライセンス）。
+    </p>
+    <p>このページは、リポジトリの <code>site/</code> フォルダを GitHub Pages で公開したものです。</p>
+  </footer>
+</body>
+</html>
