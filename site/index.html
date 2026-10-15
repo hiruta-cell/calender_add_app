@@ -59,7 +59,9 @@ npm start</code></pre>
       <ul>
         <li>インストーラーはありません。上の手順でプロジェクトのフォルダから起動します。</li>
         <li>ウインドウを閉じてもアプリは終了せず、タスクトレイ（Mac はメニューバー）に残ります。</li>
-        <li>Mac で画面の範囲を読み取るには、初回に画面収録の許可が必要です。</li>
+        <li>Mac で画面の範囲を読み取るには、初回に画面収録の許可が必要です（<a href="https://github.com/hiruta-cell/calender_add_app#mac-での画面取り込みの許可" rel="noopener noreferrer" target="_blank">許可の手順</a>）。デスクトップのアイコンから起動する場合は、プロジェクトの <code>launcher</code> フォルダの「カレンダー登録ツール.app」を許可の一覧に追加します。</li>
+        <li>許可の一覧でオンになっているのに取り込めないときは、その項目を「−」で消し、「＋」で追加し直してから、アプリを起動し直してください。Electron の更新（<code>npm ci</code> など）やアイコンの作り直しのあとに起こりやすくなります（<a href="https://github.com/hiruta-cell/calender_add_app#オンになっているのに取り込めないとき" rel="noopener noreferrer" target="_blank">詳しい手順</a>）。</li>
+        <li>以前に入手した人は、プロジェクトのフォルダで <code>git pull</code> と <code>npm ci</code> を実行してから起動し直すと、最新の版になります。</li>
       </ul>
     </section>
   </main>
