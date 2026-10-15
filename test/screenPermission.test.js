@@ -41,4 +41,10 @@ describe('buildScreenPermissionMessage：案内文', () => {
   test('判別できないときは「起動したアプリ（ターミナルなど）」と案内する', () => {
     assert.match(buildScreenPermissionMessage(null), /このアプリを起動したアプリ（ターミナルなど）/);
   });
+
+  test('どの案内にも、オンなのに効かないときの直し方（「−」で消して「+」で追加し直す）を付ける', () => {
+    for (const appName of [null, 'Electron', 'カレンダー登録ツール']) {
+      assert.match(buildScreenPermissionMessage(appName), /「−」で消し、「\+」で追加し直して/, String(appName));
+    }
+  });
 });

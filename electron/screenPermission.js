@@ -55,10 +55,18 @@ export function getScreenPermissionAppName(environment) {
 export function buildScreenPermissionMessage(appName) {
   const settingsPath = 'Mac の「システム設定」→「プライバシーとセキュリティ」→「画面収録とシステムオーディオ録音」';
   if (appName === null) {
-    return `画面を取り込む許可がありません。${settingsPath}で、このアプリを起動したアプリ（ターミナルなど）をオンにし、そのアプリを終了して開き直してから、もう一度起動してください。`;
+    return `画面を取り込む許可がありません。${settingsPath}で、このアプリを起動したアプリ（ターミナルなど）をオンにし、そのアプリを終了して開き直してから、もう一度起動してください。${STALE_PERMISSION_HINT}`;
   }
   if (appName === 'Electron') {
-    return `画面を取り込む許可がありません。${settingsPath}で「Electron」をオンにしてから、このアプリを終了して起動し直してください。`;
+    return `画面を取り込む許可がありません。${settingsPath}で「Electron」をオンにしてから、このアプリを終了して起動し直してください。${STALE_PERMISSION_HINT}`;
   }
-  return `画面を取り込む許可がありません。${settingsPath}で「${appName}」をオンにし、${appName}を終了して開き直してから、もう一度このアプリを起動してください。`;
+  return `画面を取り込む許可がありません。${settingsPath}で「${appName}」をオンにし、${appName}を終了して開き直してから、もう一度このアプリを起動してください。${STALE_PERMISSION_HINT}`;
 }
+
+/**
+ * 一覧でオンなのに許可が効かないときの直し方（案内文の最後に付ける）。
+ * Electron は簡易署名（開発元の ID なし）のため、macOS は許可をその版のバイナリに結び付ける。
+ * Electron の更新や起動用 .app の作り直しのあとは、一覧の表示はオンのままでも許可が効かなくなる（2026-10-15 依頼者の実機で発生）。
+ */
+const STALE_PERMISSION_HINT =
+  'すでにオンになっているのに取り込めないとき（更新やアイコンの作り直しのあと）は、一覧のその項目を「−」で消し、「+」で追加し直してください。';
