@@ -824,9 +824,11 @@
 | `OUTPUT_DIR` | 定数 | test/fixtures/ocr | 画像の保存先 |
 | `FONT_FAMILY` | 定数 | Mac・Windows の標準の日本語書体 | 画面の文字に近い画像にする |
 | `EMAIL_LINES` / `CHAT_LINES` / `VERTICAL_LINES` | 定数 | 架空のメール・チャット・縦書きのお知らせ | 画像に描く文章 |
+| `APPLICATION_HEADING_LINES` / `APPLICATION_LINES` | 定数 | 架空の申込完了の案内の見出しと本文（「日時：」の行の次の行に `19:00~21:00`） | 依頼者の画像と同じ配置で、見出しのない時刻の結び付けを確かめる |
+| `HEADING_FONT_SCALE` | 定数 | 見出しの文字の大きさ（本文の 1.9 倍） | 大きな太字の見出しを描く |
 | `FIXTURES` | 定数 | 作る画像の一覧（等倍・2倍、横書き・縦書き） | 画面の拡大率の違いを再現する |
-| `buildHtml(fixture)` | 関数 | 画像に描く HTML を作る | 文章の描画 |
-| `renderFixture(window, fixture)` | 関数 | 1枚の画像を作って保存する（同じ画面を書き換えて撮影） | 画像の作成 |
+| `buildHtml(fixture)` | 関数 | 画像に描く HTML を作る（見出しの行があれば大きな太字で描く） | 文章の描画 |
+| `renderFixture(window, fixture)` | 関数 | 1枚の画像を作って保存する（同じ画面を書き換えて撮影）。既にある画像は上書きせず飛ばす | 画像の作成 |
 
 ## scripts/generate-icons.js（トレイとアプリのアイコンを作る）
 
@@ -870,7 +872,7 @@
 | screenPermission.test.js | — | 起動元のアプリの判別と案内文の確認 | ターミナル・VSCode・判別できない場合 |
 | captureIpc.test.js | `createTestHandlers()` | 範囲キャプチャの通信の受け付けと preload の確認 | 送信元・向きの検証、重ねて始めない、公開する関数が決めたものだけ |
 | demoTexts.test.js | `DEMO_TEXT_DIR`、`PRESENTATION_NOW`、`runDemo()`、`openedQueries()` | デモの文面3通を、今日を発表日（10/16）に固定して抽出し、README の「まず試す」どおりの候補・下書き・予定作成 URL になるか確かめる | 文面や規則を変えて README と食い違ったら気付けるようにする |
-| ocrEngine.test.js | `FIXTURE_DIR`、`NOW`、`readFixture()` | 架空の画像で実際に読み取る | 横書き・縦書きの自動判定、PC 内の文字データの使用、ファイルを書き出さない、時間切れ |
+| ocrEngine.test.js | `FIXTURE_DIR`、`NOW`、`readFixture()` | 架空の画像で実際に読み取る | 横書き・縦書きの自動判定、「日時：」の行と次の行の時刻の結び付け（申込完了の案内）、PC 内の文字データの使用、ファイルを書き出さない、時間切れ |
 | settings.test.js | — | 設定の選択肢・検証・ファイルから読んだ値の整え方・表記の確認 | 選択肢にない値・余分な項目を断る、壊れた値は既定値、Ctrl・Cmd を必ず含む |
 | settingsStore.test.js | — | 設定の保存・読み込みの確認（一時フォルダを使う） | 3項目だけ保存、権限 600、壊れた・大きすぎるファイルでも既定値で動く |
 | settingsIpc.test.js | — | 設定の通信の確認（偽のホットキー・自動起動・保存先を使う） | 送信元・内容の検証、失敗したら元に戻す、重ねた保存を断る、preload と一致 |
@@ -878,7 +880,7 @@
 | desktopIntegration.test.js | — | アイコン・自動起動の中身の確認（一時フォルダ、空白や引用符を含む名前を使う） | 起動用スクリプトを偽の Electron で実際に動かす、plist の検証（Mac は plutil）、利用者のファイルを上書きしない、Windows の引数 |
 | site.test.js | `INDEX_HTML`、`STYLES_CSS`、`collectUrlAttributes()` | 案内ページに外部スクリプト・インラインのスタイル・外部の URL がなく、CSP が設定されていることを確かめる（ネットワークには接続しない） | 外部リソースの混入を防ぐ（CLAUDE.md のセキュリティ方針）。参照先のファイルがあるかも確認 |
 | fixtures/ | — | app:// のテスト用ファイル（`outside-secret.txt` は配信フォルダの外） | パストラバーサル対策の確認 |
-| fixtures/ocr/ | — | OCR のテスト用の架空の画像（横書きのメール 等倍・2倍、チャット、縦書きのお知らせ） | 文字の読み取りの確認 |
+| fixtures/ocr/ | — | OCR のテスト用の架空の画像（横書きのメール 等倍・2倍、チャット、縦書きのお知らせ、申込完了の案内） | 文字の読み取りの確認 |
 
 ## scripts/ocr-diagnose.js（OCR の診断）
 

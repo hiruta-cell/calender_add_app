@@ -93,6 +93,16 @@ describe('recognizeText：実際に読み取る（架空の画像）', { timeout
     assert.deepEqual(candidate.start, { year: 2026, month: 10, day: 12, hour: 15, minute: 0 });
   });
 
+  test('申込完了の案内：「日時：」の行の日付と、次の行の時刻だけの行（19:00~21:00）を結び付ける', { timeout: RECOGNITION_TEST_TIMEOUT_MS }, async () => {
+    // 依頼者の画像（2026-10-15）と同じ配置の架空の画像。見出しは大きな太字、絵文字の行を含む
+    const result = await recognizeText(await readFixture('horizontal-application-2x.png'));
+    assert.equal(result.orientation, ORIENTATION_HORIZONTAL);
+    const { candidates } = extractDateCandidates(result.text, { now: NOW });
+    assert.equal(candidates.length, 1);
+    assert.deepEqual(candidates[0].start, { year: 2026, month: 10, day: 22, hour: 19, minute: 0 });
+    assert.equal(extractEventDetails(result.text).meetingUrl, 'https://zoom.us/j/0000000000?pwd=EXAMPLE');
+  });
+
   test('読み取っても作業フォルダにファイルを書き出さない', { timeout: RECOGNITION_TEST_TIMEOUT_MS }, async () => {
     const before = readdirSync(process.cwd()).sort();
     await recognizeText(await readFixture('horizontal-chat-2x.png'), { orientation: ORIENTATION_VERTICAL });
