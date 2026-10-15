@@ -201,6 +201,8 @@
 | `RANGE_SEPARATOR_PATTERN` | 定数（内部） | 範囲の区切り（〜、-、から、to、until など） | 開始〜終了の時刻を読む |
 | `LINE_END_PATTERN` | 定数（内部） | 日付の後ろが行末か | 次の行の時刻を結び付けてよいかの判定 |
 | `NEXT_LINE_TIME_LABEL_PATTERN` | 定数（内部） | 次の行の先頭の「時間：」「時刻：」「開始：」「Time:」「Start:」 | 日付と時刻が別の行のメールに対応 |
+| `END_OF_LINE_PATTERN` | 定数（内部） | 時刻のあとが行末（改行または文章の終わり）か | 見出しのない次の行が時刻だけの行かの判定 |
+| `DATE_TIME_LABEL_LINE_PATTERN` | 定数（内部） | 行が「日時：」で始まるか | 見出しのない次の行の時刻を結び付けてよい行の条件（依頼者の承認） |
 | `ADJACENT_TIME_GAP_PATTERN` | 定数（内部） | 区切りなしで続く2つ目の時刻の前の空白（0〜1個） | OCR で「〜」が抜けた「14時15時」を範囲として読む |
 | `InputTooLongError` | クラス（公開） | 長すぎる文章のエラー（利用者向けの文付き） | 画面でそのまま表示できるエラーにする |
 | `extractDateCandidates(text, options)` | 関数（公開） | 文章から日時の候補を抽出し `{candidates, truncated}` を返す | このアプリの中心機能（要件§5.2〜§5.7、§12） |
@@ -215,7 +217,8 @@
 | `resolveCalendarDate(yearText, monthText, dayText, today)` | 関数（内部） | 年月日を決める。年がなければ今日以降で最も近い日 | 要件§12：年なしの日付の扱い |
 | `resolveNextWeekWeekday(weekdayCharacter, today)` | 関数（内部） | 「来週◯曜」の年月日を決める | 要件§12：月曜始まりの週 |
 | `matchTimeRange(text, index)` | 関数（内部） | 時刻または時刻の範囲を読む（後ろにだけ PM があれば前の時刻にも当てはめる） | 開始・終了の時刻を得る（2-3pm → 14〜15時） |
-| `matchNextLineTimeRange(text, index)` | 関数（内部） | 日付が行末で、次の行が時間の見出しで始まるとき、その行の時刻を読む | 「Date:」「Time:」が別の行のメール |
+| `matchNextLineTimeRange(text, index)` | 関数（内部） | 日付が行末で、次の行が時間の見出しで始まるとき、その行の時刻を読む。「日時：」の行の日付のときは、見出しのない時刻だけの行も読む | 「Date:」「Time:」が別の行のメール、「日時：」の案内 |
+| `isOnDateTimeLabelLine(text, index)` | 関数（内部） | 日付のある行が「日時：」で始まるか | 見出しのない次の行の時刻を結び付けてよいかの判定 |
 | `matchTimeAt(text, index, inheritedMeridiem)` | 関数（内部） | 時刻を1つ読む（時間帯の言葉にも対応） | 「夜7時→19時」「夜→18時」の解釈 |
 | `toMinutesOfDay(time)` | 関数（内部） | 時刻をその日の 0:00 からの分数にする | 区切りのない2つの時刻の前後を比べる |
 | `normalizeMeridiem(text)` | 関数（内部） | 午前/午後/AM/PM/a.m./p.m. を「午前」「午後」にそろえる | 12時間表記の混在に対応 |

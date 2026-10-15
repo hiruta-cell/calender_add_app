@@ -17,7 +17,8 @@
  *   時間帯：正午(12時)、朝(9時)、昼(11時)、夕方(15時)、夜(18時)。「夜7時」→19時のように手がかりにもする
  *   範囲：14時〜15時、15:00-16:00、14時から15時、14時15時（OCR で「〜」が抜けた形。後ろが遅いときだけ）
  *         範囲は1つの書き方として読み飛ばすだけで、終了の時刻は使わない（2026-10-12 依頼者の仕様変更：終了は画面で選ぶ）
- *   別の行の時刻：日付が行末にあり、次の行が「時間：」「時刻：」「開始：」「Time:」「Start:」で始まるときだけ結び付ける
+ *   別の行の時刻：日付が行末にあり、次の行が「時間：」「時刻：」「開始：」「Time:」「Start:」で始まるときだけ結び付ける。
+ *         例外（依頼者の承認）：「日時：」で始まる行の日付のときは、次の行が時刻だけ（見出しなし・行末まで）でも結び付ける
  *         英語：2:00–3:00 PM、2-3pm、11am-1pm、from 2pm to 3pm、at 3pm（後ろの PM は前の時刻にも当てはめる）
  * 対象外：複数日にまたがる範囲（10/15〜10/17）、英語の next Tuesday（「今週」と「来週」の両方の意味で使われるため）
  *
@@ -187,6 +188,15 @@ const ADJACENT_TIME_GAP_PATTERN = /[ \t]?/y;
 
 /** 日付の後ろが行末か（空白のあとに改行が来るか）。次の行の時刻を結び付けてよいかの判定に使う */
 const LINE_END_PATTERN = /[ \t]{0,20}\r?\n/y;
+
+/** 時刻のあとが行末（改行または文章の終わり）か。見出しのない時刻の行が、時刻だけで終わるかの判定に使う */
+const END_OF_LINE_PATTERN = /[ \t]{0,20}(?:\r?\n|$)/y;
+
+/**
+ * 行が「日時：」で始まるか。見出しのない次の行の時刻を結び付けてよい行の条件（依頼者の承認。§5.7）。
+ * 例：「日時：2026年10月22日（木曜日）」の行。「日時」の直後の「：」「:」の前後の空白は少しだけ許す。
+ */
+const DATE_TIME_LABEL_LINE_PATTERN = /^[ \t]*日時[ \t]{0,4}[:：]/;
 
 /**
  * 次の行の先頭の「時間の見出し」。日付と時刻が別の行に書かれたメールに対応する。
@@ -605,10 +615,32 @@ function matchNextLineTimeRange(text, index) {
   }
   const nextLineIndex = index + lineEnd[0].length;
   const label = matchAt(NEXT_LINE_TIME_LABEL_PATTERN, text, nextLineIndex);
-  if (label === null) {
-    return null; // 時間の見出しがない
+  if (label !== null) {
+    return matchTimeRange(text, nextLineIndex + label[0].length);
   }
-  return matchTimeRange(text, nextLineIndex + label[0].length);
+  // 見出しのない次の行は、「日時：」の行の日付のときだけ結び付ける（依頼者の承認。他の行は従来どおり結び付けない）
+  if (!isOnDateTimeLabelLine(text, index)) {
+    return null;
+  }
+  const bareTime = matchTimeRange(text, nextLineIndex);
+  // 時刻のあとに別の言葉が続く行（「14時から別件」など）は、予定の時刻とみなさない
+  if (bareTime === null || matchAt(END_OF_LINE_PATTERN, text, bareTime.endIndex) === null) {
+    return null;
+  }
+  return bareTime;
+}
+
+/**
+ * 日付のある行が「日時：」で始まるかを判定する。
+ * 例：「日時：2026年10月22日（木曜日）」の日付は true、「締切：10月22日」は false。
+ *
+ * @param {string} text 半角にそろえた文章
+ * @param {number} index 日付（と曜日）の直後の位置
+ * @returns {boolean}
+ */
+function isOnDateTimeLabelLine(text, index) {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  return DATE_TIME_LABEL_LINE_PATTERN.test(text.slice(lineStart, index));
 }
 
 /**

@@ -413,6 +413,21 @@ describe('日付と時刻が別の行に書かれたメール', () => {
     assert.equal(extractSingle('10月22日(木)\n14時から別件があります').hasTime, false);
     assert.equal(extractSingle('10月22日(木)締切\n時間：14時').hasTime, false);
   });
+
+  test('「日時：」の行の日付は、次の行の見出しのない時刻と結び付ける（画像の書き方：19:00~21:00）', () => {
+    const candidate = extractSingle('日時：2026年10月22日（木曜日）\n19:00~21:00');
+    assert.deepEqual(candidate.start, dateTime(2026, 10, 22, 19, 0));
+    assert.equal(candidate.hasTime, true);
+    assert.deepEqual(extractSingle('日時：2026年10月22日（木曜日）\n19:00〜21:00').start, dateTime(2026, 10, 22, 19, 0));
+  });
+
+  test('「日時：」の行でも、次の行の時刻のあとに言葉があれば結び付けない', () => {
+    assert.equal(extractSingle('日時：2026年10月22日（木曜日）\n19:00から別件があります').hasTime, false);
+  });
+
+  test('「日時：」以外の行（締切など）の日付は、見出しのない次の行の時刻と結び付けない', () => {
+    assert.equal(extractSingle('締切：2026年10月22日（木曜日）\n19:00~21:00').hasTime, false);
+  });
 });
 
 describe('英語の時刻の範囲', () => {
