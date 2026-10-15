@@ -49,7 +49,7 @@ npm start
 
 ### 4. 画像から読み取る（実験機能）
 
-1. [demo/images/](demo/images/) の画像（例：[1-mail-ja.png](demo/images/1-mail-ja.png)、縦書きの [3-notice-vertical.png](demo/images/3-notice-vertical.png)）を、アプリのウインドウにドラッグ＆ドロップします。
+1. [demo/images/](demo/images/) の画像（例：[1-mail-ja.png](demo/images/1-mail-ja.png)、縦書きの [3-notice-vertical.png](demo/images/3-notice-vertical.png)、日時と時刻が別の行の [9-application-form.png](demo/images/9-application-form.png)）を、アプリのウインドウにドラッグ＆ドロップします。
    - 画像をコピーして、アプリに貼り付けても読み取れます（Ctrl+V、Mac は Cmd+V）。
 2. 文字を読み取り、日時の候補が出ます。あとは「2. 日本語のメールを登録する」の 3 からと同じです。
 

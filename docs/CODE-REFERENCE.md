@@ -17,7 +17,7 @@
 | `scripts/` | 開発者用の補助スクリプト（実機の自動確認、テスト用の画像やアイコンの作成） |
 | `assets/icons/` | タスクトレイ（Mac はメニューバー）のアイコンと、アプリのアイコン（app.png・Windows 用 app.ico・Mac 用 app.icns）。どれもコードで描いたもの |
 | `launcher/` | Mac で「デスクトップにアイコンを作る」を押すと作られる起動用の .app（デスクトップにはここへの別名を置く）。利用者ごとに場所が違うため Git には含めない |
-| `demo/images/` | 読み取りテストと発表のデモに使う架空の文面の画像（日本語のメール・チャット・縦書き・英語のメール、SNS 風の告知・写真の上の文字・傾いた紙の連絡状・ライブ告知） |
+| `demo/images/` | 読み取りテストと発表のデモに使う架空の文面の画像（日本語のメール・チャット・縦書き・英語のメール、SNS 風の告知・写真の上の文字・傾いた紙の連絡状・ライブ告知、申込完了の案内。9-application-form.png だけは test/fixtures/ocr/horizontal-application-2x.png の写しで、scripts/generate-ocr-fixtures.js で作る） |
 | `test/` | 単体テスト（Node.js 標準の `node:test`） |
 | `test/fixtures/` | テスト用の小さなファイル（app:// の配信テスト、OCR のテスト用の架空の画像） |
 | `demo/texts/` | README の「まず試す」で貼り付ける架空の文面3通（日本語のメール・チャット・英語のメール） |
