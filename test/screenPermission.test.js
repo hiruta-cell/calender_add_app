@@ -15,6 +15,10 @@ describe('getScreenPermissionAppName：起動元のアプリの判別', () => {
     assert.equal(getScreenPermissionAppName({ __CFBundleIdentifier: 'com.github.Electron' }), 'Electron');
   });
 
+  test('デスクトップの起動用 .app（local.calendar-add-app.launcher）は「カレンダー登録ツール」と判別する', () => {
+    assert.equal(getScreenPermissionAppName({ __CFBundleIdentifier: 'local.calendar-add-app.launcher' }), 'カレンダー登録ツール');
+  });
+
   test('識別子がなければ TERM_PROGRAM から判別する', () => {
     assert.equal(getScreenPermissionAppName({ TERM_PROGRAM: 'Apple_Terminal' }), 'ターミナル');
     assert.equal(getScreenPermissionAppName({ TERM_PROGRAM: 'vscode' }), 'Visual Studio Code');

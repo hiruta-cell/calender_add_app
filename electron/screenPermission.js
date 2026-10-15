@@ -7,12 +7,17 @@
  * このファイルは electron を import しない（単体テストできる）。
  */
 
-/** macOS のアプリの識別子と、「画面収録」の一覧に表示される名前の対応 */
+/**
+ * macOS のアプリの識別子と、「画面収録」の一覧に表示される名前の対応。
+ * 'local.calendar-add-app.launcher' は デスクトップの起動用 .app（desktopIntegration.js の MAC_LAUNCHER_BUNDLE_ID と同じ値）。
+ * デスクトップのアイコンから起動すると、macOS はこの .app を許可の対象にするため、ここに無いと案内が「ターミナル」になってしまう。
+ */
 const APP_NAMES_BY_BUNDLE_ID = Object.freeze({
   'com.apple.Terminal': 'ターミナル',
   'com.microsoft.VSCode': 'Visual Studio Code',
   'com.googlecode.iterm2': 'iTerm',
   'com.github.Electron': 'Electron',
+  'local.calendar-add-app.launcher': 'カレンダー登録ツール',
 });
 
 /** ターミナルの種類（TERM_PROGRAM）と、アプリの名前の対応（識別子がないときに使う） */

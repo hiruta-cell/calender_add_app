@@ -750,7 +750,7 @@
 
 | 名前 | 種別 | 機能 | 目的 |
 |---|---|---|---|
-| `APP_NAMES_BY_BUNDLE_ID` | 定数（内部） | macOS のアプリの識別子と名前の対応（ターミナル・Visual Studio Code・iTerm・Electron） | 起動元のアプリの判別 |
+| `APP_NAMES_BY_BUNDLE_ID` | 定数（内部） | macOS のアプリの識別子と名前の対応（ターミナル・Visual Studio Code・iTerm・Electron・デスクトップの起動用 .app「カレンダー登録ツール」） | 起動元のアプリの判別 |
 | `APP_NAMES_BY_TERM_PROGRAM` | 定数（内部） | TERM_PROGRAM とアプリの名前の対応 | 識別子がないときの判別 |
 | `getScreenPermissionAppName(environment)` | 関数（公開） | 起動元のアプリの名前を環境変数から判別する（判別できなければ null） | どのアプリを許可すればよいかを示す |
 | `buildScreenPermissionMessage(appName)` | 関数（公開） | 許可の手順と、起動し直す対象を案内する文を作る | npm 起動では起動元のアプリに許可が求められるため |
