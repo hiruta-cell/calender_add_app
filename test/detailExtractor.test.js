@@ -205,6 +205,39 @@ describe('オンライン会議の URL', () => {
   });
 });
 
+describe('2行に折り返された URL（依頼者の指摘：申込完了の案内の画像）', () => {
+  test('「…?」の次の行の「pwd=…」をつなげる', () => {
+    const text = 'Zoomミーティングに参加する\nhttps://us02web.zoom.us/j/0000000000?\npwd=EXAMPLEexample0000';
+    assert.equal(extractEventDetails(text).meetingUrl, 'https://us02web.zoom.us/j/0000000000?pwd=EXAMPLEexample0000');
+  });
+
+  test('次の行が「?」で始まる・行の途中で切れて次の行に「=」がある・前後に空白がある場合もつなげる', () => {
+    assert.equal(extractEventDetails('https://zoom.us/j/0000000000\n?pwd=EXAMPLE').meetingUrl, 'https://zoom.us/j/0000000000?pwd=EXAMPLE');
+    assert.equal(extractEventDetails('https://zoom.us/j/00000\n00000?pwd=EXAMPLE').meetingUrl, 'https://zoom.us/j/0000000000?pwd=EXAMPLE');
+    assert.equal(extractEventDetails('https://zoom.us/j/0000000000? \n  pwd=EXAMPLE  ').meetingUrl, 'https://zoom.us/j/0000000000?pwd=EXAMPLE');
+  });
+
+  test('3行に分かれていてもつなげる', () => {
+    assert.equal(extractEventDetails('https://zoom.us/j/0000000000?\npwd=EXAMPLE&\nuname=test').meetingUrl, 'https://zoom.us/j/0000000000?pwd=EXAMPLE&uname=test');
+  });
+
+  test('続きらしくない次の行はつなげない（数字だけ・日本語・空白入り・空行・別の URL）', () => {
+    assert.equal(extractEventDetails('https://zoom.us/j/0000000000\n0000').meetingUrl, 'https://zoom.us/j/0000000000');
+    assert.equal(extractEventDetails('https://zoom.us/j/0000000000?\nパスコード=0000').meetingUrl, 'https://zoom.us/j/0000000000');
+    assert.equal(extractEventDetails('https://zoom.us/j/0000000000?\nID: 000 0000').meetingUrl, 'https://zoom.us/j/0000000000');
+    assert.equal(extractEventDetails('https://zoom.us/j/0000000000?\n\npwd=EXAMPLE').meetingUrl, 'https://zoom.us/j/0000000000');
+    assert.equal(extractEventDetails('https://example.com/a?\nhttps://zoom.us/j/1').meetingUrl, 'https://zoom.us/j/1');
+  });
+
+  test('長い入力でも処理が重くならない（ReDoS 対策）', () => {
+    const longLine = `https://example.com/${'a'.repeat(1990)}`;
+    const text = `${longLine}\n${'b'.repeat(1990)}=\n`.repeat(20);
+    const startedAt = Date.now();
+    extractEventDetails(text);
+    assert.ok(Date.now() - startedAt < 1000);
+  });
+});
+
 describe('parseMeetingUrl：入力欄の URL の検証', () => {
   test('https の URL だけを受け付ける', () => {
     assert.equal(parseMeetingUrl('https://zoom.us/j/1')?.isKnownMeetingService, true);

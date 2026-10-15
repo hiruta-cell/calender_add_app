@@ -292,6 +292,9 @@
 | `NEXT_LINE_LOOKAHEAD` | 定数（内部） | 2 | 「■会場」の次の行の値を探す行数 |
 | `REPLY_PREFIX_PATTERN` | 定数（内部） | Re: Fw: Fwd: 返信: 転送: | 件名から返信・転送の印を除く |
 | `HTTPS_URL_PATTERN` | 定数（内部） | https の URL（半角の URL 文字だけ） | 日本語の手前で URL を止める |
+| `URL_AT_LINE_END_PATTERN` / `URL_CONTINUATION_LINE_PATTERN` | 定数（内部） | 行末で終わる URL／URL の文字だけでできた続きの行 | 2行に折り返された URL を見つける |
+| `URL_CONTINUES_AFTER_PATTERN` / `URL_CONTINUATION_START_PATTERN` | 定数（内部） | 1行目の末尾の「? & = / #」／続きの行の先頭の「? & # /」 | 続きらしいときだけつなげる（ほかに続きの行に「=」があるとき） |
+| `MAX_URL_CONTINUATION_LINES` | 定数（内部） | 3 | つなげる続きの行の数の上限 |
 | `LEADING_SEPARATOR_PATTERN` | 定数（内部） | 値の先頭の「・」「：」「_」「|」と空白 | OCR で「場所:・オンライン」となった場合の「・」を除く |
 | `TRAILING_PUNCTUATION` | 定数（内部） | URL の末尾から除く記号 | 「…/1.」の「.」などを除く |
 | `TITLE_LINE_PATTERN` / `LOCATION_LINE_PATTERN` | 定数（内部） | ラベルの行に一致する正規表現 | 件名・場所の行を見つける |
@@ -305,7 +308,9 @@
 | `matchFacilityLine(line)` | 関数（内部） | 施設名だけの行なら施設名を返す | 施設名だけの場所の取り出し |
 | `findAddressLine(lines)` | 関数（内部） | 見出しのない行から場所を取り出す（番地のある住所 → 施設名 → 地域だけの住所の順。近くの施設名と住所は並べる） | 見出しのない場所の取り出し |
 | `isAnyLabelLine(line)` | 関数（内部） | 件名・場所・住所のラベルの行か | 次の行を値とみなしてよいかの判定 |
-| `findMeetingUrl(text)` | 関数（内部） | 会議サービスの URL、なければ最初の https の URL を選ぶ | 会議 URL の取り出し |
+| `findMeetingUrl(text)` | 関数（内部） | 会議サービスの URL、なければ最初の https の URL を選ぶ（折り返しをつなげてから探す） | 会議 URL の取り出し |
+| `joinWrappedUrls(text)` | 関数（内部） | 2行以上に折り返された URL を1行につなげた文章を返す（URL を探すためだけに使う） | 「…?」の次の行の「pwd=…」まで取り出す（2026-10-15 依頼者の指摘） |
+| `findUrlContinuation(line, nextLine)` | 関数（内部） | 次の行が、この行の末尾の URL の続きなら、その文字列を返す | 誤ってつながないための判定 |
 | `parseMeetingUrl(text)` | 関数（公開） | URL を検証し、会議サービスかを判定する（xn-- の形に直す）。`{href, hostname, isKnownMeetingService}` を返す（hostname はフィッシングの注意でサイト名として見せる） | なりすまし URL・https 以外を弾く。入力欄の検証にも使う |
 | `isMeetingHost(hostname)` | 関数（内部） | ホスト名が会議サービスか（末尾で判定） | 「zoom.us.偽サイト」を会議サービスとみなさない |
 | `trimTrailingPunctuation(url)` | 関数（内部） | 末尾の句読点・対応しない閉じ括弧を除く | 「（URL）」の括弧を URL に含めない |
@@ -375,6 +380,7 @@
 | `SPACE_AFTER_JAPANESE_PATTERN` / `SPACE_BEFORE_JAPANESE_PATTERN` | 定数（内部） | 日本語の文字の後ろ／前の空白 | 「10 月 15 日」の空白を除く |
 | `SPACED_NUMBER_SEPARATOR_PATTERN` | 定数（内部） | 数字の間の「:」「/」の前後の空白 | 「14 : 00」を「14:00」にする |
 | `EXCESS_BLANK_LINES_PATTERN` | 定数（内部） | 3行以上続く空行 | 空行を詰める |
+| `MISSING_URL_SLASH_PATTERN` | 定数（内部） | スラッシュが1つ抜けた「https:/」（直後が英数字） | OCR の読み違いを「https://」に直す（2026-10-15 依頼者の画像で発生） |
 | `cleanOcrText(text)` | 関数（公開） | OCR の結果を整える | 日時の抽出で読める形にする |
 
 ## src/core/settings.js（設定の既定値・選択肢・検証）

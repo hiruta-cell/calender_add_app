@@ -13,6 +13,7 @@
  *           施設名だけの行（「架空市民会館」「架空国際センター 会議棟2F」など）も使い、近くに住所があれば並べる。
  *           署名らしいまとまり（メールアドレス、または会社名と TEL・FAX を含む）と「--」より後の住所は使わない
  * - URL は https:// の部分から取り出す。Zoom・Google Meet・Teams・Webex を優先する。
+ *   2行に折り返された URL（「…?」の次の行に「pwd=…」など）は、つなげて1つにする（joinWrappedUrls）。
  * - 取り出した内容は下書きであり、利用者が確認・修正してから登録する。
  */
 
@@ -161,6 +162,24 @@ const HTTPS_URL_PATTERN = /https:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]{1,2000
 
 /** 値の先頭の区切り記号や記号のごみ（OCR で「：」が「・」に読まれた「場所:・オンライン」、「Location: _ Room 101」など） */
 const LEADING_SEPARATOR_PATTERN = /^[・･:：_|\s]+/;
+
+/**
+ * 行末で終わる https の URL（後ろの空白は除いた行に使う）。折り返された URL の1行目を見つける。
+ * 先頭が固定の「https://」で、量指定子は1つだけ（上限付き）なので、処理が重くならない。
+ */
+const URL_AT_LINE_END_PATTERN = /https:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]{1,2000}$/;
+
+/** URL の折り返しの続きの行（URL に使える半角の文字だけでできた行。前後の少しの空白は許す） */
+const URL_CONTINUATION_LINE_PATTERN = /^[ \t]{0,8}([A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]{1,2000})[ \t]{0,8}$/;
+
+/** URL の1行目の末尾がこの記号なら、続きがある（「…/j/123?」の次の行に「pwd=…」など） */
+const URL_CONTINUES_AFTER_PATTERN = /[?&=/#]$/;
+
+/** 続きの行の先頭がこの記号なら、前の行の URL の続き（「…/j/123」の次の行に「?pwd=…」など） */
+const URL_CONTINUATION_START_PATTERN = /^[?&#/]/;
+
+/** 折り返しをつなげる行の数の上限（1つの URL が何行に分かれていてもよいように、ただし無制限にはしない） */
+const MAX_URL_CONTINUATION_LINES = 3;
 
 /** URL の末尾にあっても URL の一部ではないことが多い記号 */
 const TRAILING_PUNCTUATION = '.,;:!?\'"';
@@ -404,13 +423,72 @@ function isAnyLabelLine(line) {
  */
 function findMeetingUrl(text) {
   const urls = [];
-  for (const match of text.matchAll(HTTPS_URL_PATTERN)) {
+  for (const match of joinWrappedUrls(text).matchAll(HTTPS_URL_PATTERN)) {
     const parsed = parseMeetingUrl(trimTrailingPunctuation(match[0]));
     if (parsed !== null) {
       urls.push(parsed);
     }
   }
   return urls.find((url) => url.isKnownMeetingService) ?? urls[0] ?? null;
+}
+
+/**
+ * 行の途中で折り返された URL を、1行につなげる（画面の幅が狭いメール・スマートフォンの画面の写しなど）。
+ * 例：「https://zoom.us/j/0000000000?」の次の行が「pwd=EXAMPLE」→ https://zoom.us/j/0000000000?pwd=EXAMPLE
+ *
+ * 誤ってつながないよう、次の条件をすべて満たすときだけつなげる。
+ *   - 行が URL で終わる
+ *   - 次の行が URL に使える半角の文字だけでできている（空白・日本語を含まない）。https:// で始まる行（別の URL）は除く
+ *   - 1行目が「? & = / #」で終わる、次の行が「? & # /」で始まる、または次の行に「=」がある（クエリの続きらしい）
+ *
+ * @param {string} text 半角にそろえた文章
+ * @returns {string} 折り返しをつなげた文章（URL を探すためだけに使う。入力欄の文章は変えない）
+ */
+function joinWrappedUrls(text) {
+  const lines = text.split(/\r?\n/);
+  const joinedLines = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    let line = lines[index];
+    let joinedCount = 0;
+    while (joinedCount < MAX_URL_CONTINUATION_LINES && index + 1 < lines.length) {
+      const continuation = findUrlContinuation(line, lines[index + 1]);
+      if (continuation === null) {
+        break;
+      }
+      line = line.trimEnd() + continuation;
+      index += 1;
+      joinedCount += 1;
+    }
+    joinedLines.push(line);
+  }
+  return joinedLines.join('\n');
+}
+
+/**
+ * 次の行が、この行の末尾の URL の続きなら、その続きの文字列を返す。
+ *
+ * @param {string} line URL で終わるかを調べる行
+ * @param {string} nextLine 次の行
+ * @returns {string | null} 続きの文字列。続きでなければ null
+ */
+function findUrlContinuation(line, nextLine) {
+  const urlMatch = URL_AT_LINE_END_PATTERN.exec(line.trimEnd());
+  if (urlMatch === null) {
+    return null; // 行が URL で終わっていない
+  }
+  const continuationMatch = URL_CONTINUATION_LINE_PATTERN.exec(nextLine);
+  if (continuationMatch === null) {
+    return null; // 次の行に空白・日本語がある、または空行
+  }
+  const continuation = continuationMatch[1];
+  if (/^https?:/i.test(continuation)) {
+    return null; // 別の URL
+  }
+  const looksContinued =
+    URL_CONTINUES_AFTER_PATTERN.test(urlMatch[0]) ||
+    URL_CONTINUATION_START_PATTERN.test(continuation) ||
+    continuation.includes('=');
+  return looksContinued ? continuation : null;
 }
 
 /**

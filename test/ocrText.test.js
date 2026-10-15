@@ -21,6 +21,13 @@ describe('cleanOcrText：OCR の結果を整える', () => {
     assert.equal(cleanOcrText('Weekly sync https://zoom.us/j/1'), 'Weekly sync https://zoom.us/j/1');
   });
 
+  test('スラッシュが1つ抜けた「https:/」を「https://」に直す（正しい URL は変えない）', () => {
+    assert.equal(cleanOcrText('https:/us02web.zoom.us/j/0000000000?'), 'https://us02web.zoom.us/j/0000000000?');
+    assert.equal(cleanOcrText('参加URL：HTTPS:/zoom.us/j/1'), '参加URL：https://zoom.us/j/1');
+    assert.equal(cleanOcrText('https://zoom.us/j/1'), 'https://zoom.us/j/1');
+    assert.equal(cleanOcrText('https:/'), 'https:/');
+  });
+
   test('行の前後の空白と、続きすぎる空行を整える', () => {
     assert.equal(cleanOcrText('  件名 ： 定例会  \r\n\r\n\r\n\r\n 場所 ： 会議室A '), '件名：定例会\n\n場所：会議室A');
   });

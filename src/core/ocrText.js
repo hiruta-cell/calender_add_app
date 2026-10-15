@@ -23,6 +23,12 @@ const SPACED_NUMBER_SEPARATOR_PATTERN = /(\d)[ \t]{1,3}([:/])[ \t]{0,3}(\d)|(\d)
 const EXCESS_BLANK_LINES_PATTERN = /\n{3,}/g;
 
 /**
+ * スラッシュが1つ抜けた URL の始まり（OCR が「https://」を「https:/」と読み違えたもの。2026-10-15 依頼者の画像で発生）。
+ * 直後が英数字のときだけ一致するので、正しい「https://」には一致しない。
+ */
+const MISSING_URL_SLASH_PATTERN = /\bhttps:\/(?=[A-Za-z0-9])/gi;
+
+/**
  * OCR の結果の文章を整える。
  *
  * @param {string} text OCR の結果
@@ -39,6 +45,7 @@ export function cleanOcrText(text) {
         .replace(SPACED_NUMBER_SEPARATOR_PATTERN, (...groups) =>
           groups[1] !== undefined ? `${groups[1]}${groups[2]}${groups[3]}` : `${groups[4]}${groups[5]}${groups[6]}`,
         )
+        .replace(MISSING_URL_SLASH_PATTERN, 'https://')
         .trim(),
     );
   return lines.join('\n').replace(EXCESS_BLANK_LINES_PATTERN, '\n\n').trim();
