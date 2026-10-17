@@ -29,7 +29,7 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 
 ---
 
-## 共通ルールの要約（詳細は ~/.claude/CLAUDE.md の 1〜13 と各スキル）
+## 共通ルールの要約（詳細は ~/.claude/CLAUDE.md の 1〜14 と各スキル）
 
 1. 機密・個人情報：秘密の値・実在の個人情報をコード・ログ・テスト・コミットに入れない。デモは架空のデータだけ。見つけたら止めて報告。hooks に止められたら回避せず報告
 2. 変更ごとにコミットして `origin/main`（https://github.com/hiruta-cell/calender_add_app.git）へ push する。日本語のメッセージで、スキル `safe-commit-push` を使う。**作者・コミッターは `hiruta-cell <326308597+hiruta-cell@users.noreply.github.com>` だけ**（違えば止めて報告）
@@ -43,7 +43,8 @@ Google Calendar API / OAuth、指定カレンダーへの自動登録、Windows�
 10. 実装前に、作るものと変更するファイルを短く示す
 11. 返答・経過・コマンドの説明・サブエージェントへの指示・コミットメッセージは日本語
 12. エラー調査の前に `~/.claude/knowhow/INDEX.md` を grep する。重要なエラーは追記する（リポジトリには入れない）
-13. 繰り返しの作業はスキルにする。このプロジェクトのスキル：`verify`・`docs-sync`・`windows-report`（共通：`safe-commit-push`・`test-verify-debug`・`dep-update`）
+13. 繰り返しの作業はスキルにする。このプロジェクトのスキル：`verify`・`docs-sync`・`windows-report`（共通：`safe-commit-push`・`test-verify-debug`・`dep-update`・`code-lookup`）
+14. 読む前に探す（`code-lookup` か `grep -n`）。`Read` は必要な範囲だけ、読み直さない。全文を読まない大きなファイル：`scripts/smoke-test.js`（約1500行）・`docs/CODE-REFERENCE.md`（約930行）・`src/core/dateExtractor.js`（約800行）・`test/dateExtractor.test.js`・`src/renderer/App.jsx`・`src/renderer/styles.css`・`electron/main.js`・`src/core/detailExtractor.js`（各600〜700行）。`package-lock.json` は読まない
 
 ---
 
