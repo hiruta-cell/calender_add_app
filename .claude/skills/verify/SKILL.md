@@ -27,6 +27,13 @@ env -u ELECTRON_RUN_AS_NODE node_modules/.bin/electron . --user-data-dir="$UD" -
 - 設定：長さ（30・60・90・120分）・キーを変えて保存 → ボタンの表記、`$UD/settings.json`（権限 600）、デモ2の候補の「終了」の初めの選択が変わる。再起動しても残る。壊れた settings.json・15分や45分の保存値でも既定値で起動する
 - 画面から `window.calendarApp.saveSettings(不正な値)` → 断られ、ファイルは変わらない
 
+## npm run test:smoke の仕組み（CLAUDE.md から移した）
+
+- ブラウザを開く処理（shell.openExternal）と画面の撮影（desktopCapturer.getSources）をメインプロセスで差し替える
+- 設定は確認専用の一時フォルダ（`--user-data-dir`）に書いて終了後に消し、ウインドウは選択しないで表示する（利用者の設定・文字入力を邪魔しない）。本物の自動起動の登録やデスクトップのアイコンは作らない
+- 確認の最後と時間切れのときに必ずアプリを終了させる（常駐するため）。新しい確認を足すときもこれを守る
+- 実際のキーボード入力（Esc など）はウインドウが選択されていないため届かない。画面の中でイベントを起こして流れを確かめ、実際のキー操作は依頼者が手動で確かめる
+
 ## 注意
 
 - 「Googleカレンダーで開く」は実際のブラウザを開く。押す場合はメインプロセス側で shell.openExternal を差し替える（scripts/smoke-test.js の replaceOpenExternal を参照）

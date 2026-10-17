@@ -23,6 +23,7 @@
 | `demo/texts/` | README の「まず試す」で貼り付ける架空の文面3通（日本語のメール・チャット・英語のメール） |
 | `site/` | GitHub Pages で公開する案内ページ（静的な HTML と CSS と画像）。公開されるのはこのフォルダの中だけ。外部のスクリプト・フォント・CDN は使わない |
 | `.github/workflows/` | GitHub Actions の手順。`pages.yml` は `site/` を GitHub Pages へ公開する（`main` への push で動く） |
+| `.claude/skills/` | Claude Code がこのプロジェクトで繰り返す作業の手順（スキル）。`verify`（実機での確かめ方）、`docs-sync`（説明書の更新漏れを `scripts/check-code-reference.sh` で調べる）、`windows-report`（Windows の報告を `scripts/pull-and-scan.sh` で取り込み、読む前に個人情報を調べる）。アプリの動作には関係しない |
 | `docs/` | 説明ファイル（このファイル、受け入れ基準） |
 | `docs/reports/` | Windows などで行った確認・調査の報告（Windows の Claude Code が書いて push し、Mac 側が読む。2026-10-12 依頼者の指示。ユーザー名・フォルダのパスは書かない） |
 | `dist/` | ビルド結果（`npm run build` で作られる。Git には含めない） |
